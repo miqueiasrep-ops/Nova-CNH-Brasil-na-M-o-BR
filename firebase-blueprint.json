@@ -1,0 +1,64 @@
+{
+  "collections": {
+    "alunos": {
+      "description": "Coleção de cadastro de alunos e candidatos à CNH",
+      "documents": {
+        "alunoId": {
+          "id": "string",
+          "nome": "string",
+          "dob": "string",
+          "whatsapp": "string",
+          "whatsappResponsavel": "string",
+          "categoria": "string",
+          "instrutor": "string",
+          "dataAdesao": "string",
+          "parcelasPagas": "number",
+          "valorTotal": "number",
+          "pontosSimulado": "number",
+          "senha": "string",
+          "endereco": "string",
+          "tipoPlano": "string",
+          "cpf": "string",
+          "cpfResponsavel": "string",
+          "nomeResponsavel": "string",
+          "rgResponsavel": "string",
+          "nacionalidade": "string",
+          "estadoCivil": "string",
+          "rg": "string",
+          "aulas": "number",
+          "parcelasTotal": "number",
+          "formaPagamento": "string",
+          "comprovantes": "array"
+        }
+      }
+    },
+    "instrutores": {
+      "description": "Coleção contendo os instrutores cadastrados e credenciados",
+      "documents": {
+        "instrutorNome": {
+          "nome": "string",
+          "regiao": "string",
+          "vagas": "number",
+          "whatsapp": "string",
+          "endereco": "string",
+          "credencialSenatran": "string",
+          "foto": "string",
+          "login": "string",
+          "senha": "string",
+          "tempoExperiencia": "string",
+          "historia": "string"
+        }
+      }
+    },
+    "config": {
+      "description": "Configurações gerais do sistema e credenciais",
+      "documents": {
+        "settings": {
+          "gasWebhookUrl": "string",
+          "googleVerificationCode": "string",
+          "updatedAt": "string"
+        }
+      }
+    }
+  }
+}

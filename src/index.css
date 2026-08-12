@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+p {
+  text-align: justify;
+}
+
+/* Custom, highly-touchable, cross-browser range slider thumbs (mobile & webview friendly) */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px !important; /* easy to touch */
+  background: #e2e8f0; /* slate-200 */
+  border-radius: 9999px;
+  outline: none;
+  touch-action: none; /* prevent native scrolling while sliding */
+  cursor: pointer;
+}
+
+/* For inputs inside the enrollment form (violet accent) */
+.accent-violet-600, .accent-violet-650 {
+  accent-color: #7c3aed;
+}
+
+/* Standard default class (emerald accent) */
+.accent-emerald-600, .accent-emerald-555, .accent-emerald-500 {
+  accent-color: #10b981;
+}
+
+/* Webkit (Safari, Chrome, Mobile Browers) */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 50% !important;
+  background: #ffffff !important;
+  border: 4px solid #10b981 !important; /* default emerald, but can be customized */
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25), 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+  cursor: pointer !important;
+  transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.1s !important;
+  margin-top: 0px !important; /* fix align if needed */
+}
+
+/* Apply specific accent colors to the webkit thumbs depending on context classes */
+.bg-violet-200 + input[type="range"]::-webkit-slider-thumb,
+input.accent-violet-650::-webkit-slider-thumb,
+input.accent-violet-600::-webkit-slider-thumb {
+  border-borderColor: #7c3aed !important; /* violet-600 */
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2) !important;
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(1.3) !important;
+  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Firefox */
+input[type="range"]::-moz-range-thumb {
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 50% !important;
+  background: #ffffff !important;
+  border: 4px solid #10b981 !important;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25) !important;
+  cursor: pointer !important;
+  transition: transform 0.1s ease !important;
+}
+
+.bg-violet-200 + input[type="range"]::-moz-range-thumb,
+input.accent-violet-650::-moz-range-thumb,
+input.accent-violet-600::-moz-range-thumb {
+  border-borderColor: #7c3aed !important;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  transform: scale(1.15) !important;
+}
+
+input[type="range"]::-moz-range-thumb:active {
+  transform: scale(1.25) !important;
+}

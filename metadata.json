@@ -1,0 +1,10 @@
+{
+  "name": "Nova CNH Brasil - Painel Looker",
+  "description": "Gerenciador de banco de dados e gerador de massa de dados prontos para o Looker Studio, sincronizado com Google Apps Script.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

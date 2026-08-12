@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Como a nossa aplicação gerencia o acesso através do servidor backend seguro (server.ts),
+    // permitimos leitura e escrita para que o servidor possa persistir os dados dos alunos e configurações.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
