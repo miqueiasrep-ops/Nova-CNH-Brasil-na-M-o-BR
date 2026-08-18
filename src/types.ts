@@ -1,3 +1,30 @@
+export interface ReciboQuitacao {
+  id: string;
+  dataEmissao: string;
+  valor: number;
+  status: 'pendente_assinatura' | 'assinado_gov';
+  dataAssinatura?: string;
+  identificadorGov?: string;
+  documentoAssinado?: string;
+}
+
+export interface Instrutor {
+  nome: string;
+  regiao: string;
+  vagas: number;
+  whatsapp: string;
+  endereco?: string;
+  credencialSenatran?: string;
+  foto?: string;
+  login?: string;
+  senha?: string;
+  tempoExperiencia?: string;
+  historia?: string;
+  saldoPago?: number;
+  recibos?: ReciboQuitacao[];
+  chavePix?: string;
+}
+
 export interface BaixaPagamento {
   id: string;
   data: string;
@@ -22,8 +49,12 @@ export interface Comprovante {
 export interface Aluno {
   id: string;
   nome: string;
-  dob: string;
+  dob?: string;
   whatsapp: string;
+  telefone?: string;
+  dataCadastro?: string;
+  servico?: string;
+  valorPago?: number;
   whatsappResponsavel?: string;
   categoria: string;
   instrutor: string;
@@ -47,6 +78,7 @@ export interface Aluno {
   comprovantes?: Comprovante[];
   baixasPagamento?: BaixaPagamento[];
   updatedAt?: string;
+  [key: string]: any;
 }
 
 export interface Depoimento {

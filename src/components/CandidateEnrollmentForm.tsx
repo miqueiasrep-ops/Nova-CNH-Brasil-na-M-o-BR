@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { Aluno } from '../types';
 import { parseCandidateLink, safeAtob } from './LinkEnrollmentModal';
+import { saveAlunoToFirestore, saveAllAlunosToFirestore } from '../lib/firestoreService';
 
 interface CandidateEnrollmentFormProps {
   alunos: Aluno[];
@@ -914,7 +915,12 @@ export function CandidateEnrollmentForm({
     setAlunos(updatedList);
     try {
       localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(updatedList));
+      localStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(updatedList));
     } catch (e) {}
+
+    // Persistência direta no Firestore (funciona no Vercel e em todos os dispositivos em tempo real)
+    saveAlunoToFirestore(newObj).catch(err => console.warn("Erro ao salvar aluno no Firestore:", err));
+    saveAllAlunosToFirestore(updatedList).catch(err => console.warn("Erro ao sincronizar alunos no Firestore:", err));
 
     fetch('/api/db', {
       method: 'POST',

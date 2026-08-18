@@ -52,7 +52,19 @@ import {
 } from 'lucide-react';
 import { LinkEnrollmentModal, parseCandidateLink, safeAtob } from './components/LinkEnrollmentModal';
 import { StudentTestimonials } from './components/StudentTestimonials';
-import { Aluno, BaixaPagamento, Comprovante, Depoimento } from './types';
+import { Aluno, BaixaPagamento, Comprovante, Depoimento, Instrutor, ReciboQuitacao } from './types';
+import { DEFAULT_ALUNOS, DEFAULT_INSTRUTORES, DEFAULT_DEPOIMENTOS } from './lib/defaultData';
+import {
+  subscribeAlunos,
+  subscribeInstrutores,
+  subscribeDepoimentos,
+  subscribeConfig,
+  saveAllAlunosToFirestore,
+  saveAllInstrutoresToFirestore,
+  saveDepoimentoToFirestore,
+  deleteDepoimentoFromFirestore,
+  saveConfigToFirestore
+} from './lib/firestoreService';
 
 export const getAppBaseUrl = (): string => {
   if (typeof window !== 'undefined' && window.location && window.location.origin) {
@@ -138,36 +150,6 @@ export function extensoBRL(valor: number): string {
   return extensao;
 }
 
-interface ReciboQuitacao {
-  id: string;
-  dataEmissao: string;
-  valor: number;
-  status: 'pendente_assinatura' | 'assinado_gov';
-  dataAssinatura?: string;
-  identificadorGov?: string;
-  documentoAssinado?: string;
-}
-
-interface Instrutor {
-  nome: string;
-  regiao: string;
-  vagas: number;
-  whatsapp: string;
-  endereco?: string;
-  credencialSenatran?: string;
-  foto?: string;
-  login?: string;
-  senha?: string;
-  tempoExperiencia?: string;
-  historia?: string;
-  saldoPago?: number;
-  recibos?: ReciboQuitacao[];
-  chavePix?: string;
-}
-
-// Default initial data
-const DEFAULT_ALUNOS: Aluno[] = [];
-
 const DUMMY_FALLBACK_ALUNO: Aluno = {
   id: "CNH-000",
   nome: "Nenhum aluno cadastrado",
@@ -183,10 +165,6 @@ const DUMMY_FALLBACK_ALUNO: Aluno = {
   endereco: "",
   tipoPlano: ""
 };
-
-const DEFAULT_INSTRUTORES: Instrutor[] = [];
-
-const DEFAULT_DEPOIMENTOS: Depoimento[] = [];
 
 // Calculation Helpers
 export function generateLogin(nome: string): string {
@@ -825,6 +803,8 @@ export default function App() {
       localStorage.setItem('nova_cnh_depoimentos', JSON.stringify(updated));
     } catch (e) {}
 
+    saveDepoimentoToFirestore(novoDepoimento).catch(console.warn);
+
     fetch('/api/db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -835,7 +815,7 @@ export default function App() {
         gasWebhookUrl: gasWebhookUrlRef.current,
         googleVerificationCode: googleVerificationCodeRef.current
       })
-    }).catch(console.error);
+    }).catch(() => {});
   };
 
   const handleDeleteDepoimento = (idToDelete: string) => {
@@ -845,6 +825,8 @@ export default function App() {
       localStorage.setItem('nova_cnh_depoimentos', JSON.stringify(updated));
     } catch (e) {}
 
+    deleteDepoimentoFromFirestore(idToDelete).catch(console.warn);
+
     fetch('/api/db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -855,13 +837,11 @@ export default function App() {
         gasWebhookUrl: gasWebhookUrlRef.current,
         googleVerificationCode: googleVerificationCodeRef.current
       })
-    }).catch(console.error);
+    }).catch(() => {});
   };
 
   useEffect(() => {
     localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(alunos));
-    // Persist a separate recovery backup ONLY if the array has registered candidates, 
-    // ensuring an accidental empty sync from server can NEVER overwrite our precious client-side data.
     if (alunos && alunos.length > 0) {
       localStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(alunos));
     }
@@ -869,8 +849,6 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('nova_cnh_instrutores', JSON.stringify(instrutores));
-    // Persist a separate recovery backup ONLY if the array has registered instructors, 
-    // ensuring an accidental empty sync from server can NEVER overwrite our precious client-side data.
     if (instrutores && instrutores.length > 0) {
       localStorage.setItem('nova_cnh_instrutores_backup', JSON.stringify(instrutores));
     }
@@ -917,8 +895,16 @@ export default function App() {
     setSyncStatus('syncing');
     setToastMessage("⏳ Sincronizando com a nuvem do Firebase...");
     try {
-      // 1. Envia dados atuais para o servidor central / Firestore
-      const saveRes = await fetch('/api/db', {
+      // 1. Salva diretamente no Firestore (funciona 100% no Vercel e qualquer dispositivo)
+      await saveAllAlunosToFirestore(alunosRef.current);
+      await saveAllInstrutoresToFirestore(instrutoresRef.current);
+      await saveConfigToFirestore({
+        gasWebhookUrl: gasWebhookUrlRef.current,
+        googleVerificationCode: googleVerificationCodeRef.current
+      });
+
+      // 2. Tenta também salvar no backend local caso exista
+      fetch('/api/db', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -927,54 +913,11 @@ export default function App() {
           gasWebhookUrl: gasWebhookUrlRef.current,
           googleVerificationCode: googleVerificationCodeRef.current
         })
-      });
+      }).catch(() => {});
 
-      if (saveRes.ok) {
-        const saveData = await saveRes.json();
-        if (saveData.quotaExceeded !== undefined) {
-          setIsQuotaExceeded(!!saveData.quotaExceeded);
-        }
-      }
-
-      // 2. Busca o estado mais recente direto da nuvem
-      const res = await fetch('/api/db?force=true');
-      if (res.ok) {
-        const data = await res.json();
-        let loadedAlunos = alunosRef.current;
-        let loadedInst = instrutoresRef.current;
-
-        if (data.alunos && Array.isArray(data.alunos) && data.alunos.length > 0) {
-          loadedAlunos = data.alunos;
-          setAlunos(data.alunos);
-          localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(data.alunos));
-        }
-        if (data.instrutores && Array.isArray(data.instrutores) && data.instrutores.length > 0) {
-          loadedInst = data.instrutores;
-          setInstrutores(data.instrutores);
-          localStorage.setItem('nova_cnh_instrutores', JSON.stringify(data.instrutores));
-        }
-        if (data.gasWebhookUrl) {
-          setGasWebhookUrl(data.gasWebhookUrl);
-          localStorage.setItem('nova_cnh_gas_webhook_url', data.gasWebhookUrl);
-        }
-        if (data.googleVerificationCode) {
-          setGoogleVerificationCode(data.googleVerificationCode);
-          localStorage.setItem('google_verification_code', data.googleVerificationCode);
-        }
-
-        lastSyncedPayloadRef.current = JSON.stringify({
-          alunos: loadedAlunos,
-          instrutores: loadedInst,
-          gasWebhookUrl: data.gasWebhookUrl || gasWebhookUrlRef.current || "",
-          googleVerificationCode: data.googleVerificationCode || googleVerificationCodeRef.current || ""
-        });
-
-        setSyncStatus('synced');
-        setLastSyncTime(new Date());
-        setToastMessage("☁️ Nuvem Firebase 100% atualizada e sincronizada!");
-      } else {
-        setSyncStatus('error');
-      }
+      setSyncStatus('synced');
+      setLastSyncTime(new Date());
+      setToastMessage("☁️ Nuvem Firebase 100% atualizada e sincronizada!");
     } catch (err) {
       console.error("Erro na sincronização manual com a nuvem:", err);
       setSyncStatus('error');
@@ -1000,6 +943,17 @@ export default function App() {
 
     setSyncStatus('syncing');
 
+    // Sincroniza direto no Firestore (Garante atualização em tempo real para todos os celulares/Vercel)
+    saveAllAlunosToFirestore(listWithTimestamp, deletedIds || [])
+      .then(() => {
+        setSyncStatus('synced');
+        setLastSyncTime(new Date());
+      })
+      .catch(err => {
+        console.warn("Aviso ao salvar direto no Firestore:", err);
+      });
+
+    // Envia também para /api/db caso o servidor local esteja rodando
     fetch('/api/db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1011,144 +965,124 @@ export default function App() {
         gasWebhookUrl: gasWebhookUrlRef.current,
         googleVerificationCode: googleVerificationCodeRef.current
       })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.quotaExceeded !== undefined) {
-          setIsQuotaExceeded(!!data.quotaExceeded);
-        }
-        if (data && data.success) {
-          const finalServerAlunos = (data.alunos && Array.isArray(data.alunos)) ? data.alunos : listWithTimestamp;
-          setAlunos(finalServerAlunos);
-          try {
-            localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(finalServerAlunos));
-          } catch (e) {}
-
-          lastSyncedPayloadRef.current = JSON.stringify({
-            alunos: finalServerAlunos,
-            instrutores: instrutoresRef.current,
-            gasWebhookUrl: gasWebhookUrlRef.current,
-            googleVerificationCode: googleVerificationCodeRef.current
-          });
-          setSyncStatus('synced');
-          setLastSyncTime(new Date());
-        } else {
-          setSyncStatus('error');
-        }
-      })
-      .catch(err => {
-        console.error("Erro ao sincronizar alunos na nuvem:", err);
-        setSyncStatus('error');
-      });
+    }).catch(() => {});
   };
 
-  // 1. Carga Inicial do Servidor Central (Nuvem) ao abrir o app em qualquer aparelho
-  useEffect(() => {
-    const loadCentralData = async () => {
-      let retries = 3;
-      let response: Response | null = null;
+  // Helper central para atualizar instrutores garantindo persistência local e sincronia com a nuvem / Firestore
+  const saveInstrutoresList = (updatedList: Instrutor[], deletedNomes?: string[]) => {
+    setInstrutores(updatedList);
 
-      while (retries > 0) {
-        try {
-          console.log(`✈️ [Sincronia Global] Carregando banco de dados do servidor central... (tentativa ${4 - retries}/3)`);
-          response = await fetch('/api/db');
-          if (response.ok) break;
-        } catch (err) {
-          console.warn(`⚠️ Tentativa de conexão ao servidor central falhou. Restam ${retries - 1} tentativas...`);
-        }
-        retries--;
-        if (retries > 0) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
+    try {
+      localStorage.setItem('nova_cnh_instrutores', JSON.stringify(updatedList));
+      localStorage.setItem('nova_cnh_instrutores_backup', JSON.stringify(updatedList));
+    } catch (e) {
+      console.warn("Storage local limit:", e);
+    }
 
-      try {
-        if (!response || !response.ok) {
-          console.warn("⚠️ Servidor central indisponível no momento. Carregando dados locais armazenados.");
-          return;
-        }
+    setSyncStatus('syncing');
 
-        const data = await response.json();
-        
-        if (data.quotaExceeded !== undefined) {
-          setIsQuotaExceeded(!!data.quotaExceeded);
-        }
-        
-        isUpdatingFromRemote.current = true;
-        
-        let loadedAlunos = false;
-        let loadedInstrutores = false;
-
-        let finalAlunosList = alunosRef.current;
-        let finalInstrutoresList = instrutoresRef.current;
-
-        if (data.alunos && Array.isArray(data.alunos) && data.alunos.length > 0) {
-          const serverAlunos = data.alunos as Aluno[];
-          finalAlunosList = serverAlunos;
-          setAlunos(serverAlunos);
-          localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(serverAlunos));
-          localStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(serverAlunos));
-          loadedAlunos = true;
-        } else if (alunosRef.current && alunosRef.current.length > 0) {
-          // Se a nuvem estiver vazia, semeia com a base inicial do cliente
-          console.log("🌱 [Sincronia] Semeando a nuvem Firebase com a base de alunos local...");
-          fetch('/api/db', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              alunos: alunosRef.current,
-              instrutores: instrutoresRef.current,
-              gasWebhookUrl: gasWebhookUrlRef.current,
-              googleVerificationCode: googleVerificationCodeRef.current
-            })
-          }).catch(console.error);
-        }
-
-        if (data.instrutores && Array.isArray(data.instrutores) && data.instrutores.length > 0) {
-          const serverInstrutores = data.instrutores as Instrutor[];
-          finalInstrutoresList = serverInstrutores;
-          setInstrutores(serverInstrutores);
-          localStorage.setItem('nova_cnh_instrutores', JSON.stringify(serverInstrutores));
-          loadedInstrutores = true;
-        }
-
-        if (data.depoimentos && Array.isArray(data.depoimentos)) {
-          const serverDepoimentos = (data.depoimentos as Depoimento[]).filter(
-            d => !["DEP-001", "DEP-002", "DEP-003", "DEP-004"].includes(d.id)
-          );
-          setDepoimentos(serverDepoimentos);
-          localStorage.setItem('nova_cnh_depoimentos', JSON.stringify(serverDepoimentos));
-        }
-
-        if (data.gasWebhookUrl) {
-          setGasWebhookUrl(data.gasWebhookUrl);
-          localStorage.setItem('nova_cnh_gas_webhook_url', data.gasWebhookUrl);
-        }
-        if (data.googleVerificationCode) {
-          setGoogleVerificationCode(data.googleVerificationCode);
-          localStorage.setItem('google_verification_code', data.googleVerificationCode);
-        }
-
-        lastSyncedPayloadRef.current = JSON.stringify({ 
-          alunos: finalAlunosList, 
-          instrutores: finalInstrutoresList,
-          gasWebhookUrl: data.gasWebhookUrl || gasWebhookUrlRef.current || "",
-          googleVerificationCode: data.googleVerificationCode || googleVerificationCodeRef.current || ""
-        });
-        setLastSyncTime(new Date());
+    // Sincroniza direto no Firestore (Garante atualização em tempo real para todos os celulares/Vercel)
+    saveAllInstrutoresToFirestore(updatedList, deletedNomes || [])
+      .then(() => {
         setSyncStatus('synced');
-        console.log("⚡ [Sincronia Global] Dados carregados do servidor central com sucesso!");
+        setLastSyncTime(new Date());
+      })
+      .catch(err => {
+        console.warn("Aviso ao salvar direto no Firestore:", err);
+      });
 
-        setTimeout(() => {
-          isUpdatingFromRemote.current = false;
-        }, 500);
-      } catch (err) {
-        console.warn("Aviso ao processar dados da nuvem na inicialização:", err);
-      } finally {
-        setIsInitialLoading(false);
+    // Envia também para /api/db caso o servidor local esteja rodando
+    fetch('/api/db', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        alunos: alunosRef.current,
+        instrutores: updatedList,
+        deletedInstrutorNomes: deletedNomes || [],
+        gasWebhookUrl: gasWebhookUrlRef.current,
+        googleVerificationCode: googleVerificationCodeRef.current
+      })
+    }).catch(() => {});
+  };
+
+  // 1. Conexão Real-time Direta com o Firestore (Funciona perfeitamente na Vercel e em todos os aparelhos)
+  useEffect(() => {
+    let isMounted = true;
+    console.log("☁️ [Firebase Realtime] Conectando ao Firestore na nuvem...");
+
+    const unsubAlunos = subscribeAlunos((cloudAlunos) => {
+      if (!isMounted) return;
+      if (cloudAlunos && Array.isArray(cloudAlunos) && cloudAlunos.length > 0) {
+        console.log(`✅ [Firestore Realtime] Recebidos ${cloudAlunos.length} candidatos da nuvem`);
+        setAlunos(cloudAlunos);
+        try {
+          localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(cloudAlunos));
+          localStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(cloudAlunos));
+        } catch (e) {}
+        setSyncStatus('synced');
+        setLastSyncTime(new Date());
       }
+      setIsInitialLoading(false);
+    });
+
+    const unsubInstrutores = subscribeInstrutores((cloudInstrutores) => {
+      if (!isMounted) return;
+      if (cloudInstrutores && Array.isArray(cloudInstrutores) && cloudInstrutores.length > 0) {
+        console.log(`✅ [Firestore Realtime] Recebidos ${cloudInstrutores.length} instrutores da nuvem`);
+        setInstrutores(cloudInstrutores);
+        try {
+          localStorage.setItem('nova_cnh_instrutores', JSON.stringify(cloudInstrutores));
+          localStorage.setItem('nova_cnh_instrutores_backup', JSON.stringify(cloudInstrutores));
+        } catch (e) {}
+      }
+    });
+
+    const unsubDepoimentos = subscribeDepoimentos((cloudDepoimentos) => {
+      if (!isMounted) return;
+      if (cloudDepoimentos && Array.isArray(cloudDepoimentos)) {
+        const clean = cloudDepoimentos.filter(
+          d => !["DEP-001", "DEP-002", "DEP-003", "DEP-004"].includes(d.id)
+        );
+        setDepoimentos(clean);
+        try {
+          localStorage.setItem('nova_cnh_depoimentos', JSON.stringify(clean));
+        } catch (e) {}
+      }
+    });
+
+    const unsubConfig = subscribeConfig((cloudConfig) => {
+      if (!isMounted) return;
+      if (cloudConfig.gasWebhookUrl) {
+        setGasWebhookUrl(cloudConfig.gasWebhookUrl);
+        localStorage.setItem('nova_cnh_gas_webhook_url', cloudConfig.gasWebhookUrl);
+      }
+      if (cloudConfig.googleVerificationCode) {
+        setGoogleVerificationCode(cloudConfig.googleVerificationCode);
+        localStorage.setItem('google_verification_code', cloudConfig.googleVerificationCode);
+      }
+    });
+
+    // Carga auxiliar de fallback via API REST (se disponível)
+    fetch('/api/db')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!isMounted || !data) return;
+        if (data.alunos && Array.isArray(data.alunos) && data.alunos.length > 0) {
+          setAlunos(data.alunos);
+        }
+        if (data.instrutores && Array.isArray(data.instrutores) && data.instrutores.length > 0) {
+          setInstrutores(data.instrutores);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+      unsubAlunos();
+      unsubInstrutores();
+      unsubDepoimentos();
+      unsubConfig();
     };
-    loadCentralData();
   }, []);
 
   // 2. Envio Automático para o Servidor Central ao fazer edições (Salvar Nuvem)
@@ -1177,39 +1111,37 @@ export default function App() {
 
     const timer = setTimeout(async () => {
       setSyncStatus('syncing');
-      console.log("📤 [Sincronia Global] Salvando dados no Servidor Nuvem...");
+      console.log("📤 [Sincronia Global] Salvando dados na Nuvem Firebase...");
       
       try {
-        const response = await fetch('/api/db', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            alunos: alunos,
-            instrutores: instrutores,
-            gasWebhookUrl: gasWebhookUrl,
-            googleVerificationCode: googleVerificationCode
-          })
+        // Grava no Firestore diretamente
+        if (alunos && alunos.length > 0) {
+          await saveAllAlunosToFirestore(alunos);
+        }
+        if (instrutores && instrutores.length > 0) {
+          await saveAllInstrutoresToFirestore(instrutores);
+        }
+        await saveConfigToFirestore({
+          gasWebhookUrl: gasWebhookUrl,
+          googleVerificationCode: googleVerificationCode
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.quotaExceeded !== undefined) {
-            setIsQuotaExceeded(!!data.quotaExceeded);
-          }
-          lastSyncedPayloadRef.current = currentPayload;
-          setSyncStatus('synced');
-          setLastSyncTime(new Date());
-          console.log("✅ [Sincronia Global] Salvo & Sincronizado para todos os aparelhos!");
-        } else {
-          setSyncStatus('error');
-        }
+        // Envia também via API se existir
+        fetch('/api/db', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: currentPayload
+        }).catch(() => {});
+
+        lastSyncedPayloadRef.current = currentPayload;
+        setSyncStatus('synced');
+        setLastSyncTime(new Date());
+        console.log("✅ [Sincronia Global] Salvo & Sincronizado para todos os aparelhos!");
       } catch (err) {
-        console.error("Erro ao sincronizar com servidor central:", err);
+        console.error("Erro ao sincronizar com nuvem:", err);
         setSyncStatus('error');
       }
-    }, 1200); // Debounce de 1.2s para otimizar salvamentos na nuvem
+    }, 1200);
 
     return () => clearTimeout(timer);
   }, [alunos, instrutores, gasWebhookUrl, googleVerificationCode, isInitialLoading]);
@@ -1731,7 +1663,7 @@ export default function App() {
       return i;
     });
 
-    setInstrutores(updated);
+    saveInstrutoresList(updated);
     setToastMessage(`💸 Pagamento registrado! Recibo ${novoRecibo.id} enviado para assinatura via GOV.BR.`);
     
     // Abrir o recibo imediatamente para visualização e impressão/download pelo administrador
@@ -1797,7 +1729,7 @@ export default function App() {
       return i;
     });
 
-    setInstrutores(updated);
+    saveInstrutoresList(updated);
     
     // Update the activeInstructor state if the logged-in instructor is the one who signed
     if (activeInstructor && activeInstructor.nome === inst.nome) {
@@ -2897,7 +2829,7 @@ export default function App() {
     const finalSenha = (instrutorForm.senha || generateSecurePassword()).trim();
 
     if (editingInstrutor) {
-      setInstrutores(instrutores.map(i => i.nome === editingInstrutor.nome ? {
+      const updated = instrutores.map(i => i.nome === editingInstrutor.nome ? {
         ...i,
         nome: instrutorForm.nome,
         regiao: instrutorForm.regiao,
@@ -2911,7 +2843,8 @@ export default function App() {
         tempoExperiencia: instrutorForm.tempoExperiencia || `${Math.floor(5 + (instrutorForm.nome.length % 9))} anos de experiência`,
         historia: instrutorForm.historia || "Profissional extremamente paciente e dedicado ao ensino teórico e prático da direção. Focado em ajudar candidatos de todos os perfis a superarem a ansiedade e o medo do trânsito, garantindo uma formação humana de condutores conscientes e seguros no programa Nova CNH.",
         chavePix: instrutorForm.chavePix
-      } : i));
+      } : i);
+      saveInstrutoresList(updated);
     } else {
       if (instrutores.some(i => i.nome.toLowerCase() === instrutorForm.nome.toLowerCase())) {
         return alert('Já existe um instrutor registrado com este nome.');
@@ -2919,7 +2852,7 @@ export default function App() {
       if (instrutores.some(i => i.login && i.login.toLowerCase() === finalLogin)) {
         return alert('Este Usuário (Login) já está em uso por outro instrutor.');
       }
-      setInstrutores([...instrutores, {
+      const updated = [...instrutores, {
         nome: instrutorForm.nome,
         regiao: instrutorForm.regiao,
         vagas: Number(instrutorForm.vagas),
@@ -2932,7 +2865,8 @@ export default function App() {
         tempoExperiencia: instrutorForm.tempoExperiencia || `${Math.floor(5 + (instrutorForm.nome.length % 9))} anos de experiência`,
         historia: instrutorForm.historia || "Profissional extremamente paciente e dedicado ao ensino teórico e prático da direção. Focado em ajudar candidatos de todos os perfis a superarem a ansiedade e o medo do trânsito, garantindo uma formação humana de condutores conscientes e seguros no programa Nova CNH.",
         chavePix: instrutorForm.chavePix
-      }]);
+      }];
+      saveInstrutoresList(updated);
     }
     setIsInstrutorModalOpen(false);
   };
@@ -2971,7 +2905,8 @@ export default function App() {
       recibos: []
     };
 
-    setInstrutores([...instrutores, newInst]);
+    const updatedList = [...instrutores, newInst];
+    saveInstrutoresList(updatedList);
     setNewSelfRegisteredInstrutor(newInst);
     setToastMessage(`🎉 Cadastro concluído com sucesso, Instrutor ${selfNome}!`);
   };
@@ -2992,8 +2927,10 @@ export default function App() {
       cancelText: 'Cancelar',
       type: 'danger',
       onConfirm: () => {
-        setInstrutores(instrutores.filter(i => i.nome !== nome));
-        setAlunos(alunos.map(a => a.instrutor === nome ? { ...a, instrutor: 'Sem Instrutor' } : a));
+        const remainingInstrutores = instrutores.filter(i => i.nome !== nome);
+        saveInstrutoresList(remainingInstrutores, [nome]);
+        const updatedAlunos = alunos.map(a => a.instrutor === nome ? { ...a, instrutor: 'Sem Instrutor' } : a);
+        saveAlunosList(updatedAlunos);
         setToastMessage(`🗑️ Instrutor "${nome}" removido do sistema.`);
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
       }
@@ -8133,13 +8070,15 @@ ${formattedInstrutores}
                             >
                               <Edit className="h-3.5 w-3.5" />
                             </button>
-                            <button
-                              onClick={() => handleDeleteAluno(a.id)}
-                              className="p-1.5 text-rose-600 hover:bg-rose-50 border border-slate-100 rounded-lg transition"
-                              title="Excluir Ficha"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            {isAdminAuthenticated && (
+                              <button
+                                onClick={() => handleDeleteAluno(a.id)}
+                                className="p-1.5 text-rose-600 hover:bg-rose-50 border border-slate-100 rounded-lg transition"
+                                title="Excluir Ficha (Apenas Administrador)"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -12698,31 +12637,47 @@ ${formattedInstrutores}
               </div>
 
               {/* Action commands line footer */}
-              <div className="bg-slate-900 border-t border-slate-800 p-4 px-6 flex flex-wrap items-center justify-end gap-3 shrink-0">
-                <button
-                  onClick={() => {
-                    setSelectedStudentDetail(null);
-                    handleOpenEditAluno(a);
-                  }}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow transition cursor-pointer font-sans"
-                >
-                  ✏️ Editar Cadastro Aluno
-                </button>
-                <button 
-                  onClick={() => {
-                    navigator.clipboard.writeText(`Dossiê do Aluno - Nome: ${a.nome}\nID: ${a.id}\nWhatsApp: ${a.whatsapp}\nSaldo Poupado: ${currentPaid.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
-                    setToastMessage("📋 Resumo do dossiê copiado com sucesso!");
-                  }}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-150 text-xs font-bold py-2.5 px-4 rounded-xl border border-slate-700 transition cursor-pointer"
-                >
-                  📋 Copiar Resumo Dossiê
-                </button>
-                <button
-                  onClick={() => setSelectedStudentDetail(null)}
-                  className="bg-slate-800 hover:bg-slate-755 text-slate-300 hover:text-white text-xs font-bold py-2.5 px-4 rounded-xl transition cursor-pointer font-sans"
-                >
-                  Fechar Janela
-                </button>
+              <div className="bg-slate-900 border-t border-slate-800 p-4 px-6 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                <div>
+                  {(isAdminAuthenticated || (isAuthenticated && activeStudentId === a.id)) && (
+                    <button
+                      onClick={() => {
+                        setSelectedStudentDetail(null);
+                        handleDeleteAluno(a.id);
+                      }}
+                      className="bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-bold py-2.5 px-3.5 rounded-xl transition cursor-pointer font-sans flex items-center gap-1.5"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Excluir Cadastro
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedStudentDetail(null);
+                      handleOpenEditAluno(a);
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow transition cursor-pointer font-sans"
+                  >
+                    ✏️ Editar Cadastro Aluno
+                  </button>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(`Dossiê do Aluno - Nome: ${a.nome}\nID: ${a.id}\nWhatsApp: ${a.whatsapp}\nSaldo Poupado: ${currentPaid.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
+                      setToastMessage("📋 Resumo do dossiê copiado com sucesso!");
+                    }}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-150 text-xs font-bold py-2.5 px-4 rounded-xl border border-slate-700 transition cursor-pointer"
+                  >
+                    📋 Copiar Resumo Dossiê
+                  </button>
+                  <button
+                    onClick={() => setSelectedStudentDetail(null)}
+                    className="bg-slate-800 hover:bg-slate-755 text-slate-300 hover:text-white text-xs font-bold py-2.5 px-4 rounded-xl transition cursor-pointer font-sans"
+                  >
+                    Fechar Janela
+                  </button>
+                </div>
               </div>
 
             </div>
