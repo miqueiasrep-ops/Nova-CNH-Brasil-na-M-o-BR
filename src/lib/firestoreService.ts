@@ -32,6 +32,31 @@ export function sanitizeForFirestore<T>(obj: T): T {
   return obj;
 }
 
+let isQuotaExceededState = false;
+type QuotaListener = (exceeded: boolean) => void;
+const quotaListeners: Set<QuotaListener> = new Set();
+
+export function isQuotaExceeded(): boolean {
+  return isQuotaExceededState;
+}
+
+export function subscribeQuotaStatus(listener: QuotaListener): () => void {
+  quotaListeners.add(listener);
+  listener(isQuotaExceededState);
+  return () => quotaListeners.delete(listener);
+}
+
+function handleQuotaError(err: unknown) {
+  const errMsg = err instanceof Error ? err.message : String(err);
+  if (errMsg.includes('resource-exhausted') || errMsg.includes('Quota limit exceeded') || errMsg.includes('quota exceeded') || errMsg.includes('Quota exceeded')) {
+    if (!isQuotaExceededState) {
+      isQuotaExceededState = true;
+      console.warn("⚠️ [Firestore] Cota diária gratuita do Firestore atingida (Resource Exhausted). Operando em modo offline / localStorage.");
+      quotaListeners.forEach(l => l(true));
+    }
+  }
+}
+
 // 1. Subscribe to Alunos in real-time
 export function subscribeAlunos(
   onUpdate: (alunos: Aluno[]) => void,
@@ -52,26 +77,12 @@ export function subscribeAlunos(
           });
         });
         onUpdate(alunosList);
-      } else {
-        // Se a coleção estiver vazia no Firestore, tenta semear com os dados padrão
-        console.log('🌱 [Firestore] Coleção alunos vazia. Semeando dados padrão...');
-        seedDefaultData().catch(console.error);
-        onUpdate(DEFAULT_ALUNOS);
       }
     },
     (err) => {
-      console.warn('⚠️ [Firestore] Erro no listener de alunos:', err);
+      console.warn('⚠️ [Firestore] Listener de alunos:', err.message);
+      handleQuotaError(err);
       if (onError) onError(err);
-      // Fallback inicial com getDocs se snapshot falhar
-      getDocs(colRef)
-        .then((snap) => {
-          if (!snap.empty) {
-            const list: Aluno[] = [];
-            snap.forEach((d) => list.push({ ...(d.data() as Aluno), id: d.id }));
-            onUpdate(list);
-          }
-        })
-        .catch(console.error);
     }
   );
 }
@@ -92,14 +103,11 @@ export function subscribeInstrutores(
           list.push(docSnap.data() as Instrutor);
         });
         onUpdate(list);
-      } else {
-        console.log('🌱 [Firestore] Coleção instrutores vazia. Semeando instrutores padrão...');
-        saveAllInstrutoresToFirestore(DEFAULT_INSTRUTORES).catch(console.error);
-        onUpdate(DEFAULT_INSTRUTORES);
       }
     },
     (err) => {
-      console.warn('⚠️ [Firestore] Erro no listener de instrutores:', err);
+      console.warn('⚠️ [Firestore] Listener de instrutores:', err.message);
+      handleQuotaError(err);
       if (onError) onError(err);
     }
   );
@@ -122,12 +130,11 @@ export function subscribeDepoimentos(
           list.push({ ...d, id: d.id || docSnap.id });
         });
         onUpdate(list);
-      } else {
-        onUpdate(DEFAULT_DEPOIMENTOS);
       }
     },
     (err) => {
-      console.warn('⚠️ [Firestore] Erro no listener de depoimentos:', err);
+      console.warn('⚠️ [Firestore] Listener de depoimentos:', err.message);
+      handleQuotaError(err);
       if (onError) onError(err);
     }
   );
@@ -147,21 +154,28 @@ export function subscribeConfig(
       }
     },
     (err) => {
-      console.warn('⚠️ [Firestore] Erro no listener de configurações:', err);
+      console.warn('⚠️ [Firestore] Listener de configurações:', err.message);
+      handleQuotaError(err);
     }
   );
 }
 
 // 5. Save a single Aluno
 export async function saveAlunoToFirestore(aluno: Aluno): Promise<void> {
-  const docId = aluno.id || aluno.cpf?.replace(/[^0-9]/g, '') || `ALUNO-${Date.now()}`;
-  const docRef = doc(db, 'alunos', docId);
-  const sanitized = sanitizeForFirestore({
-    ...aluno,
-    id: docId,
-    updatedAt: new Date().toISOString()
-  });
-  await setDoc(docRef, sanitized, { merge: true });
+  try {
+    const docId = (aluno.id || aluno.cpf?.replace(/[^0-9]/g, '') || `ALUNO-${Date.now()}`).trim();
+    const docRef = doc(db, 'alunos', docId);
+    const sanitized = sanitizeForFirestore({
+      ...aluno,
+      id: docId,
+      updatedAt: aluno.updatedAt || new Date().toISOString()
+    });
+    await setDoc(docRef, sanitized, { merge: true });
+    console.log(`✅ [Firestore] Aluno ${docId} salvo com sucesso na nuvem!`);
+  } catch (error) {
+    handleQuotaError(error);
+    console.warn(`⚠️ [Firestore] Erro ao salvar aluno ${aluno.id}:`, error);
+  }
 }
 
 // 6. Save a batch/list of Alunos
@@ -174,7 +188,8 @@ export async function saveAllAlunosToFirestore(
 
     // Grava/atualiza cada aluno
     for (const aluno of alunos) {
-      const docId = aluno.id || aluno.cpf?.replace(/[^0-9]/g, '') || `ALUNO-${Date.now()}`;
+      if (!aluno) continue;
+      const docId = (aluno.id || aluno.cpf?.replace(/[^0-9]/g, '') || `ALUNO-${Date.now()}`).trim();
       const docRef = doc(db, 'alunos', docId);
       const sanitized = sanitizeForFirestore({
         ...aluno,
@@ -187,7 +202,7 @@ export async function saveAllAlunosToFirestore(
     // Deleta os removidos
     for (const id of deletedIds) {
       if (id) {
-        const docRef = doc(db, 'alunos', id);
+        const docRef = doc(db, 'alunos', id.trim());
         batch.delete(docRef);
       }
     }
@@ -195,22 +210,30 @@ export async function saveAllAlunosToFirestore(
     await batch.commit();
     console.log('✅ [Firestore] Alunos sincronizados com sucesso na nuvem!');
   } catch (error) {
-    console.error('❌ [Firestore] Erro ao salvar lista de alunos:', error);
-    throw error;
+    handleQuotaError(error);
+    console.warn('⚠️ [Firestore] Aviso ao salvar lista de alunos:', error);
   }
 }
 
 // 7. Delete Aluno
 export async function deleteAlunoFromFirestore(alunoId: string): Promise<void> {
-  const docRef = doc(db, 'alunos', alunoId);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, 'alunos', alunoId.trim());
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleQuotaError(error);
+  }
 }
 
 // 8. Save Instrutor
 export async function saveInstrutorToFirestore(instrutor: Instrutor): Promise<void> {
-  const docId = (instrutor.nome || `INST-${Date.now()}`).trim().replace(/\//g, '_');
-  const docRef = doc(db, 'instrutores', docId);
-  await setDoc(docRef, sanitizeForFirestore(instrutor), { merge: true });
+  try {
+    const docId = (instrutor.nome || `INST-${Date.now()}`).trim().replace(/\//g, '_');
+    const docRef = doc(db, 'instrutores', docId);
+    await setDoc(docRef, sanitizeForFirestore(instrutor), { merge: true });
+  } catch (error) {
+    handleQuotaError(error);
+  }
 }
 
 // 9. Save all Instrutores
@@ -237,29 +260,41 @@ export async function saveAllInstrutoresToFirestore(
     await batch.commit();
     console.log('✅ [Firestore] Instrutores sincronizados com sucesso na nuvem!');
   } catch (error) {
-    console.error('❌ [Firestore] Erro ao salvar lista de instrutores:', error);
-    throw error;
+    handleQuotaError(error);
+    console.warn('⚠️ [Firestore] Aviso ao salvar lista de instrutores:', error);
   }
 }
 
 // Delete single Instrutor
 export async function deleteInstrutorFromFirestore(nome: string): Promise<void> {
-  const docId = nome.trim().replace(/\//g, '_');
-  const docRef = doc(db, 'instrutores', docId);
-  await deleteDoc(docRef);
+  try {
+    const docId = nome.trim().replace(/\//g, '_');
+    const docRef = doc(db, 'instrutores', docId);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleQuotaError(error);
+  }
 }
 
 // 10. Save Depoimento
 export async function saveDepoimentoToFirestore(depoimento: Depoimento): Promise<void> {
-  const docId = depoimento.id || `DEP-${Date.now()}`;
-  const docRef = doc(db, 'depoimentos', docId);
-  await setDoc(docRef, sanitizeForFirestore({ ...depoimento, id: docId }), { merge: true });
+  try {
+    const docId = depoimento.id || `DEP-${Date.now()}`;
+    const docRef = doc(db, 'depoimentos', docId);
+    await setDoc(docRef, sanitizeForFirestore({ ...depoimento, id: docId }), { merge: true });
+  } catch (error) {
+    handleQuotaError(error);
+  }
 }
 
 // 11. Delete Depoimento
 export async function deleteDepoimentoFromFirestore(depoimentoId: string): Promise<void> {
-  const docRef = doc(db, 'depoimentos', depoimentoId);
-  await deleteDoc(docRef);
+  try {
+    const docRef = doc(db, 'depoimentos', depoimentoId);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleQuotaError(error);
+  }
 }
 
 // 12. Save Config
@@ -267,8 +302,12 @@ export async function saveConfigToFirestore(configData: {
   gasWebhookUrl?: string;
   googleVerificationCode?: string;
 }): Promise<void> {
-  const docRef = doc(db, 'config', 'general');
-  await setDoc(docRef, sanitizeForFirestore(configData), { merge: true });
+  try {
+    const docRef = doc(db, 'config', 'general');
+    await setDoc(docRef, sanitizeForFirestore(configData), { merge: true });
+  } catch (error) {
+    handleQuotaError(error);
+  }
 }
 
 // 13. Seed default database if empty
@@ -285,18 +324,7 @@ export async function seedDefaultData(): Promise<void> {
       console.log('🌱 [Firestore Seeding] Semeando instrutores...');
       await saveAllInstrutoresToFirestore(DEFAULT_INSTRUTORES);
     }
-
-    const depSnap = await getDocs(collection(db, 'depoimentos'));
-    if (depSnap.empty && DEFAULT_DEPOIMENTOS.length > 0) {
-      console.log('🌱 [Firestore Seeding] Semeando depoimentos...');
-      const batch = writeBatch(db);
-      for (const d of DEFAULT_DEPOIMENTOS) {
-        const docRef = doc(db, 'depoimentos', d.id);
-        batch.set(docRef, sanitizeForFirestore(d));
-      }
-      await batch.commit();
-    }
   } catch (err) {
-    console.error('❌ [Firestore Seeding Error]:', err);
+    handleQuotaError(err);
   }
 }

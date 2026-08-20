@@ -59,6 +59,7 @@ import {
   subscribeInstrutores,
   subscribeDepoimentos,
   subscribeConfig,
+  subscribeQuotaStatus,
   saveAllAlunosToFirestore,
   saveAllInstrutoresToFirestore,
   saveDepoimentoToFirestore,
@@ -1010,6 +1011,12 @@ export default function App() {
     let isMounted = true;
     console.log("☁️ [Firebase Realtime] Conectando ao Firestore na nuvem...");
 
+    const unsubQuota = subscribeQuotaStatus((exceeded) => {
+      if (isMounted) {
+        setIsQuotaExceeded(exceeded);
+      }
+    });
+
     const unsubAlunos = subscribeAlunos((cloudAlunos) => {
       if (!isMounted) return;
       if (cloudAlunos && Array.isArray(cloudAlunos) && cloudAlunos.length > 0) {
@@ -1068,7 +1075,20 @@ export default function App() {
       .then(data => {
         if (!isMounted || !data) return;
         if (data.alunos && Array.isArray(data.alunos) && data.alunos.length > 0) {
-          setAlunos(data.alunos);
+          setAlunos(prev => {
+            if (!prev || prev.length === 0) return data.alunos;
+            const merged = [...data.alunos];
+            for (const p of prev) {
+              const pCpf = (p.cpf || '').replace(/\D/g, '');
+              const found = merged.some(m => {
+                if (m.id === p.id) return true;
+                const mCpf = (m.cpf || '').replace(/\D/g, '');
+                return pCpf && mCpf && pCpf === mCpf;
+              });
+              if (!found) merged.push(p);
+            }
+            return merged;
+          });
         }
         if (data.instrutores && Array.isArray(data.instrutores) && data.instrutores.length > 0) {
           setInstrutores(data.instrutores);
@@ -1078,6 +1098,7 @@ export default function App() {
 
     return () => {
       isMounted = false;
+      unsubQuota();
       unsubAlunos();
       unsubInstrutores();
       unsubDepoimentos();
@@ -1085,7 +1106,7 @@ export default function App() {
     };
   }, []);
 
-  // 2. Envio Automático para o Servidor Central ao fazer edições (Salvar Nuvem)
+  // 2. Envio Secundário para Servidor Local/Vercel API (Sem loop de reescrita no Firestore)
   useEffect(() => {
     if (isInitialLoading) {
       return;
@@ -1107,41 +1128,15 @@ export default function App() {
       return;
     }
 
-    setSyncStatus('pending');
+    const timer = setTimeout(() => {
+      fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: currentPayload
+      }).catch(() => {});
 
-    const timer = setTimeout(async () => {
-      setSyncStatus('syncing');
-      console.log("📤 [Sincronia Global] Salvando dados na Nuvem Firebase...");
-      
-      try {
-        // Grava no Firestore diretamente
-        if (alunos && alunos.length > 0) {
-          await saveAllAlunosToFirestore(alunos);
-        }
-        if (instrutores && instrutores.length > 0) {
-          await saveAllInstrutoresToFirestore(instrutores);
-        }
-        await saveConfigToFirestore({
-          gasWebhookUrl: gasWebhookUrl,
-          googleVerificationCode: googleVerificationCode
-        });
-
-        // Envia também via API se existir
-        fetch('/api/db', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: currentPayload
-        }).catch(() => {});
-
-        lastSyncedPayloadRef.current = currentPayload;
-        setSyncStatus('synced');
-        setLastSyncTime(new Date());
-        console.log("✅ [Sincronia Global] Salvo & Sincronizado para todos os aparelhos!");
-      } catch (err) {
-        console.error("Erro ao sincronizar com nuvem:", err);
-        setSyncStatus('error');
-      }
-    }, 1200);
+      lastSyncedPayloadRef.current = currentPayload;
+    }, 2000);
 
     return () => clearTimeout(timer);
   }, [alunos, instrutores, gasWebhookUrl, googleVerificationCode, isInitialLoading]);
@@ -5728,9 +5723,13 @@ ${formattedInstrutores}
                           <form onSubmit={(e) => {
                             e.preventDefault();
                             const cleanInput = loginIdAttempt.trim().toUpperCase();
+                            const cleanCpfInput = loginIdAttempt.replace(/\D/g, '');
                             const matched = alunos.find(a => {
                               const cleanId = (a.id || '').trim().toUpperCase();
                               if (cleanId === cleanInput) return true;
+                              // Match by CPF if provided
+                              const studentCpfDigits = (a.cpf || '').replace(/\D/g, '');
+                              if (cleanCpfInput.length >= 8 && studentCpfDigits && studentCpfDigits === cleanCpfInput) return true;
                               // Allow typing just "002" or "2" for "CNH-002"
                               if (!cleanInput.startsWith('CNH-') && cleanId === `CNH-${cleanInput.padStart(3, '0')}`) return true;
                               // Allow typing "CNH-2" for "CNH-002"

@@ -30,39 +30,6 @@ let memoryCache: {
   updatedAt: string;
 } | null = null;
 
-const COOLDOWN_FILE = path.join(process.cwd(), ".firestore_quota_cooldown");
-let quotaExceededUntilMemory = 0;
-
-function getQuotaExceededUntil(): number {
-  if (quotaExceededUntilMemory > 0 && Date.now() < quotaExceededUntilMemory) {
-    return quotaExceededUntilMemory;
-  }
-  try {
-    if (fs.existsSync(COOLDOWN_FILE)) {
-      const content = fs.readFileSync(COOLDOWN_FILE, "utf-8");
-      const ts = Number(content);
-      if (!isNaN(ts) && Date.now() < ts) {
-        quotaExceededUntilMemory = ts;
-        return ts;
-      }
-    }
-  } catch (err) {
-    // ignore
-  }
-  return 0;
-}
-
-function setQuotaExceededUntil(durationMs: number) {
-  try {
-    const ts = Date.now() + durationMs;
-    quotaExceededUntilMemory = ts;
-    fs.writeFileSync(COOLDOWN_FILE, String(ts), "utf-8");
-    console.log(`🔒 [Firebase] Cooldown ativado até: ${new Date(ts).toISOString()}`);
-  } catch (err) {
-    // ignore
-  }
-}
-
 function isQuotaError(err: any): boolean {
   if (!err) return false;
   const msg = err?.message || String(err);
@@ -113,11 +80,6 @@ function getFirestoreDB() {
 
 // Helper para ler dados duráveis do Firestore com fallback local (database.json)
 async function fetchFromFirestore() {
-  if (Date.now() < getQuotaExceededUntil()) {
-    console.log("⏳ [Firebase] Usando dados locais devido a limite de cota ativo (Firestore em cooldown).");
-    return null;
-  }
-
   const db = getFirestoreDB();
   if (!db) return null;
 
@@ -155,12 +117,7 @@ async function fetchFromFirestore() {
       googleVerificationCode
     };
   } catch (error: any) {
-    if (isQuotaError(error)) {
-      console.warn("⚠️ [Firebase] Cota diária do Firestore esgotada ou limite excedido. Mudando para modo local (fallback) por 24 horas.");
-      setQuotaExceededUntil(24 * 60 * 60 * 1000); // 24 horas de cooldown
-    } else {
-      console.error("❌ [Firebase] Erro ao buscar dados do Firestore, usando backup local:", error);
-    }
+    console.warn("⚠️ [Firebase] Aviso ao buscar dados do Firestore, usando backup local:", error.message || error);
     return null;
   }
 }
@@ -344,10 +301,6 @@ async function saveToFirestore(
   deletedAlunoIds: string[] = [],
   deletedInstrutorIds: string[] = []
 ) {
-  if (Date.now() < getQuotaExceededUntil()) {
-    return false;
-  }
-
   const db = getFirestoreDB();
   if (!db) return false;
 
@@ -377,11 +330,7 @@ async function saveToFirestore(
         }, { merge: true });
       }
     } catch (err: any) {
-      if (isQuotaError(err)) {
-        console.warn("⚠️ [Firebase] Cota do Firestore esgotada nas configurações. Ativando modo local por 24h.");
-        setQuotaExceededUntil(24 * 60 * 60 * 1000);
-        return false;
-      }
+      console.warn("⚠️ [Firebase] Aviso ao salvar configurações no Firestore:", err?.message || err);
     }
 
     // 2. Upsert coleção de alunos (apenas se alterado para economizar cota do Firestore)
@@ -408,15 +357,10 @@ async function saveToFirestore(
 
         const alunoRef = doc(db, "alunos", cleanId);
         try {
-          await setDoc(alunoRef, cleanedAluno);
+          await setDoc(alunoRef, cleanedAluno, { merge: true });
           alunosWriteCount++;
         } catch (err: any) {
-          if (isQuotaError(err)) {
-            console.warn("⚠️ [Firebase] Cota diária do Firestore esgotada ao salvar aluno. Ativando modo local por 24h.");
-            setQuotaExceededUntil(24 * 60 * 60 * 1000);
-            return false;
-          }
-          console.error(`❌ [Firebase] Erro ao salvar aluno ${cleanId}:`, err);
+          console.warn(`⚠️ [Firebase] Aviso ao salvar aluno ${cleanId}:`, err?.message || err);
         }
       }
     }
@@ -430,11 +374,7 @@ async function saveToFirestore(
           await deleteDoc(doc(db, "alunos", String(delId).trim()));
           alunosDeleteCount++;
         } catch (err: any) {
-          if (isQuotaError(err)) {
-            console.warn("⚠️ [Firebase] Cota do Firestore esgotada ao deletar aluno. Ativando modo local por 24h.");
-            setQuotaExceededUntil(24 * 60 * 60 * 1000);
-            return false;
-          }
+          console.warn(`⚠️ [Firebase] Aviso ao deletar aluno ${delId}:`, err?.message || err);
         }
       }
     }
@@ -462,14 +402,10 @@ async function saveToFirestore(
 
         const instRef = doc(db, "instrutores", cleanId);
         try {
-          await setDoc(instRef, cleanedInst);
+          await setDoc(instRef, cleanedInst, { merge: true });
           instWriteCount++;
         } catch (err: any) {
-          if (isQuotaError(err)) {
-            console.warn("⚠️ [Firebase] Cota do Firestore esgotada ao salvar instrutor. Ativando modo local por 24h.");
-            setQuotaExceededUntil(24 * 60 * 60 * 1000);
-            return false;
-          }
+          console.warn(`⚠️ [Firebase] Aviso ao salvar instrutor:`, err?.message || err);
         }
       }
     }
@@ -483,11 +419,7 @@ async function saveToFirestore(
           await deleteDoc(doc(db, "instrutores", String(delId).trim().replace(/\//g, "-")));
           instDeleteCount++;
         } catch (err: any) {
-          if (isQuotaError(err)) {
-            console.warn("⚠️ [Firebase] Cota do Firestore esgotada ao deletar instrutor. Ativando modo local por 24h.");
-            setQuotaExceededUntil(24 * 60 * 60 * 1000);
-            return false;
-          }
+          console.warn(`⚠️ [Firebase] Aviso ao deletar instrutor:`, err?.message || err);
         }
       }
     }
@@ -495,12 +427,7 @@ async function saveToFirestore(
     console.log(`✅ [Firebase] Sincronização concluída na nuvem. Escritas realizadas - Alunos: ${alunosWriteCount}, Instrutores: ${instWriteCount}. Exclusões - Alunos: ${alunosDeleteCount}, Instrutores: ${instDeleteCount}`);
     return true;
   } catch (error: any) {
-    if (isQuotaError(error)) {
-      console.warn("⚠️ [Firebase] Cota diária do Firestore esgotada ao tentar salvar. Ativando modo local por 24h.");
-      setQuotaExceededUntil(24 * 60 * 60 * 1000); // 24 horas de cooldown
-    } else {
-      console.error("❌ [Firebase] Erro ao salvar dados no Firestore:", error);
-    }
+    console.warn("⚠️ [Firebase] Erro ao salvar dados no Firestore:", error?.message || error);
     return false;
   }
 }
@@ -588,7 +515,7 @@ app.get("/api/db", async (req, res) => {
   }
 
   if (!memoryCache) {
-    return res.json({ alunos: [], instrutores: [], depoimentos: [], gasWebhookUrl: "", googleVerificationCode: "", quotaExceeded: Date.now() < getQuotaExceededUntil() });
+    return res.json({ alunos: [], instrutores: [], depoimentos: [], gasWebhookUrl: "", googleVerificationCode: "", quotaExceeded: false });
   }
   
   res.json({
@@ -597,7 +524,7 @@ app.get("/api/db", async (req, res) => {
     depoimentos: memoryCache.depoimentos || [],
     gasWebhookUrl: memoryCache.gasWebhookUrl || "",
     googleVerificationCode: memoryCache.googleVerificationCode || "",
-    quotaExceeded: Date.now() < getQuotaExceededUntil()
+    quotaExceeded: false
   });
 });
 
@@ -696,7 +623,7 @@ app.post("/api/db", async (req, res) => {
     message: "Banco de dados central e nuvem Firebase atualizados com sucesso.", 
     alunos: updatedDB.alunos,
     instrutores: updatedDB.instrutores,
-    quotaExceeded: Date.now() < getQuotaExceededUntil() 
+    quotaExceeded: false
   });
 });
 
