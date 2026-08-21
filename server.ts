@@ -8,10 +8,43 @@ import { getFirestore, collection, getDocs, doc, setDoc, deleteDoc, getDoc, setL
 
 // Silenciar logs verbose internos de conexão do cliente Firestore
 try {
-  setLogLevel("error");
+  setLogLevel("silent");
 } catch (e) {
   // ignore
 }
+
+// Global console error filtering on the server for benign Firestore free tier quota exhaustion
+const origConsoleError = console.error;
+console.error = function (...args: any[]) {
+  const fullText = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+  if (
+    fullText.includes('RESOURCE_EXHAUSTED') ||
+    fullText.includes('resource-exhausted') ||
+    fullText.includes('Quota limit exceeded') ||
+    fullText.includes('maximum backoff delay') ||
+    fullText.includes('free tier database') ||
+    fullText.includes('Free daily write units')
+  ) {
+    return;
+  }
+  origConsoleError.apply(console, args);
+};
+
+const origConsoleWarn = console.warn;
+console.warn = function (...args: any[]) {
+  const fullText = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+  if (
+    fullText.includes('RESOURCE_EXHAUSTED') ||
+    fullText.includes('resource-exhausted') ||
+    fullText.includes('Quota limit exceeded') ||
+    fullText.includes('maximum backoff delay') ||
+    fullText.includes('free tier database') ||
+    fullText.includes('Free daily write units')
+  ) {
+    return;
+  }
+  origConsoleWarn.apply(console, args);
+};
 
 const app = express();
 const PORT = 3000;

@@ -904,6 +904,23 @@ export function CandidateEnrollmentForm({
     // Persistência direta no Firestore (salva apenas o novo candidato para otimização de cota)
     saveAlunoToFirestore(newObj).catch(err => console.warn("Aviso ao salvar aluno no Firestore:", err));
 
+    // Backup adicional via Webhook Google Sheets (se configurado)
+    try {
+      const gasUrl = localStorage.getItem('nova_cnh_gas_webhook_url');
+      if (gasUrl && gasUrl.startsWith('https://script.google.com')) {
+        fetch(gasUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'syncAluno',
+            aluno: newObj,
+            timestamp: new Date().toISOString()
+          })
+        }).catch(() => {});
+      }
+    } catch (e) {}
+
     fetch('/api/db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

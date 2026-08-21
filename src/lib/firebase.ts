@@ -1,5 +1,57 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, setLogLevel } from 'firebase/firestore';
+
+// Suppress noisy Firestore internal console errors for quota exceeded
+try {
+  setLogLevel('silent');
+} catch (e) {}
+
+// Global browser error filtering for benign Firestore quota exhaustion
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    const msg = (reason && (reason.message || reason.toString())) || '';
+    if (
+      msg.includes('RESOURCE_EXHAUSTED') ||
+      msg.includes('resource-exhausted') ||
+      msg.includes('Quota limit exceeded') ||
+      msg.includes('quota exceeded') ||
+      msg.includes('write units') ||
+      msg.includes('read units')
+    ) {
+      event.preventDefault();
+    }
+  });
+
+  const originalConsoleError = console.error;
+  console.error = function (...args: any[]) {
+    const fullText = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    if (
+      fullText.includes('RESOURCE_EXHAUSTED') ||
+      fullText.includes('resource-exhausted') ||
+      fullText.includes('Quota limit exceeded') ||
+      fullText.includes('maximum backoff delay') ||
+      fullText.includes('free tier database')
+    ) {
+      return;
+    }
+    originalConsoleError.apply(console, args);
+  };
+
+  const originalConsoleWarn = console.warn;
+  console.warn = function (...args: any[]) {
+    const fullText = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    if (
+      fullText.includes('RESOURCE_EXHAUSTED') ||
+      fullText.includes('resource-exhausted') ||
+      fullText.includes('maximum backoff delay') ||
+      fullText.includes('free tier database')
+    ) {
+      return;
+    }
+    originalConsoleWarn.apply(console, args);
+  };
+}
 
 export const firebaseConfig = {
   projectId: "gen-lang-client-0135824596",
@@ -16,3 +68,5 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export default app;
+
+

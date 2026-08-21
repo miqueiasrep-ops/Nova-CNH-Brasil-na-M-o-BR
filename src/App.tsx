@@ -515,38 +515,85 @@ function buildPixPayload(amount: number): string {
   return basePayload + getCRC16(basePayload);
 }
 
-// Robust merge helpers to prevent any data loss (especially financial progress) when syncing across client-server-cloud
-const mergeAlunosLists = (localList: Aluno[], remoteList: Aluno[]): Aluno[] => {
-  const mergedMap = new Map<string, Aluno>();
+export const normalizeCpfDigits = (cpf?: string): string => {
+  if (!cpf) return '';
+  return String(cpf).replace(/\D/g, '');
+};
 
-  // Start with remote items (server/cloud version)
-  remoteList.forEach(remote => {
-    if (remote && remote.id) {
-      mergedMap.set(remote.id, remote);
+export const normalizeCandidateName = (nome?: string): string => {
+  if (!nome) return '';
+  return String(nome).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+};
+
+// Deduplicação inteligente e universal de candidatos (por CPF limpo, Nome completo normalizado e ID)
+export const deduplicateAlunosList = (list: Aluno[]): Aluno[] => {
+  if (!Array.isArray(list)) return [];
+  const result: Aluno[] = [];
+
+  for (const raw of list) {
+    if (!raw || (!raw.nome && !raw.id)) continue;
+    const item = { ...raw };
+    const cleanCpf = normalizeCpfDigits(item.cpf);
+    const cleanName = normalizeCandidateName(item.nome);
+    const rawId = String(item.id || '').trim();
+
+    // Procura registro correspondente já inserido na lista resultante
+    let matchIdx = -1;
+    if (cleanCpf && cleanCpf.length >= 9) {
+      matchIdx = result.findIndex(e => normalizeCpfDigits(e.cpf) === cleanCpf);
     }
-  });
+    if (matchIdx === -1 && cleanName && cleanName.length >= 3) {
+      matchIdx = result.findIndex(e => normalizeCandidateName(e.nome) === cleanName);
+    }
+    if (matchIdx === -1 && rawId) {
+      matchIdx = result.findIndex(e => String(e.id || '').trim() === rawId);
+    }
 
-  // Merge local items to preserve newest inputs and progress
-  localList.forEach(local => {
-    if (!local || !local.id) return;
-    const remote = mergedMap.get(local.id);
-    if (!remote) {
-      // Local candidate doesn't exist on server yet, keep them
-      mergedMap.set(local.id, local);
-    } else {
-      const timeLocal = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
-      const timeRemote = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
-      const isLocalNewer = timeLocal >= timeRemote;
+    if (matchIdx !== -1) {
+      const existing = result[matchIdx];
+      const timeExisting = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+      const timeItem = item.updatedAt ? new Date(item.updatedAt).getTime() : 0;
+      const isItemNewer = timeItem >= timeExisting;
 
-      const primary = isLocalNewer ? local : remote;
-      const secondary = isLocalNewer ? remote : local;
+      const primary = isItemNewer ? item : existing;
+      const secondary = isItemNewer ? existing : item;
+
+      // Prefer standard CNH-XXX format for candidate id
+      let canonicalId = existing.id;
+      if (item.id && item.id.startsWith('CNH-') && (!canonicalId || !canonicalId.startsWith('CNH-'))) {
+        canonicalId = item.id;
+      } else if (existing.id && existing.id.startsWith('CNH-')) {
+        canonicalId = existing.id;
+      } else {
+        canonicalId = primary.id || secondary.id || existing.id;
+      }
+
+      // Merge comprovantes sem duplicação
+      const compMap = new Map<string, any>();
+      [...(existing.comprovantes || []), ...(item.comprovantes || [])].forEach(c => {
+        if (c) {
+          const k = c.id || c.nomeArquivo || `${c.valor}_${c.dataEnvio}`;
+          compMap.set(k, c);
+        }
+      });
+
+      // Merge baixas sem duplicação
+      const baixasMap = new Map<string, any>();
+      [...(existing.baixasPagamento || []), ...(item.baixasPagamento || [])].forEach(b => {
+        if (b) {
+          const k = b.id || `${b.data}_${b.valor}_${b.parcelasBaixadas}`;
+          baixasMap.set(k, b);
+        }
+      });
 
       const merged: Aluno = {
         ...secondary,
         ...primary,
+        id: canonicalId,
         nome: primary.nome || secondary.nome,
         dob: primary.dob || secondary.dob,
         whatsapp: primary.whatsapp || secondary.whatsapp,
+        telefone: primary.telefone || secondary.telefone || primary.whatsapp || secondary.whatsapp,
         endereco: primary.endereco || secondary.endereco,
         categoria: primary.categoria || secondary.categoria,
         instrutor: (primary.instrutor && primary.instrutor !== 'Sem Instrutor') ? primary.instrutor : (secondary.instrutor || 'Sem Instrutor'),
@@ -560,22 +607,41 @@ const mergeAlunosLists = (localList: Aluno[], remoteList: Aluno[]): Aluno[] => {
         senha: primary.senha || secondary.senha,
         parcelasPagas: primary.parcelasPagas !== undefined ? Math.max(0, Number(primary.parcelasPagas)) : Math.max(0, Number(secondary.parcelasPagas || 0)),
         valorTotal: primary.valorTotal || secondary.valorTotal || 0,
+        valorPago: primary.valorPago !== undefined ? primary.valorPago : secondary.valorPago,
         parcelasTotal: primary.parcelasTotal || secondary.parcelasTotal || 12,
         aulas: primary.aulas || secondary.aulas || 20,
-        pontosSimulado: primary.pontosSimulado || secondary.pontosSimulado || 120,
-        comprovantes: primary.comprovantes || secondary.comprovantes || [],
-        baixasPagamento: primary.baixasPagamento || secondary.baixasPagamento || [],
-        nomeResponsavel: primary.nomeResponsavel,
-        cpfResponsavel: primary.cpfResponsavel,
-        rgResponsavel: primary.rgResponsavel,
-        whatsappResponsavel: primary.whatsappResponsavel,
+        aulasCarro: primary.aulasCarro !== undefined ? primary.aulasCarro : secondary.aulasCarro,
+        aulasMoto: primary.aulasMoto !== undefined ? primary.aulasMoto : secondary.aulasMoto,
+        pontosSimulado: primary.pontosSimulado !== undefined ? primary.pontosSimulado : (secondary.pontosSimulado || 120),
+        comprovantes: Array.from(compMap.values()),
+        baixasPagamento: Array.from(baixasMap.values()),
+        nomeResponsavel: primary.nomeResponsavel || secondary.nomeResponsavel,
+        cpfResponsavel: primary.cpfResponsavel || secondary.cpfResponsavel,
+        rgResponsavel: primary.rgResponsavel || secondary.rgResponsavel,
+        whatsappResponsavel: primary.whatsappResponsavel || secondary.whatsappResponsavel,
         updatedAt: primary.updatedAt || secondary.updatedAt || new Date().toISOString()
       };
-      mergedMap.set(local.id, merged);
+      result[matchIdx] = merged;
+    } else {
+      result.push(item);
     }
+  }
+
+  // Ordenação natural por ID (CNH-005, CNH-007, etc.)
+  result.sort((a, b) => {
+    const matchA = String(a.id || '').match(/\d+/);
+    const matchB = String(b.id || '').match(/\d+/);
+    const numA = matchA ? parseInt(matchA[0], 10) : 0;
+    const numB = matchB ? parseInt(matchB[0], 10) : 0;
+    return numA - numB;
   });
 
-  return Array.from(mergedMap.values());
+  return result;
+};
+
+// Robust merge helpers to prevent any data loss (especially financial progress) when syncing across client-server-cloud
+const mergeAlunosLists = (localList: Aluno[], remoteList: Aluno[]): Aluno[] => {
+  return deduplicateAlunosList([...(remoteList || []), ...(localList || [])]);
 };
 
 const mergeInstrutoresLists = (localList: Instrutor[], remoteList: Instrutor[]): Instrutor[] => {
@@ -693,7 +759,7 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Aluno[];
-        return parsed.map(aluno => {
+        const processed = parsed.map(aluno => {
           const age = calculateAge(aluno.dob);
           if (age < 17) {
             const birthYear = new Date(aluno.dob).getFullYear();
@@ -708,11 +774,12 @@ export default function App() {
           }
           return aluno;
         });
+        return deduplicateAlunosList(processed);
       } catch (e) {
-        return DEFAULT_ALUNOS;
+        return deduplicateAlunosList(DEFAULT_ALUNOS);
       }
     }
-    return DEFAULT_ALUNOS;
+    return deduplicateAlunosList(DEFAULT_ALUNOS);
   });
 
   const [instrutores, setInstrutores] = useState<Instrutor[]>(() => {
@@ -1026,11 +1093,12 @@ export default function App() {
     const unsubAlunos = subscribeAlunos((cloudAlunos) => {
       if (!isMounted) return;
       if (cloudAlunos && Array.isArray(cloudAlunos) && cloudAlunos.length > 0) {
-        console.log(`✅ [Firestore Realtime] Recebidos ${cloudAlunos.length} candidatos da nuvem`);
-        setAlunos(cloudAlunos);
+        const cleanList = deduplicateAlunosList(cloudAlunos);
+        console.log(`✅ [Firestore Realtime] Recebidos ${cleanList.length} candidatos da nuvem (limpos e desduplicados)`);
+        setAlunos(cleanList);
         try {
-          localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(cloudAlunos));
-          localStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(cloudAlunos));
+          localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(cleanList));
+          localStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(cleanList));
         } catch (e) {}
         setSyncStatus('synced');
         setLastSyncTime(new Date());
@@ -1082,18 +1150,12 @@ export default function App() {
         if (!isMounted || !data) return;
         if (data.alunos && Array.isArray(data.alunos) && data.alunos.length > 0) {
           setAlunos(prev => {
-            if (!prev || prev.length === 0) return data.alunos;
-            const merged = [...data.alunos];
-            for (const p of prev) {
-              const pCpf = (p.cpf || '').replace(/\D/g, '');
-              const found = merged.some(m => {
-                if (m.id === p.id) return true;
-                const mCpf = (m.cpf || '').replace(/\D/g, '');
-                return pCpf && mCpf && pCpf === mCpf;
-              });
-              if (!found) merged.push(p);
-            }
-            return merged;
+            const combined = deduplicateAlunosList([...(data.alunos || []), ...(prev || [])]);
+            try {
+              localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(combined));
+              localStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(combined));
+            } catch (e) {}
+            return combined;
           });
         }
         if (data.instrutores && Array.isArray(data.instrutores) && data.instrutores.length > 0) {
@@ -2529,10 +2591,26 @@ export default function App() {
     }
   };
 
+  // Auto-deduplicate alunos whenever state has duplicates
+  useEffect(() => {
+    const deduped = deduplicateAlunosList(alunos);
+    if (deduped.length !== alunos.length) {
+      console.log(`🧹 [Auto-Deduplicate] Removidas ${alunos.length - deduped.length} duplicatas do estado local.`);
+      setAlunos(deduped);
+      try {
+        localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(deduped));
+        localStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(deduped));
+      } catch (e) {}
+    }
+  }, [alunos]);
+
+  // Clean deduplicated alunos list for all views and stats
+  const cleanAlunos = useMemo(() => deduplicateAlunosList(alunos), [alunos]);
+
   // Current logged in Aluno object
   const currentStudent = useMemo(() => {
-    return alunos.find(a => a.id === activeStudentId) || alunos[0] || DUMMY_FALLBACK_ALUNO;
-  }, [alunos, activeStudentId]);
+    return cleanAlunos.find(a => a.id === activeStudentId) || cleanAlunos[0] || DUMMY_FALLBACK_ALUNO;
+  }, [cleanAlunos, activeStudentId]);
 
   // Computed balance for credit card installment simulation
   const cardAmountToPay = currentStudent?.formaPagamento === 'hibrido'
@@ -2544,21 +2622,21 @@ export default function App() {
 
   // Helper dynamic statistics
   const stats = useMemo(() => {
-    const totalAlunos = alunos.length;
-    const menores = alunos.filter(a => calculateAge(a.dob) < 18).length;
+    const totalAlunos = cleanAlunos.length;
+    const menores = cleanAlunos.filter(a => calculateAge(a.dob) < 18).length;
     const maiores = totalAlunos - menores;
-    const totalPlano = alunos.reduce((sum, a) => sum + Number(a.valorTotal), 0);
-    const totalPago = alunos.reduce((sum, a) => sum + (Number(a.parcelasPagas) * (Number(a.valorTotal) / (a.parcelasTotal || 12))), 0);
-    const progressoMedio = totalAlunos > 0 ? (alunos.reduce((sum, a) => sum + (Number(a.parcelasPagas) / (a.parcelasTotal || 12)), 0) / totalAlunos) * 100 : 0;
+    const totalPlano = cleanAlunos.reduce((sum, a) => sum + Number(a.valorTotal), 0);
+    const totalPago = cleanAlunos.reduce((sum, a) => sum + (Number(a.parcelasPagas) * (Number(a.valorTotal) / (a.parcelasTotal || 12))), 0);
+    const progressoMedio = totalAlunos > 0 ? (cleanAlunos.reduce((sum, a) => sum + (Number(a.parcelasPagas) / (a.parcelasTotal || 12)), 0) / totalAlunos) * 100 : 0;
     
     // Aggregates for visual charts
-    const categoriaDistrib = alunos.reduce((acc: { [key: string]: number }, cur) => {
+    const categoriaDistrib = cleanAlunos.reduce((acc: { [key: string]: number }, cur) => {
       acc[cur.categoria] = (acc[cur.categoria] || 0) + 1;
       return acc;
     }, {});
 
     const instrutorFinanceiro = instrutores.map(inst => {
-      const deAlunos = alunos.filter(a => a.instrutor === inst.nome);
+      const deAlunos = cleanAlunos.filter(a => a.instrutor === inst.nome);
       const totalPlanoInst = deAlunos.reduce((sum, a) => sum + Number(a.valorTotal), 0);
       const totalPagoInst = deAlunos.reduce((sum, a) => sum + (Number(a.parcelasPagas) * (Number(a.valorTotal) / (a.parcelasTotal || 12))), 0);
       return {
@@ -2580,11 +2658,11 @@ export default function App() {
       categoriaDistrib,
       instrutorFinanceiro
     };
-  }, [alunos, instrutores]);
+  }, [cleanAlunos, instrutores]);
 
   // Filter Alunos
   const filteredAlunos = useMemo(() => {
-    return alunos.filter(a => {
+    return cleanAlunos.filter(a => {
       const matchSearch = a.nome.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           a.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           a.whatsapp.includes(searchQuery);
@@ -2602,7 +2680,7 @@ export default function App() {
 
       return matchSearch && matchCat && matchInst && matchClass;
     });
-  }, [alunos, searchQuery, filterCategoria, filterInstructor, filterClassificacao]);
+  }, [cleanAlunos, searchQuery, filterCategoria, filterInstructor, filterClassificacao]);
 
   // Reset demo databases
   const resetDemoData = () => {
@@ -3810,16 +3888,9 @@ ${formattedInstrutores}
     let restoredInstrutoresCount = 0;
 
     if (selectedScanItems.length > 0) {
-      const itemsToRestore = scannedAlunos.filter(item => selectedScanItems.includes(`${item.originKey}-${item.id}`));
+      const itemsToRestore = scannedAlunos.filter(item => selectedScanItems.includes(`${item.originKey}-${item.id}`)).map(i => i.data);
       setAlunos(prev => {
-        const mergedMap = new Map<string, Aluno>();
-        prev.forEach(item => {
-          if (item && item.id) mergedMap.set(item.id, item);
-        });
-        itemsToRestore.forEach(item => {
-          mergedMap.set(item.id, item.data);
-        });
-        return Array.from(mergedMap.values());
+        return deduplicateAlunosList([...prev, ...itemsToRestore]);
       });
       restoredAlunosCount = itemsToRestore.length;
     }
