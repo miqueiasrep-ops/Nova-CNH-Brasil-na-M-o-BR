@@ -811,7 +811,7 @@ export function CandidateEnrollmentForm({
     const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
     const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
     const getAmbosPrice = (carroQty: number, motoQty: number) => {
-      if (carroQty === 2 && motoQty === 2) return 550;
+      if (carroQty === 2 && motoQty === 2) return 450;
       return getCarroPrice(carroQty) + getMotoPrice(motoQty);
     };
 
@@ -1797,7 +1797,7 @@ export function CandidateEnrollmentForm({
                       const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
                       const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
                       const getAmbosPrice = (carroQty: number, motoQty: number) => {
-                        if (carroQty === 2 && motoQty === 2) return 550;
+                        if (carroQty === 2 && motoQty === 2) return 450;
                         return getCarroPrice(carroQty) + getMotoPrice(motoQty);
                       };
 

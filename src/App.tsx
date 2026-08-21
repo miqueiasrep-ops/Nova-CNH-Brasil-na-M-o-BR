@@ -6181,7 +6181,7 @@ ${formattedInstrutores}
                                 const getCarroRate = (qty: number) => (qty === 2 ? 250 : qty * 100);
                                 const getMotoRate = (qty: number) => (qty === 2 ? 200 : qty * 70);
                                 const getAmbosRate = (carroQty: number, motoQty: number) => {
-                                  if (carroQty === 2 && motoQty === 2) return 550;
+                                  if (carroQty === 2 && motoQty === 2) return 450;
                                   return getCarroRate(carroQty) + getMotoRate(motoQty);
                                 };
 
@@ -7200,7 +7200,7 @@ ${formattedInstrutores}
                       const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
                       const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
                       const getAmbosPrice = (carroQty: number, motoQty: number) => {
-                        if (carroQty === 2 && motoQty === 2) return 550;
+                        if (carroQty === 2 && motoQty === 2) return 450;
                         return getCarroPrice(carroQty) + getMotoPrice(motoQty);
                       };
 
@@ -7383,7 +7383,7 @@ ${formattedInstrutores}
                       const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
                       const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
                       const getAmbosPrice = (carroQty: number, motoQty: number) => {
-                        if (carroQty === 2 && motoQty === 2) return 550;
+                        if (carroQty === 2 && motoQty === 2) return 450;
                         return getCarroPrice(carroQty) + getMotoPrice(motoQty);
                       };
 
@@ -7430,9 +7430,9 @@ ${formattedInstrutores}
                       }
                       const divisor = calcParcelas;
 
+                      const carroBasePart = getCarroPrice(calcAulasCarro);
+                      const motoBasePart = getMotoPrice(calcAulasMoto);
                       const isCombo2x2 = calcAulasCarro === 2 && calcAulasMoto === 2;
-                      const carroBasePart = isCombo2x2 ? 300 : getCarroPrice(calcAulasCarro);
-                      const motoBasePart = isCombo2x2 ? 250 : getMotoPrice(calcAulasMoto);
 
                       return (
                         <>
@@ -7443,9 +7443,7 @@ ${formattedInstrutores}
                             </div>
                             {calcTipo === 'ambos' && (
                               <div className="text-[10px] text-emerald-400 font-medium">
-                                {isCombo2x2 
-                                  ? 'Divisão base: 2x Carro + 2x Moto (Pacote Carro & Moto: R$ 550,00)'
-                                  : 'Divisão base: ' + String(calcAulasCarro) + 'x Carro (' + carroBasePart.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) + ') + ' + String(calcAulasMoto) + 'x Moto (' + motoBasePart.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) + ')'}
+                                {'Divisão base: ' + String(calcAulasCarro) + 'x Carro (' + carroBasePart.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) + ') + ' + String(calcAulasMoto) + 'x Moto (' + motoBasePart.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) + ')'}
                               </div>
                             )}
                           </div>
