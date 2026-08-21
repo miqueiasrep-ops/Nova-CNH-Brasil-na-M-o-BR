@@ -1154,17 +1154,7 @@ export default function App() {
     const checkForUpdates = async () => {
       if (!active) return;
 
-      const currentPayload = JSON.stringify({
-        alunos: alunosRef.current,
-        instrutores: instrutoresRef.current,
-        gasWebhookUrl: gasWebhookUrlRef.current,
-        googleVerificationCode: googleVerificationCodeRef.current
-      });
-      if (currentPayload !== lastSyncedPayloadRef.current) {
-        return;
-      }
-
-      if (syncStatus === 'pending' || syncStatus === 'syncing' || isUpdatingFromRemote.current) {
+      if (syncStatus === 'syncing' || isUpdatingFromRemote.current) {
         return;
       }
 
@@ -1179,32 +1169,27 @@ export default function App() {
         
         if (!active) return;
 
-        const currentAlunos = alunosRef.current;
-        const currentInstrutores = instrutoresRef.current;
+        const currentAlunos = alunosRef.current || [];
+        const currentInstrutores = instrutoresRef.current || [];
 
-        // Parse last synced state from ref to verify genuine backend remote updates
-        let lastSynced: any = {};
-        try {
-          lastSynced = JSON.parse(lastSyncedPayloadRef.current || '{"alunos":[],"instrutores":[],"gasWebhookUrl":"","googleVerificationCode":""}');
-        } catch (e) {
-          lastSynced = {};
-        }
+        const serverAlunos = data.alunos || [];
+        const serverInstrutores = data.instrutores || [];
 
-        const serverAlunosStr = JSON.stringify(data.alunos || []);
-        const lastSyncedAlunosStr = JSON.stringify(lastSynced.alunos || []);
-        const hasStudentsRefDiff = serverAlunosStr !== lastSyncedAlunosStr;
+        const serverAlunosStr = JSON.stringify(serverAlunos);
+        const localAlunosStr = JSON.stringify(currentAlunos);
+        const hasStudentsRefDiff = serverAlunosStr !== localAlunosStr;
 
-        const serverInstrutoresStr = JSON.stringify(data.instrutores || []);
-        const lastSyncedInstrutoresStr = JSON.stringify(lastSynced.instrutores || []);
-        const hasInstrutoresRefDiff = serverInstrutoresStr !== lastSyncedInstrutoresStr;
+        const serverInstrutoresStr = JSON.stringify(serverInstrutores);
+        const localInstrutoresStr = JSON.stringify(currentInstrutores);
+        const hasInstrutoresRefDiff = serverInstrutoresStr !== localInstrutoresStr;
 
         const serverGasUrl = data.gasWebhookUrl || "";
-        const lastSyncedGasUrl = lastSynced.gasWebhookUrl || "";
-        const hasGasUrlRefDiff = serverGasUrl !== lastSyncedGasUrl;
+        const localGasUrl = gasWebhookUrlRef.current || "";
+        const hasGasUrlRefDiff = serverGasUrl !== localGasUrl;
 
         const serverGoogleCode = data.googleVerificationCode || "";
-        const lastSyncedGoogleCode = lastSynced.googleVerificationCode || "";
-        const hasGoogleCodeRefDiff = serverGoogleCode !== lastSyncedGoogleCode;
+        const localGoogleCode = googleVerificationCodeRef.current || "";
+        const hasGoogleCodeRefDiff = serverGoogleCode !== localGoogleCode;
 
         const hasRemoteUpdate = hasStudentsRefDiff || hasInstrutoresRefDiff || hasGasUrlRefDiff || hasGoogleCodeRefDiff;
 
@@ -1213,18 +1198,18 @@ export default function App() {
           isUpdatingFromRemote.current = true;
           
           let finalAlunos = currentAlunos;
-          if (hasStudentsRefDiff && data.alunos && Array.isArray(data.alunos)) {
-            const mergedAlunos = mergeAlunosLists(currentAlunos, data.alunos);
+          if (hasStudentsRefDiff && Array.isArray(serverAlunos) && serverAlunos.length > 0) {
+            const mergedAlunos = mergeAlunosLists(currentAlunos, serverAlunos);
             finalAlunos = mergedAlunos;
             setAlunos(mergedAlunos);
             localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(mergedAlunos));
           }
 
           let finalInstrutores = currentInstrutores;
-          if (hasInstrutoresRefDiff && data.instrutores && Array.isArray(data.instrutores)) {
-            finalInstrutores = data.instrutores;
-            setInstrutores(data.instrutores);
-            localStorage.setItem('nova_cnh_instrutores', JSON.stringify(data.instrutores));
+          if (hasInstrutoresRefDiff && Array.isArray(serverInstrutores) && serverInstrutores.length > 0) {
+            finalInstrutores = serverInstrutores;
+            setInstrutores(serverInstrutores);
+            localStorage.setItem('nova_cnh_instrutores', JSON.stringify(serverInstrutores));
           }
 
           if (hasGasUrlRefDiff) {
@@ -1246,7 +1231,6 @@ export default function App() {
 
           setLastSyncTime(new Date());
           setSyncStatus('synced');
-          setToastMessage("⚡ Seus dados foram atualizados em tempo real com as novidades da nuvem!");
           
           setTimeout(() => {
             isUpdatingFromRemote.current = false;
@@ -1257,7 +1241,7 @@ export default function App() {
       }
     };
 
-    const intervalId = setInterval(checkForUpdates, 6000);
+    const intervalId = setInterval(checkForUpdates, 3000);
 
     const handleWindowFocus = () => {
       checkForUpdates();

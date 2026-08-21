@@ -604,19 +604,21 @@
       "nacionalidade": "Brasileira",
       "estadoCivil": "Solteiro(a)",
       "categoria": "Moto (A)",
-      "tipoPlano": "Primeira Habilitação",
+      "tipoPlano": "Plano CNH Facilitada Maiores de 18 Anos",
       "aulas": 2,
       "valorTotal": 140,
       "formaPagamento": "vista",
       "parcelasTotal": 1,
       "parcelasPagas": 1,
-      "instrutor": "Miqueias Souza de Lima - Instrutor Autônomo",
+      "instrutor": "Miqueias Souza de Lima ",
       "dataAdesao": "2026-08-04",
       "senha": "7448",
       "baixasPagamento": [],
       "comprovantes": [],
       "pontosSimulado": 0,
-      "updatedAt": "2026-08-07T08:58:23.494Z"
+      "updatedAt": "2026-08-21T01:50:06.535Z",
+      "rg": "",
+      "dob": "2008-01-01"
     },
     {
       "id": "CNH-023",
@@ -627,19 +629,21 @@
       "nacionalidade": "Brasileira",
       "estadoCivil": "Solteiro(a)",
       "categoria": "Carro (B)",
-      "tipoPlano": "Primeira Habilitação",
+      "tipoPlano": "Plano CNH Facilitada Maiores de 18 Anos",
       "aulas": 2,
       "valorTotal": 200,
       "formaPagamento": "vista",
       "parcelasTotal": 1,
       "parcelasPagas": 1,
-      "instrutor": "Miqueias Souza de Lima — Instrutor Autônomo",
+      "instrutor": "Miqueias Souza de Lima ",
       "dataAdesao": "2026-08-04",
       "senha": "424",
       "baixasPagamento": [],
       "comprovantes": [],
       "pontosSimulado": 0,
-      "updatedAt": "2026-08-07T08:58:23.494Z"
+      "updatedAt": "2026-08-21T01:49:56.087Z",
+      "rg": "",
+      "dob": "2008-01-01"
     },
     {
       "senha": "9952",
@@ -685,6 +689,31 @@
       "nome": "Victor Hugo Silva",
       "parcelasPagas": 1,
       "tipoPlano": "Plano CNH Facilitada Maiores de 18 Anos"
+    },
+    {
+      "id": "CNH-025",
+      "nome": "Rosália da Silva Bezerra Rosa",
+      "cpf": "792.617.794-68",
+      "rg": "4.887.892",
+      "whatsapp": "81991315714",
+      "endereco": "Rua da Madeira, 398, COHAB, Cabo de Santo Agostinho/PE",
+      "categoria": "Carro (B)",
+      "instrutor": "Miqueias Souza de Lima ",
+      "dataAdesao": "2026-08-20",
+      "parcelasPagas": 0,
+      "parcelasTotal": 1,
+      "valorTotal": 160,
+      "aulas": 2,
+      "formaPagamento": "vista",
+      "tipoPlano": "Plano CNH Facilitada Maiores de 18 Anos",
+      "nacionalidade": "Brasileira",
+      "estadoCivil": "Solteiro(a)",
+      "senha": "7914",
+      "pontosSimulado": 120,
+      "comprovantes": [],
+      "baixasPagamento": [],
+      "updatedAt": "2026-08-21T01:49:23.960Z",
+      "dob": "2008-01-01"
     }
   ],
   "instrutores": [
@@ -763,8 +792,6 @@
       "senha": "#Dione76"
     }
   ],
-  "gasWebhookUrl": "script.google.com/.../exec",
-  "googleVerificationCode": "",
   "depoimentos": [
     {
       "id": "DEP-001",
@@ -815,5 +842,7 @@
       "origem": "Aluna Habilitada - CNH Facilitada"
     }
   ],
-  "updatedAt": "2026-08-11T17:17:01.182Z"
+  "gasWebhookUrl": "script.google.com/.../exec",
+  "googleVerificationCode": "",
+  "updatedAt": "2026-08-21T01:50:08.264Z"
 }

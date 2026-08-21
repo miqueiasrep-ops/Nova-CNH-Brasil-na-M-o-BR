@@ -764,40 +764,18 @@ export function CandidateEnrollmentForm({
     // Auto generate high-quality random password
     const autoSenha = String(Math.floor(1000 + Math.random() * 9000));
 
-    // Normalizing numbers to check duplicates of whatsapp
+    // Normalizing numbers to check duplicates of whatsapp / cpf
     const cleanWhatsapp = enrollWhatsapp.replace(/\D/g, '');
-    const existingStudent = alunos.find(a => 
-      a.nome.toLowerCase() === enrollNome.trim().toLowerCase() || 
-      (cleanWhatsapp && a.whatsapp.replace(/\D/g, '') === cleanWhatsapp)
-    );
+    const cleanNewCpf = enrollCpf.replace(/\D/g, '');
+    const cleanNewName = enrollNome.trim().toLowerCase();
 
-    if (existingStudent) {
-      const finalAulasCountExisting = existingStudent.categoria === 'Carro e Moto (A+B)' 
-        ? (enrollAulasCarro + enrollAulasMoto) 
-        : enrollAulas;
-      setEnrollCreatedCard({
-        id: existingStudent.id,
-        nome: existingStudent.nome,
-        senha: existingStudent.senha || '123',
-        categoria: existingStudent.categoria,
-        instrutor: existingStudent.instrutor,
-        whatsapp: existingStudent.whatsapp,
-        whatsappResponsavel: existingStudent.whatsappResponsavel,
-        endereco: existingStudent.endereco,
-        cpf: existingStudent.cpf || enrollCpf.trim(),
-        rg: existingStudent.rg || enrollRg.trim(),
-        nacionalidade: existingStudent.nacionalidade || enrollNacionalidade.trim(),
-        estadoCivil: existingStudent.estadoCivil || enrollEstadoCivil.trim(),
-        nomeResponsavel: existingStudent.nomeResponsavel || (age < 18 ? enrollNomeResponsavel.trim() : undefined),
-        cpfResponsavel: existingStudent.cpfResponsavel || (age < 18 ? enrollCpfResponsavel.trim() : undefined),
-        rgResponsavel: existingStudent.rgResponsavel || (age < 18 ? enrollRgResponsavel.trim() : undefined),
-        valorTotal: existingStudent.valorTotal,
-        aulas: finalAulasCountExisting
-      });
-      setShowCredentialsModal(true);
-      setToastMessage(`👋 Dados carregados: identificamos que você já se inscreveu no sistema!`);
-      return;
-    }
+    const existingStudent = alunos.find(a => {
+      const cleanExistingCpf = (a.cpf || '').replace(/\D/g, '');
+      if (cleanNewCpf && cleanExistingCpf && cleanNewCpf === cleanExistingCpf) return true;
+      if (cleanNewName && a.nome.trim().toLowerCase() === cleanNewName) return true;
+      if (cleanWhatsapp && (a.whatsapp || '').replace(/\D/g, '') === cleanWhatsapp) return true;
+      return false;
+    });
 
     const nextIdNum = alunos.length > 0 
       ? Math.max(...alunos.map(a => {
@@ -859,8 +837,6 @@ export function CandidateEnrollmentForm({
       : enrollAulas;
 
     // Search for existing student by CPF or Name to avoid wiping out payments or generating duplicate IDs
-    const cleanNewCpf = enrollCpf.replace(/\D/g, '');
-    const cleanNewName = enrollNome.trim().toLowerCase();
     const matchedStudent = existingStudent || alunos.find(a => {
       const cleanExistingCpf = (a.cpf || '').replace(/\D/g, '');
       if (cleanNewCpf && cleanExistingCpf && cleanNewCpf === cleanExistingCpf) return true;
