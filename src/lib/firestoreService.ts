@@ -33,6 +33,7 @@ export function sanitizeForFirestore<T>(obj: T): T {
 }
 
 let isQuotaExceededState = false;
+let quotaResetTimeout: any = null;
 type QuotaListener = (exceeded: boolean) => void;
 const quotaListeners: Set<QuotaListener> = new Set();
 
@@ -48,11 +49,24 @@ export function subscribeQuotaStatus(listener: QuotaListener): () => void {
 
 function handleQuotaError(err: unknown) {
   const errMsg = err instanceof Error ? err.message : String(err);
-  if (errMsg.includes('resource-exhausted') || errMsg.includes('Quota limit exceeded') || errMsg.includes('quota exceeded') || errMsg.includes('Quota exceeded')) {
+  if (
+    errMsg.includes('resource-exhausted') ||
+    errMsg.includes('Quota limit exceeded') ||
+    errMsg.includes('quota exceeded') ||
+    errMsg.includes('Quota exceeded') ||
+    errMsg.includes('Free daily write units')
+  ) {
     if (!isQuotaExceededState) {
       isQuotaExceededState = true;
-      console.warn("⚠️ [Firestore] Cota diária gratuita do Firestore atingida (Resource Exhausted). Operando em modo offline / localStorage.");
+      console.warn("⚠️ [Firestore] Limite diário gratuito atingido (resource-exhausted). O sistema continuará salvando localmente e na API de forma transparente.");
       quotaListeners.forEach(l => l(true));
+      
+      // Tenta reabilitar após 5 minutos caso a cota tenha sido redefinida
+      if (quotaResetTimeout) clearTimeout(quotaResetTimeout);
+      quotaResetTimeout = setTimeout(() => {
+        isQuotaExceededState = false;
+        quotaListeners.forEach(l => l(false));
+      }, 5 * 60 * 1000);
     }
   }
 }
@@ -162,6 +176,7 @@ export function subscribeConfig(
 
 // 5. Save a single Aluno
 export async function saveAlunoToFirestore(aluno: Aluno): Promise<void> {
+  if (isQuotaExceededState) return;
   try {
     const docId = (aluno.id || aluno.cpf?.replace(/[^0-9]/g, '') || `ALUNO-${Date.now()}`).trim();
     const docRef = doc(db, 'alunos', docId);
@@ -174,7 +189,7 @@ export async function saveAlunoToFirestore(aluno: Aluno): Promise<void> {
     console.log(`✅ [Firestore] Aluno ${docId} salvo com sucesso na nuvem!`);
   } catch (error) {
     handleQuotaError(error);
-    console.warn(`⚠️ [Firestore] Erro ao salvar aluno ${aluno.id}:`, error);
+    console.warn(`⚠️ [Firestore] Aviso ao salvar aluno ${aluno.id}:`, error);
   }
 }
 
@@ -183,6 +198,7 @@ export async function saveAllAlunosToFirestore(
   alunos: Aluno[],
   deletedIds: string[] = []
 ): Promise<void> {
+  if (isQuotaExceededState) return;
   try {
     const batch = writeBatch(db);
 
@@ -217,6 +233,7 @@ export async function saveAllAlunosToFirestore(
 
 // 7. Delete Aluno
 export async function deleteAlunoFromFirestore(alunoId: string): Promise<void> {
+  if (isQuotaExceededState) return;
   try {
     const docRef = doc(db, 'alunos', alunoId.trim());
     await deleteDoc(docRef);
@@ -227,6 +244,7 @@ export async function deleteAlunoFromFirestore(alunoId: string): Promise<void> {
 
 // 8. Save Instrutor
 export async function saveInstrutorToFirestore(instrutor: Instrutor): Promise<void> {
+  if (isQuotaExceededState) return;
   try {
     const docId = (instrutor.nome || `INST-${Date.now()}`).trim().replace(/\//g, '_');
     const docRef = doc(db, 'instrutores', docId);
@@ -241,6 +259,7 @@ export async function saveAllInstrutoresToFirestore(
   instrutores: Instrutor[],
   deletedNomes: string[] = []
 ): Promise<void> {
+  if (isQuotaExceededState) return;
   try {
     const batch = writeBatch(db);
     for (const inst of instrutores) {
@@ -267,6 +286,7 @@ export async function saveAllInstrutoresToFirestore(
 
 // Delete single Instrutor
 export async function deleteInstrutorFromFirestore(nome: string): Promise<void> {
+  if (isQuotaExceededState) return;
   try {
     const docId = nome.trim().replace(/\//g, '_');
     const docRef = doc(db, 'instrutores', docId);
@@ -278,6 +298,7 @@ export async function deleteInstrutorFromFirestore(nome: string): Promise<void> 
 
 // 10. Save Depoimento
 export async function saveDepoimentoToFirestore(depoimento: Depoimento): Promise<void> {
+  if (isQuotaExceededState) return;
   try {
     const docId = depoimento.id || `DEP-${Date.now()}`;
     const docRef = doc(db, 'depoimentos', docId);
@@ -289,6 +310,7 @@ export async function saveDepoimentoToFirestore(depoimento: Depoimento): Promise
 
 // 11. Delete Depoimento
 export async function deleteDepoimentoFromFirestore(depoimentoId: string): Promise<void> {
+  if (isQuotaExceededState) return;
   try {
     const docRef = doc(db, 'depoimentos', depoimentoId);
     await deleteDoc(docRef);
@@ -302,6 +324,7 @@ export async function saveConfigToFirestore(configData: {
   gasWebhookUrl?: string;
   googleVerificationCode?: string;
 }): Promise<void> {
+  if (isQuotaExceededState) return;
   try {
     const docRef = doc(db, 'config', 'general');
     await setDoc(docRef, sanitizeForFirestore(configData), { merge: true });
@@ -312,6 +335,7 @@ export async function saveConfigToFirestore(configData: {
 
 // 13. Seed default database if empty
 export async function seedDefaultData(): Promise<void> {
+  if (isQuotaExceededState) return;
   try {
     const alunosSnap = await getDocs(collection(db, 'alunos'));
     if (alunosSnap.empty) {

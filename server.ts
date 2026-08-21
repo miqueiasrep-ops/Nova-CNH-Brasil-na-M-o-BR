@@ -30,6 +30,10 @@ let memoryCache: {
   updatedAt: string;
 } | null = null;
 
+const firestoreWrittenAlunos = new Map<string, string>();
+const firestoreWrittenInst = new Map<string, string>();
+let serverQuotaExceededUntil = 0;
+
 function isQuotaError(err: any): boolean {
   if (!err) return false;
   const msg = err?.message || String(err);
@@ -41,7 +45,8 @@ function isQuotaError(err: any): boolean {
     msg.includes("quota") ||
     msg.includes("Quota exceeded") ||
     msg.includes("resource-exhausted") ||
-    msg.includes("Quota limit exceeded")
+    msg.includes("Quota limit exceeded") ||
+    msg.includes("Free daily write units")
   );
 }
 
@@ -301,12 +306,14 @@ async function saveToFirestore(
   deletedAlunoIds: string[] = [],
   deletedInstrutorIds: string[] = []
 ) {
+  if (serverQuotaExceededUntil > 0 && Date.now() < serverQuotaExceededUntil) {
+    return false;
+  }
+
   const db = getFirestoreDB();
   if (!db) return false;
 
   try {
-    console.log(`📤 [Firebase] Sincronizando dados para o Firestore na nuvem (Alunos: ${alunos?.length || 0}, Instrutores: ${instrutores?.length || 0})...`);
-    
     // 1. Salvar configurações gerais apenas se houver diferença relevante
     try {
       let configChanged = true;
@@ -330,36 +337,38 @@ async function saveToFirestore(
         }, { merge: true });
       }
     } catch (err: any) {
+      if (isQuotaError(err)) {
+        serverQuotaExceededUntil = Date.now() + 5 * 60 * 1000;
+        return false;
+      }
       console.warn("⚠️ [Firebase] Aviso ao salvar configurações no Firestore:", err?.message || err);
     }
 
     // 2. Upsert coleção de alunos (apenas se alterado para economizar cota do Firestore)
     let alunosWriteCount = 0;
     if (alunos && Array.isArray(alunos)) {
-      // Ler do cache do servidor se disponível
-      const existingMap = new Map<string, string>();
-      if (memoryCache && memoryCache.alunos) {
-        memoryCache.alunos.forEach((a: any) => {
-          if (a && a.id) existingMap.set(String(a.id).trim(), JSON.stringify(cleanObject(a)));
-        });
-      }
-
       for (const aluno of alunos) {
         if (!aluno || !aluno.id) continue;
         const cleanId = String(aluno.id).trim();
         const cleanedAluno = cleanObject(aluno);
         const newStr = JSON.stringify(cleanedAluno);
 
-        // Se já for rigorosamente idêntico ao que temos no cache/Firestore, pula para economizar cota de escrita
-        if (existingMap.has(cleanId) && existingMap.get(cleanId) === newStr) {
+        // Se já for rigorosamente idêntico ao que já salvamos no Firestore, pula para economizar cota de escrita
+        if (firestoreWrittenAlunos.has(cleanId) && firestoreWrittenAlunos.get(cleanId) === newStr) {
           continue;
         }
 
         const alunoRef = doc(db, "alunos", cleanId);
         try {
           await setDoc(alunoRef, cleanedAluno, { merge: true });
+          firestoreWrittenAlunos.set(cleanId, newStr);
           alunosWriteCount++;
         } catch (err: any) {
+          if (isQuotaError(err)) {
+            serverQuotaExceededUntil = Date.now() + 5 * 60 * 1000;
+            console.warn("⚠️ [Firebase] Limite diário gratuito atingido no Firestore. Pausando escritas na nuvem por 5 minutos.");
+            return false;
+          }
           console.warn(`⚠️ [Firebase] Aviso ao salvar aluno ${cleanId}:`, err?.message || err);
         }
       }
@@ -371,9 +380,15 @@ async function saveToFirestore(
       for (const delId of deletedAlunoIds) {
         if (!delId) continue;
         try {
-          await deleteDoc(doc(db, "alunos", String(delId).trim()));
+          const cleanDelId = String(delId).trim();
+          await deleteDoc(doc(db, "alunos", cleanDelId));
+          firestoreWrittenAlunos.delete(cleanDelId);
           alunosDeleteCount++;
         } catch (err: any) {
+          if (isQuotaError(err)) {
+            serverQuotaExceededUntil = Date.now() + 5 * 60 * 1000;
+            return false;
+          }
           console.warn(`⚠️ [Firebase] Aviso ao deletar aluno ${delId}:`, err?.message || err);
         }
       }
@@ -382,13 +397,6 @@ async function saveToFirestore(
     // 3. Upsert coleção de instrutores
     let instWriteCount = 0;
     if (instrutores && Array.isArray(instrutores)) {
-      const existingInstMap = new Map<string, string>();
-      if (memoryCache && memoryCache.instrutores) {
-        memoryCache.instrutores.forEach((i: any) => {
-          if (i && i.nome) existingInstMap.set(String(i.nome).trim().toLowerCase(), JSON.stringify(cleanObject(i)));
-        });
-      }
-
       for (const inst of instrutores) {
         if (!inst || !inst.nome) continue;
         const cleanId = String(inst.nome).trim().replace(/\//g, "-");
@@ -396,15 +404,20 @@ async function saveToFirestore(
         const newInstStr = JSON.stringify(cleanedInst);
         const key = String(inst.nome).trim().toLowerCase();
 
-        if (existingInstMap.has(key) && existingInstMap.get(key) === newInstStr) {
+        if (firestoreWrittenInst.has(key) && firestoreWrittenInst.get(key) === newInstStr) {
           continue;
         }
 
         const instRef = doc(db, "instrutores", cleanId);
         try {
           await setDoc(instRef, cleanedInst, { merge: true });
+          firestoreWrittenInst.set(key, newInstStr);
           instWriteCount++;
         } catch (err: any) {
+          if (isQuotaError(err)) {
+            serverQuotaExceededUntil = Date.now() + 5 * 60 * 1000;
+            return false;
+          }
           console.warn(`⚠️ [Firebase] Aviso ao salvar instrutor:`, err?.message || err);
         }
       }
@@ -416,17 +429,28 @@ async function saveToFirestore(
       for (const delId of deletedInstrutorIds) {
         if (!delId) continue;
         try {
-          await deleteDoc(doc(db, "instrutores", String(delId).trim().replace(/\//g, "-")));
+          const cleanDelId = String(delId).trim().replace(/\//g, "-");
+          await deleteDoc(doc(db, "instrutores", cleanDelId));
+          firestoreWrittenInst.delete(String(delId).trim().toLowerCase());
           instDeleteCount++;
         } catch (err: any) {
+          if (isQuotaError(err)) {
+            serverQuotaExceededUntil = Date.now() + 5 * 60 * 1000;
+            return false;
+          }
           console.warn(`⚠️ [Firebase] Aviso ao deletar instrutor:`, err?.message || err);
         }
       }
     }
 
-    console.log(`✅ [Firebase] Sincronização concluída na nuvem. Escritas realizadas - Alunos: ${alunosWriteCount}, Instrutores: ${instWriteCount}. Exclusões - Alunos: ${alunosDeleteCount}, Instrutores: ${instDeleteCount}`);
+    if (alunosWriteCount > 0 || instWriteCount > 0 || alunosDeleteCount > 0 || instDeleteCount > 0) {
+      console.log(`✅ [Firebase] Sincronização concluída na nuvem. Escritas realizadas - Alunos: ${alunosWriteCount}, Instrutores: ${instWriteCount}. Exclusões - Alunos: ${alunosDeleteCount}, Instrutores: ${instDeleteCount}`);
+    }
     return true;
   } catch (error: any) {
+    if (isQuotaError(error)) {
+      serverQuotaExceededUntil = Date.now() + 5 * 60 * 1000;
+    }
     console.warn("⚠️ [Firebase] Erro ao salvar dados no Firestore:", error?.message || error);
     return false;
   }

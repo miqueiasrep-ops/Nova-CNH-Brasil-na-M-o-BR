@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { Aluno } from '../types';
 import { parseCandidateLink, safeAtob } from './LinkEnrollmentModal';
-import { saveAlunoToFirestore, saveAllAlunosToFirestore } from '../lib/firestoreService';
+import { saveAlunoToFirestore } from '../lib/firestoreService';
 
 interface CandidateEnrollmentFormProps {
   alunos: Aluno[];
@@ -808,11 +808,18 @@ export function CandidateEnrollmentForm({
       : 1;
     const formattedId = `CNH-${String(nextIdNum).padStart(3, '0')}`;
 
+    const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
+    const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
+    const getAmbosPrice = (carroQty: number, motoQty: number) => {
+      if (carroQty === 2 && motoQty === 2) return 550;
+      return getCarroPrice(carroQty) + getMotoPrice(motoQty);
+    };
+
     const rawBaseValorTotal = enrollCategoria === 'Moto (A)' 
-      ? enrollAulas * 70 
+      ? getMotoPrice(enrollAulas) 
       : enrollCategoria === 'Carro (B)' 
-        ? enrollAulas * 100 
-        : (enrollAulasCarro * 100) + (enrollAulasMoto * 70);
+        ? getCarroPrice(enrollAulas) 
+        : getAmbosPrice(enrollAulasCarro, enrollAulasMoto);
 
     const currentMonth = new Date().getMonth() + 1;
     const currentYear = new Date().getFullYear();
@@ -918,9 +925,8 @@ export function CandidateEnrollmentForm({
       localStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(updatedList));
     } catch (e) {}
 
-    // Persistência direta no Firestore (funciona no Vercel e em todos os dispositivos em tempo real)
-    saveAlunoToFirestore(newObj).catch(err => console.warn("Erro ao salvar aluno no Firestore:", err));
-    saveAllAlunosToFirestore(updatedList).catch(err => console.warn("Erro ao sincronizar alunos no Firestore:", err));
+    // Persistência direta no Firestore (salva apenas o novo candidato para otimização de cota)
+    saveAlunoToFirestore(newObj).catch(err => console.warn("Aviso ao salvar aluno no Firestore:", err));
 
     fetch('/api/db', {
       method: 'POST',
@@ -1788,11 +1794,18 @@ export function CandidateEnrollmentForm({
                   <div className="space-y-1">
                     <label className="block text-xs font-bold text-slate-700">Parcelas para o Financiamento:</label>
                     {(() => {
+                      const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
+                      const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
+                      const getAmbosPrice = (carroQty: number, motoQty: number) => {
+                        if (carroQty === 2 && motoQty === 2) return 550;
+                        return getCarroPrice(carroQty) + getMotoPrice(motoQty);
+                      };
+
                       const rawBaseVal = enrollCategoria === 'Moto (A)' 
-                        ? enrollAulas * 70 
+                        ? getMotoPrice(enrollAulas) 
                         : enrollCategoria === 'Carro (B)' 
-                          ? enrollAulas * 100 
-                          : (enrollAulasCarro * 100) + (enrollAulasMoto * 70);
+                          ? getCarroPrice(enrollAulas) 
+                          : getAmbosPrice(enrollAulasCarro, enrollAulasMoto);
 
                       const currentMonth = new Date().getMonth() + 1;
                       const currentYear = new Date().getFullYear();

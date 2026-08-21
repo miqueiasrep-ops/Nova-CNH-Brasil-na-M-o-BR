@@ -928,10 +928,16 @@ export default function App() {
 
   // Helper central para atualizar alunos garantindo persistência local e sincronia com a nuvem / Firestore
   const saveAlunosList = (updatedList: Aluno[], deletedIds?: string[]) => {
-    const listWithTimestamp = updatedList.map(a => ({
-      ...a,
-      updatedAt: new Date().toISOString()
-    }));
+    const listWithTimestamp = updatedList.map(a => {
+      const prev = alunosRef.current?.find(p => p && p.id === a.id);
+      if (prev && JSON.stringify(prev) === JSON.stringify(a)) {
+        return a;
+      }
+      return {
+        ...a,
+        updatedAt: a.updatedAt || new Date().toISOString()
+      };
+    });
 
     setAlunos(listWithTimestamp);
 
@@ -6172,12 +6178,18 @@ ${formattedInstrutores}
                                 const activeCarro = (addAulasTipo === 'carro' || addAulasTipo === 'ambos') ? addAulasCarroQty : 0;
                                 const activeMoto = (addAulasTipo === 'moto' || addAulasTipo === 'ambos') ? addAulasMotoQty : 0;
                                 
-                                const rateCarro = 100; // R$ 100,00 por aula de Carro (B) - mesmo valor do simulador
-                                const rateMoto = 70;   // R$ 70,00 por aula de Moto (A) - mesmo valor do simulador
+                                const getCarroRate = (qty: number) => (qty === 2 ? 250 : qty * 100);
+                                const getMotoRate = (qty: number) => (qty === 2 ? 200 : qty * 70);
+                                const getAmbosRate = (carroQty: number, motoQty: number) => {
+                                  if (carroQty === 2 && motoQty === 2) return 550;
+                                  return getCarroRate(carroQty) + getMotoRate(motoQty);
+                                };
 
-                                const costCarro = activeCarro * rateCarro;
-                                const costMoto = activeMoto * rateMoto;
-                                const rawBaseExtraCost = costCarro + costMoto;
+                                const costCarro = getCarroRate(activeCarro);
+                                const costMoto = getMotoRate(activeMoto);
+                                const rawBaseExtraCost = addAulasTipo === 'ambos' 
+                                  ? getAmbosRate(activeCarro, activeMoto) 
+                                  : (costCarro + costMoto);
                                 const totalNewClasses = activeCarro + activeMoto;
 
                                 const isCartao = addAulasPaymentMethod === 'cartao';
@@ -6206,7 +6218,7 @@ ${formattedInstrutores}
                                             <span className="font-bold text-slate-200">
                                               Carro (B): <strong className="text-emerald-400">{activeCarro} {activeCarro === 1 ? 'aula' : 'aulas'}</strong>
                                             </span>
-                                            <span className="text-[9px] text-slate-500">(R$ 100,00/un)</span>
+                                            <span className="text-[9px] text-slate-500">{activeCarro === 2 ? "(R$ 250,00 pacote)" : "(R$ 100,00/un)"}</span>
                                           </div>
                                           <span className="font-black text-emerald-400 text-xs">
                                             {costCarro.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -6222,7 +6234,7 @@ ${formattedInstrutores}
                                             <span className="font-bold text-slate-200">
                                               Moto (A): <strong className="text-amber-400">{activeMoto} {activeMoto === 1 ? 'aula' : 'aulas'}</strong>
                                             </span>
-                                            <span className="text-[9px] text-slate-500">(R$ 70,00/un)</span>
+                                            <span className="text-[9px] text-slate-500">{activeMoto === 2 ? "(R$ 200,00 pacote)" : "(R$ 70,00/un)"}</span>
                                           </div>
                                           <span className="font-black text-amber-400 text-xs">
                                             {costMoto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -7185,11 +7197,18 @@ ${formattedInstrutores}
                       <span>📅</span> Escolha o Número de Parcelas:
                     </label>
                     {(() => {
+                      const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
+                      const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
+                      const getAmbosPrice = (carroQty: number, motoQty: number) => {
+                        if (carroQty === 2 && motoQty === 2) return 550;
+                        return getCarroPrice(carroQty) + getMotoPrice(motoQty);
+                      };
+
                       const calculatedSimTotal = calcTipo === 'carro' 
-                        ? calcAulas * 100 
+                        ? getCarroPrice(calcAulas) 
                         : calcTipo === 'moto' 
-                          ? calcAulas * 70 
-                          : (calcAulasCarro * 100) + (calcAulasMoto * 70);
+                          ? getMotoPrice(calcAulas) 
+                          : getAmbosPrice(calcAulasCarro, calcAulasMoto);
                       return (
                         <div className="relative">
                           <select 
@@ -7361,11 +7380,18 @@ ${formattedInstrutores}
                     </span>
                     
                     {(() => {
+                      const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
+                      const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
+                      const getAmbosPrice = (carroQty: number, motoQty: number) => {
+                        if (carroQty === 2 && motoQty === 2) return 550;
+                        return getCarroPrice(carroQty) + getMotoPrice(motoQty);
+                      };
+
                       const rawBaseCalcVal = calcTipo === 'carro' 
-                        ? calcAulas * 100 
+                        ? getCarroPrice(calcAulas) 
                         : calcTipo === 'moto' 
-                          ? calcAulas * 70 
-                          : (calcAulasCarro * 100) + (calcAulasMoto * 70);
+                          ? getMotoPrice(calcAulas) 
+                          : getAmbosPrice(calcAulasCarro, calcAulasMoto);
                       
                       const currentMonth = new Date().getMonth() + 1;
                       const currentYear = new Date().getFullYear();
@@ -7404,6 +7430,10 @@ ${formattedInstrutores}
                       }
                       const divisor = calcParcelas;
 
+                      const isCombo2x2 = calcAulasCarro === 2 && calcAulasMoto === 2;
+                      const carroBasePart = isCombo2x2 ? 300 : getCarroPrice(calcAulasCarro);
+                      const motoBasePart = isCombo2x2 ? 250 : getMotoPrice(calcAulasMoto);
+
                       return (
                         <>
                           <div className="mt-3 space-y-1 text-left">
@@ -7413,7 +7443,9 @@ ${formattedInstrutores}
                             </div>
                             {calcTipo === 'ambos' && (
                               <div className="text-[10px] text-emerald-400 font-medium">
-                                Divisão base: {calcAulasCarro}x Carro (R${calcAulasCarro * 100}) + {calcAulasMoto}x Moto (R${calcAulasMoto * 70})
+                                {isCombo2x2 
+                                  ? 'Divisão base: 2x Carro + 2x Moto (Pacote Carro & Moto: R$ 550,00)'
+                                  : 'Divisão base: ' + String(calcAulasCarro) + 'x Carro (' + carroBasePart.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) + ') + ' + String(calcAulasMoto) + 'x Moto (' + motoBasePart.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) + ')'}
                               </div>
                             )}
                           </div>
