@@ -808,8 +808,8 @@ export function CandidateEnrollmentForm({
       : 1;
     const formattedId = `CNH-${String(nextIdNum).padStart(3, '0')}`;
 
-    const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
-    const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
+    const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 125);
+    const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 90);
     const getAmbosPrice = (carroQty: number, motoQty: number) => {
       if (carroQty === 2 && motoQty === 2) return 450;
       return getCarroPrice(carroQty) + getMotoPrice(motoQty);
@@ -1794,8 +1794,8 @@ export function CandidateEnrollmentForm({
                   <div className="space-y-1">
                     <label className="block text-xs font-bold text-slate-700">Parcelas para o Financiamento:</label>
                     {(() => {
-                      const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
-                      const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
+                      const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 125);
+                      const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 90);
                       const getAmbosPrice = (carroQty: number, motoQty: number) => {
                         if (carroQty === 2 && motoQty === 2) return 450;
                         return getCarroPrice(carroQty) + getMotoPrice(motoQty);

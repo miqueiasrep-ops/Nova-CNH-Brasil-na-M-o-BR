@@ -1821,7 +1821,7 @@ export default function App() {
       : 1;
     const formattedId = `CNH-${String(nextIdNum).padStart(3, '0')}`;
 
-    const ratePerClass = enrollCategoria === 'Moto (A)' ? 70 : enrollCategoria === 'Carro (B)' ? 100 : 170;
+    const ratePerClass = enrollCategoria === 'Moto (A)' ? 90 : enrollCategoria === 'Carro (B)' ? 125 : 215;
     const enrollValorTotal = 10 * ratePerClass;
 
     const newObj: Aluno = {
@@ -6178,8 +6178,8 @@ ${formattedInstrutores}
                                 const activeCarro = (addAulasTipo === 'carro' || addAulasTipo === 'ambos') ? addAulasCarroQty : 0;
                                 const activeMoto = (addAulasTipo === 'moto' || addAulasTipo === 'ambos') ? addAulasMotoQty : 0;
                                 
-                                const getCarroRate = (qty: number) => (qty === 2 ? 250 : qty * 100);
-                                const getMotoRate = (qty: number) => (qty === 2 ? 200 : qty * 70);
+                                const getCarroRate = (qty: number) => (qty === 2 ? 250 : qty * 125);
+                                const getMotoRate = (qty: number) => (qty === 2 ? 200 : qty * 90);
                                 const getAmbosRate = (carroQty: number, motoQty: number) => {
                                   if (carroQty === 2 && motoQty === 2) return 450;
                                   return getCarroRate(carroQty) + getMotoRate(motoQty);
@@ -6218,7 +6218,7 @@ ${formattedInstrutores}
                                             <span className="font-bold text-slate-200">
                                               Carro (B): <strong className="text-emerald-400">{activeCarro} {activeCarro === 1 ? 'aula' : 'aulas'}</strong>
                                             </span>
-                                            <span className="text-[9px] text-slate-500">{activeCarro === 2 ? "(R$ 250,00 pacote)" : "(R$ 100,00/un)"}</span>
+                                            <span className="text-[9px] text-slate-500">{activeCarro === 2 ? "(R$ 250,00 pacote)" : "(R$ 125,00/un)"}</span>
                                           </div>
                                           <span className="font-black text-emerald-400 text-xs">
                                             {costCarro.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -6234,7 +6234,7 @@ ${formattedInstrutores}
                                             <span className="font-bold text-slate-200">
                                               Moto (A): <strong className="text-amber-400">{activeMoto} {activeMoto === 1 ? 'aula' : 'aulas'}</strong>
                                             </span>
-                                            <span className="text-[9px] text-slate-500">{activeMoto === 2 ? "(R$ 200,00 pacote)" : "(R$ 70,00/un)"}</span>
+                                            <span className="text-[9px] text-slate-500">{activeMoto === 2 ? "(R$ 200,00 pacote)" : "(R$ 90,00/un)"}</span>
                                           </div>
                                           <span className="font-black text-amber-400 text-xs">
                                             {costMoto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -7197,8 +7197,8 @@ ${formattedInstrutores}
                       <span>📅</span> Escolha o Número de Parcelas:
                     </label>
                     {(() => {
-                      const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
-                      const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
+                      const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 125);
+                      const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 90);
                       const getAmbosPrice = (carroQty: number, motoQty: number) => {
                         if (carroQty === 2 && motoQty === 2) return 450;
                         return getCarroPrice(carroQty) + getMotoPrice(motoQty);
@@ -7380,8 +7380,8 @@ ${formattedInstrutores}
                     </span>
                     
                     {(() => {
-                      const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 100);
-                      const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 70);
+                      const getCarroPrice = (qty: number) => (qty === 2 ? 250 : qty * 125);
+                      const getMotoPrice = (qty: number) => (qty === 2 ? 200 : qty * 90);
                       const getAmbosPrice = (carroQty: number, motoQty: number) => {
                         if (carroQty === 2 && motoQty === 2) return 450;
                         return getCarroPrice(carroQty) + getMotoPrice(motoQty);
