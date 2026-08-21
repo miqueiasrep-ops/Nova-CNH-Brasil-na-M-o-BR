@@ -1084,6 +1084,13 @@ export default function App() {
     let isMounted = true;
     console.log("☁️ [Firebase Realtime] Conectando ao Firestore na nuvem...");
 
+    // Safety timeout to ensure isInitialLoading becomes false even during network lag
+    const initialLoadingTimeout = setTimeout(() => {
+      if (isMounted) {
+        setIsInitialLoading(false);
+      }
+    }, 600);
+
     const unsubQuota = subscribeQuotaStatus((exceeded) => {
       if (isMounted) {
         setIsQuotaExceeded(exceeded);
@@ -1351,7 +1358,7 @@ export default function App() {
     const pValorTotal = extracted.valorTotal || parseFloat(params.get('valorTotal') || '') || (pCategoria === 'Moto (A)' ? 140 : 200);
     const pFormaPagamento = (extracted.formaPagamento as any) || params.get('formaPagamento') || 'vista';
     const pSenha = extracted.senha || params.get('senha') || (pCpf ? pCpf.replace(/\D/g, '').slice(-4) : String(Math.floor(1000 + Math.random() * 9000)));
-    const hasEnrollment = params.get('inscrever') === 'true' || !!pNome.trim() || !!extracted.rawReg;
+    const hasEnrollment = params.get('inscrever') === 'true' || !!pNome.trim() || !!extracted.rawReg || !!pInstrutor || params.has('instrutor') || params.has('ref');
 
     // Clean query string immediately so subsequent re-renders never see it
     try {
@@ -7636,6 +7643,7 @@ ${formattedInstrutores}
             <CandidateEnrollmentForm
               alunos={alunos}
               setAlunos={setAlunos}
+              instrutores={instrutores}
               preSelectedPlano={enrollPlano}
               preSelectedCategoria={enrollCategoria}
               preSelectedDob={enrollDob}
@@ -9750,7 +9758,7 @@ ${formattedInstrutores}
                       <div className="flex flex-col items-center bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-3">
                         <div className="bg-white p-3 rounded-xl shadow-lg">
                           <img 
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${activeInstructor.nome}`)}`}
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(`${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(activeInstructor.nome)}`)}`}
                             alt="Referral QR Code"
                             className="w-[150px] h-[150px] object-contain"
                             referrerPolicy="no-referrer"
@@ -12955,7 +12963,7 @@ ${formattedInstrutores}
                       <div className="flex flex-col items-center bg-slate-950 p-3 rounded-lg border border-slate-850 space-y-2">
                         <div className="bg-white p-2 rounded-lg shadow-inner">
                           <img 
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${inst.nome}`)}`}
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(inst.nome)}`)}`}
                             alt="QR Code Auto-Matrícula"
                             className="w-[125px] h-[125px] object-contain"
                             referrerPolicy="no-referrer"

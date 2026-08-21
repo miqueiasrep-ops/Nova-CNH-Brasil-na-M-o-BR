@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import { Aluno } from '../types';
+import { Aluno, Instrutor } from '../types';
 import { parseCandidateLink, safeAtob } from './LinkEnrollmentModal';
 import { saveAlunoToFirestore } from '../lib/firestoreService';
 
 interface CandidateEnrollmentFormProps {
   alunos: Aluno[];
   setAlunos: React.Dispatch<React.SetStateAction<Aluno[]>>;
+  instrutores?: Instrutor[];
   preSelectedPlano?: 'jovem-17' | 'adulto-18' | 'habilitado';
   preSelectedCategoria?: string;
   preSelectedDob?: string;
@@ -100,6 +101,7 @@ const safeScrollTo = (top: number) => {
 export function CandidateEnrollmentForm({
   alunos,
   setAlunos,
+  instrutores = [],
   preSelectedPlano = 'jovem-17',
   preSelectedCategoria = 'Carro (B)',
   preSelectedDob = '2008-08-14',
@@ -146,7 +148,22 @@ export function CandidateEnrollmentForm({
   const [enrollWhatsappResponsavel, setEnrollWhatsappResponsavel] = useState<string>('');
   const [enrollCep, setEnrollCep] = useState<string>('');
   const [enrollEndereco, setEnrollEndereco] = useState<string>(preSelectedEndereco);
-  const [enrollInstrutor, setEnrollInstrutor] = useState<string>(preSelectedInstrutor);
+  const [enrollInstrutor, setEnrollInstrutor] = useState<string>(() => {
+    if (preSelectedInstrutor && preSelectedInstrutor !== 'Sem Instrutor') return preSelectedInstrutor;
+    try {
+      if (typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const refInst = urlParams.get('instrutor') || urlParams.get('ref') || urlParams.get('instructor');
+        if (refInst) return decodeURIComponent(refInst).trim();
+        const stored = sessionStorage.getItem('autodrive_pending_candidate');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed.instrutor) return parsed.instrutor.trim();
+        }
+      }
+    } catch (e) {}
+    return '';
+  });
   
   // Custom contract fields requested by the user
   const [enrollCpf, setEnrollCpf] = useState<string>(preSelectedCpf);
@@ -299,30 +316,32 @@ export function CandidateEnrollmentForm({
       if (typeof window !== 'undefined' && window.location.search) {
         parsed = parseCandidateLink(window.location.search);
       }
-      if (!parsed || (!parsed.nome && !parsed.cpf && !parsed.rawReg)) {
-        const stored = sessionStorage.getItem('autodrive_pending_candidate');
-        if (stored) {
-          parsed = JSON.parse(stored);
-        }
+      const stored = typeof window !== 'undefined' ? sessionStorage.getItem('autodrive_pending_candidate') : null;
+      let storedObj: any = null;
+      if (stored) {
+        try {
+          storedObj = JSON.parse(stored);
+        } catch (e) {}
       }
-      if (parsed) {
-        if (parsed.nome) setEnrollNome(parsed.nome);
-        if (parsed.cpf) setEnrollCpf(parsed.cpf);
-        if (parsed.rg) setEnrollRg(parsed.rg);
-        if (parsed.whatsapp) setEnrollWhatsapp(parsed.whatsapp);
-        if (parsed.endereco) setEnrollEndereco(parsed.endereco);
-        if (parsed.instrutor) setEnrollInstrutor(parsed.instrutor);
-        if (parsed.categoria) setEnrollCategoria(parsed.categoria);
-        if (parsed.dob) setEnrollDob(parsed.dob);
-        if (parsed.nacionalidade) setEnrollNacionalidade(parsed.nacionalidade);
-        if (parsed.estadoCivil) setEnrollEstadoCivil(parsed.estadoCivil);
+      const combined = { ...(storedObj || {}), ...(parsed || {}) };
+      if (combined && (combined.nome || combined.cpf || combined.rawReg || combined.instrutor || combined.categoria)) {
+        if (combined.nome) setEnrollNome(combined.nome);
+        if (combined.cpf) setEnrollCpf(combined.cpf);
+        if (combined.rg) setEnrollRg(combined.rg);
+        if (combined.whatsapp) setEnrollWhatsapp(combined.whatsapp);
+        if (combined.endereco) setEnrollEndereco(combined.endereco);
+        if (combined.instrutor && combined.instrutor !== 'Sem Instrutor') setEnrollInstrutor(combined.instrutor);
+        if (combined.categoria) setEnrollCategoria(combined.categoria);
+        if (combined.dob) setEnrollDob(combined.dob);
+        if (combined.nacionalidade) setEnrollNacionalidade(combined.nacionalidade);
+        if (combined.estadoCivil) setEnrollEstadoCivil(combined.estadoCivil);
 
-        // Also if candidate rawReg or ID is in parsed, match in `alunos`
-        if (alunos && alunos.length > 0 && (parsed.rawReg || parsed.cpf || parsed.nome)) {
-          const rawRegVal = parsed.rawReg || '';
+        // Also if candidate rawReg or ID is in combined, match in `alunos`
+        if (alunos && alunos.length > 0 && (combined.rawReg || combined.cpf || combined.nome)) {
+          const rawRegVal = combined.rawReg || '';
           const decodedRegVal = rawRegVal ? safeAtob(rawRegVal) : '';
-          const cleanNewCpf = (parsed.cpf || '').replace(/\D/g, '');
-          const cleanNewName = (parsed.nome || '').trim().toLowerCase();
+          const cleanNewCpf = (combined.cpf || '').replace(/\D/g, '');
+          const cleanNewName = (combined.nome || '').trim().toLowerCase();
 
           const existingStudent = alunos.find(a => {
             if (rawRegVal && a.id === rawRegVal) return true;
@@ -338,7 +357,7 @@ export function CandidateEnrollmentForm({
             if (existingStudent.rg) setEnrollRg(existingStudent.rg);
             if (existingStudent.whatsapp) setEnrollWhatsapp(existingStudent.whatsapp);
             if (existingStudent.endereco) setEnrollEndereco(existingStudent.endereco);
-            if (existingStudent.instrutor) setEnrollInstrutor(existingStudent.instrutor);
+            if (existingStudent.instrutor && existingStudent.instrutor !== 'Sem Instrutor') setEnrollInstrutor(existingStudent.instrutor);
             if (existingStudent.nacionalidade) setEnrollNacionalidade(existingStudent.nacionalidade);
             if (existingStudent.estadoCivil) setEnrollEstadoCivil(existingStudent.estadoCivil);
             if (existingStudent.dob) setEnrollDob(existingStudent.dob);
@@ -858,12 +877,25 @@ export function CandidateEnrollmentForm({
       categoria: enrollCategoria,
       instrutor: (() => {
         if (enrollInstrutor && enrollInstrutor !== 'Sem Instrutor' && enrollInstrutor !== 'A definir') {
-          return enrollInstrutor;
+          return enrollInstrutor.trim();
+        }
+        if (preSelectedInstrutor && preSelectedInstrutor !== 'Sem Instrutor' && preSelectedInstrutor !== 'A definir') {
+          return preSelectedInstrutor.trim();
         }
         if (matchedStudent && matchedStudent.instrutor) return matchedStudent.instrutor;
-        const urlParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
-        const referrerInstrutor = urlParams.get('instrutor');
-        return referrerInstrutor ? decodeURIComponent(referrerInstrutor).trim() : 'Sem Instrutor';
+        try {
+          const stored = sessionStorage.getItem('autodrive_pending_candidate');
+          if (stored) {
+            const parsedStored = JSON.parse(stored);
+            if (parsedStored.instrutor && parsedStored.instrutor !== 'Sem Instrutor') {
+              return parsedStored.instrutor.trim();
+            }
+          }
+          const urlParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+          const referrerInstrutor = urlParams.get('instrutor') || urlParams.get('ref') || urlParams.get('instructor');
+          if (referrerInstrutor) return decodeURIComponent(referrerInstrutor).trim();
+        } catch (e) {}
+        return 'Sem Instrutor';
       })(),
       dataAdesao: matchedStudent ? matchedStudent.dataAdesao : new Date().toISOString().substring(0, 10),
       parcelasPagas: existingParcelasPagas, // Preserves actual payments or starts at 0 (unpaid)
@@ -1507,22 +1539,43 @@ export function CandidateEnrollmentForm({
         /* FORMULÁRIO DE INSCRIÇÃO DO CANDIDATO */
         <form onSubmit={handleCandidateEnroll} className="space-y-6 text-left">
           {(() => {
-            const urlParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
-            const referrerInstrutor = urlParams.get('instrutor');
-            if (referrerInstrutor) {
+            const activeRefInstrutor = (enrollInstrutor && enrollInstrutor !== 'Sem Instrutor' && enrollInstrutor !== 'A definir') 
+              ? enrollInstrutor 
+              : (preSelectedInstrutor && preSelectedInstrutor !== 'Sem Instrutor' && preSelectedInstrutor !== 'A definir')
+                ? preSelectedInstrutor
+                : (() => {
+                    try {
+                      const urlParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+                      const refParam = urlParams.get('instrutor') || urlParams.get('ref') || urlParams.get('instructor');
+                      if (refParam) return decodeURIComponent(refParam).trim();
+                      const stored = sessionStorage.getItem('autodrive_pending_candidate');
+                      if (stored) {
+                        const parsed = JSON.parse(stored);
+                        if (parsed.instrutor && parsed.instrutor !== 'Sem Instrutor') return parsed.instrutor.trim();
+                      }
+                    } catch (e) {}
+                    return '';
+                  })();
+
+            if (activeRefInstrutor) {
               return (
-                <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-emerald-800 shadow-xs animate-in slide-in-from-top-2 duration-300">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl animate-bounce">🤝</span>
+                <div className="bg-emerald-950/90 text-emerald-100 border-2 border-emerald-500 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg animate-in slide-in-from-top-2 duration-300">
+                  <div className="flex items-center gap-3.5">
+                    <span className="text-3xl animate-bounce">🤝</span>
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider font-extrabold text-emerald-600">Vínculo de Atendimento</p>
-                      <p className="text-xs text-slate-700 font-semibold mt-0.5">
-                        Inscrição vinculada ao instrutor parceiro: <strong className="text-emerald-950 font-black">{decodeURIComponent(referrerInstrutor)}</strong>
+                      <p className="text-[10px] uppercase tracking-wider font-extrabold text-emerald-400 font-mono flex items-center gap-1">
+                        <span>⚡</span> Vínculo Oficial de Atendimento
+                      </p>
+                      <p className="text-sm text-white font-extrabold mt-0.5">
+                        Inscrição vinculada ao instrutor parceiro: <strong className="text-emerald-300 underline font-black">{activeRefInstrutor}</strong>
+                      </p>
+                      <p className="text-[10.5px] text-emerald-300/80">
+                        Suas aulas práticas e comissionamento serão direcionados diretamente para este instrutor.
                       </p>
                     </div>
                   </div>
-                  <div className="bg-[#10b981] text-slate-950 text-[10px] font-black uppercase px-3 py-1.5 rounded-full font-mono shrink-0 select-none shadow-sm flex items-center gap-1.5 self-start sm:self-auto">
-                    <span>⚡</span> Vendedor Vinculado
+                  <div className="bg-emerald-500 text-slate-950 text-xs font-black uppercase px-4 py-2 rounded-full font-mono shrink-0 select-none shadow-md flex items-center gap-1.5 self-start sm:self-auto">
+                    <span>✓</span> Instrutor Vinculado
                   </div>
                 </div>
               );
@@ -1764,6 +1817,35 @@ export function CandidateEnrollmentForm({
                       (Configurada na simulação acima. Ajuste o simulador caso pretenda alterar.)
                     </span>
                   </div>
+                </div>
+
+                <div className="space-y-1 md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span>Instrutor Responsável / Vinculado:</span>
+                    {enrollInstrutor && enrollInstrutor !== 'Sem Instrutor' && enrollInstrutor !== 'A definir' && (
+                      <span className="text-[10px] text-emerald-700 font-extrabold flex items-center gap-1 bg-emerald-100 px-2 py-0.5 rounded-md">
+                        <span>✓</span> Vinculado via Indicação/QR Code
+                      </span>
+                    )}
+                  </label>
+                  <select
+                    value={enrollInstrutor || 'Sem Instrutor'}
+                    onChange={(e) => setEnrollInstrutor(e.target.value)}
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-[#0c2340] font-semibold text-slate-800"
+                  >
+                    <option value="Sem Instrutor">Sem Instrutor Direto (Atendimento Geral / Central)</option>
+                    {instrutores && instrutores.map((inst, idx) => (
+                      <option key={inst.nome || idx} value={inst.nome}>
+                        {inst.nome} {inst.regiao ? `— (${inst.regiao})` : ''}
+                      </option>
+                    ))}
+                    {enrollInstrutor && enrollInstrutor !== 'Sem Instrutor' && !instrutores?.some(i => i.nome.toLowerCase() === enrollInstrutor.toLowerCase()) && (
+                      <option value={enrollInstrutor}>{enrollInstrutor} (Instrutor Vinculado)</option>
+                    )}
+                  </select>
+                  <p className="text-[10px] text-slate-400 block font-medium">
+                    Instrutor autônomo credenciado responsável pelo atendimento e acompanhamento deste candidato.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:col-span-2">
