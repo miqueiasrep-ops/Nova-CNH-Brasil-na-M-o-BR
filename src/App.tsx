@@ -7127,16 +7127,21 @@ ${formattedInstrutores}
                                     <p className="text-lg font-black font-mono text-white">{saldoPoupado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
                                   </div>
 
-                                  {currentStudent.instrutor && currentStudent.instrutor !== 'A definir' && currentStudent.instrutor !== 'Sem Instrutor' ? (
-                                    <a
-                                      href={`https://wa.me/5581999999999?text=${encodeURIComponent(`Olá, ${currentStudent.instrutor}! Meu nome é ${currentStudent.nome}, completei a maioridade no programa Nova CNH e tenho ${saldoPoupado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} de saldo no baú para as aulas!`)}`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="block bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 px-3 rounded-lg text-center text-[11px] transition-all"
-                                    >
-                                      Agendar com {currentStudent.instrutor}
-                                    </a>
-                                  ) : (
+                                  {currentStudent.instrutor && currentStudent.instrutor !== 'A definir' && currentStudent.instrutor !== 'Sem Instrutor' ? (() => {
+                                    const targetInst = instrutores.find(i => i.nome === currentStudent.instrutor);
+                                    const instPhone = targetInst?.whatsapp ? targetInst.whatsapp.replace(/\D/g, '') : '81992389773';
+                                    return (
+                                      <a
+                                        href={`https://wa.me/55${instPhone}?text=${encodeURIComponent(`Olá, ${currentStudent.instrutor}! Meu nome é ${currentStudent.nome}, completei a maioridade no programa Nova CNH e tenho ${saldoPoupado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} de saldo no baú para as aulas!`)}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white font-black py-2 px-3 rounded-lg text-center text-xs transition-all shadow-xs"
+                                      >
+                                        <MessageCircle className="h-4 w-4" />
+                                        Agendar com {currentStudent.instrutor} no WhatsApp
+                                      </a>
+                                    );
+                                  })() : (
                                     <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 p-2.5 rounded-lg text-center text-[10px] leading-relaxed">
                                       ⏳ <strong>Aguardando Atribuição:</strong> O administrador designará seu instrutor credenciado regional em breve para as aulas práticas.
                                     </div>
@@ -8819,10 +8824,25 @@ ${formattedInstrutores}
                         </div>
 
                         <div className="text-xs text-slate-600 space-y-2 font-sans pt-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 text-xs">📱</span>
-                            <span className="font-semibold text-slate-500">Contato:</span>
-                            <strong className="text-slate-850 font-bold">{inst.whatsapp}</strong>
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-slate-400 text-xs">📱</span>
+                              <span className="font-semibold text-slate-500">Contato:</span>
+                              <strong className="text-slate-850 font-bold">{inst.whatsapp}</strong>
+                            </div>
+                            {inst.whatsapp && (
+                              <a
+                                href={`https://wa.me/55${inst.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá Instrutor(a) ${inst.nome}! Aqui é da coordenação do programa Nova CNH Brasil.`)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="bg-[#25D366] hover:bg-[#20bd5a] text-white text-[10.5px] font-black px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-xs transition shrink-0 active:scale-95 cursor-pointer"
+                                title={`Chamar ${inst.nome} no WhatsApp`}
+                              >
+                                <MessageCircle className="h-3.5 w-3.5" />
+                                <span>WhatsApp</span>
+                              </a>
+                            )}
                           </div>
 
                           {inst.credencialSenatran && (
@@ -8857,15 +8877,29 @@ ${formattedInstrutores}
                       </div>
 
                       <div 
-                        className="flex justify-between items-center gap-2 border-t border-slate-100 pt-3 shrink-0"
+                        className="flex flex-wrap justify-between items-center gap-2 border-t border-slate-100 pt-3 shrink-0"
                         onClick={(e) => e.stopPropagation() /* Prevent modal activation */}
                       >
-                        <button
-                          onClick={() => setSelectedInstrutorDetail(inst)}
-                          className="text-[10.5px] text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 font-extrabold px-2.5 py-1 rounded-md transition"
-                        >
-                          👁️ Ficha Detalhada
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setSelectedInstrutorDetail(inst)}
+                            className="text-[10.5px] text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 font-extrabold px-2.5 py-1 rounded-md transition cursor-pointer"
+                          >
+                            👁️ Ficha Detalhada
+                          </button>
+                          {inst.whatsapp && (
+                            <a
+                              href={`https://wa.me/55${inst.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá Instrutor(a) ${inst.nome}! Aqui é da coordenação do programa Nova CNH Brasil.`)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[10.5px] text-white bg-[#25D366] hover:bg-[#20bd5a] font-extrabold px-2.5 py-1 rounded-md transition flex items-center gap-1 shadow-xs cursor-pointer"
+                              title={`Chamar ${inst.nome} em particular no WhatsApp`}
+                            >
+                              <MessageCircle className="h-3 w-3" />
+                              Chamar
+                            </a>
+                          )}
+                        </div>
 
                         <div className="flex gap-1 font-sans">
                           {inst.foto && (
@@ -9503,17 +9537,30 @@ ${formattedInstrutores}
                                       })()}
                                     </td>
                                     <td className="p-3.5 text-right pr-4">
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedCommissionInstructor(isSelected ? null : d.instrutor.nome)}
-                                        className={`text-[10.5px] font-black px-3 py-1.5 rounded-lg border transition cursor-pointer active:scale-95 whitespace-nowrap ${
-                                          isSelected 
-                                            ? 'bg-[#0c2340] text-white border-[#0c2340] shadow-sm' 
-                                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                                        }`}
-                                      >
-                                        {isSelected ? 'Fechar' : 'Ver Extrato'}
-                                      </button>
+                                      <div className="flex items-center justify-end gap-1.5">
+                                        {d.instrutor.whatsapp && (
+                                          <a
+                                            href={`https://wa.me/55${d.instrutor.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá Instrutor(a) ${d.instrutor.nome}! Aqui é da coordenação do programa Nova CNH Brasil a respeito do seu extrato e comissões.`)}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="bg-[#25D366] hover:bg-[#20bd5a] text-white p-1.5 rounded-lg transition shadow-xs flex items-center justify-center cursor-pointer"
+                                            title={`Chamar ${d.instrutor.nome} no WhatsApp`}
+                                          >
+                                            <MessageCircle className="h-3.5 w-3.5" />
+                                          </a>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => setSelectedCommissionInstructor(isSelected ? null : d.instrutor.nome)}
+                                          className={`text-[10.5px] font-black px-3 py-1.5 rounded-lg border transition cursor-pointer active:scale-95 whitespace-nowrap ${
+                                            isSelected 
+                                              ? 'bg-[#0c2340] text-white border-[#0c2340] shadow-sm' 
+                                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                          }`}
+                                        >
+                                          {isSelected ? 'Fechar' : 'Ver Extrato'}
+                                        </button>
+                                      </div>
                                     </td>
                                   </tr>
                                 );
@@ -13567,15 +13614,21 @@ ${formattedInstrutores}
 
                     <div className="space-y-3.5 text-xs bg-slate-900/50 p-4 rounded-xl border border-slate-800 text-left">
                       <div>
-                        <p className="text-slate-450 font-semibold">Contato Direto (Whatsapp)</p>
-                        <a 
-                          href={`https://wa.me/55${inst.whatsapp.replace(/\D/g, '')}`} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="text-white hover:text-emerald-400 font-bold text-sm block mt-1"
-                        >
-                          📱 {inst.whatsapp} (Iniciar Conversa)
-                        </a>
+                        <p className="text-slate-450 font-semibold">Contato Direto (WhatsApp)</p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                          <span className="text-white font-bold text-sm">📱 {inst.whatsapp}</span>
+                          {inst.whatsapp && (
+                            <a 
+                              href={`https://wa.me/55${inst.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá Instrutor(a) ${inst.nome}! Aqui é da coordenação do programa Nova CNH Brasil.`)}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-black px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 shadow-sm transition"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
+                              Chamar no WhatsApp
+                            </a>
+                          )}
+                        </div>
                       </div>
 
                       <hr className="border-slate-800/80" />
@@ -13823,6 +13876,17 @@ ${formattedInstrutores}
 
                {/* Action commands line footer */}
               <div className="bg-slate-900 border-t border-slate-800 p-4 px-6 flex flex-wrap items-center justify-end gap-3 shrink-0">
+                {inst.whatsapp && (
+                  <a
+                    href={`https://wa.me/55${inst.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá Instrutor(a) ${inst.nome}! Aqui é da coordenação do programa Nova CNH Brasil.`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold py-2.5 px-4 rounded-xl transition flex items-center gap-2 shadow cursor-pointer font-sans"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    Chamar no WhatsApp
+                  </a>
+                )}
                 {inst.foto && (
                   <button
                     onClick={() => handleDownloadFoto(inst.nome, inst.foto)}
