@@ -8289,24 +8289,13 @@ ${formattedInstrutores}
 
               <div className="border-t border-slate-100 pt-4 mt-4 text-center space-y-2">
                 <p className="text-[11px] font-bold text-slate-500">Quer ser um instrutor parceiro?</p>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <button
-                    type="button"
-                    onClick={handleOpenSelfRegister}
-                    className="flex-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-250 text-emerald-750 hover:text-emerald-900 text-xs font-black py-2.5 px-3 rounded-xl transition cursor-pointer select-none flex items-center justify-center gap-1.5 shadow-xs"
-                  >
-                    📝 Cadastrar-se Automaticamente
-                  </button>
-                  <a
-                    href="https://wa.me/5581992389773?text=Ol%C3%A1%20Flavia%20Micheline%2C%20gostaria%20de%20informa%C3%A7%C3%B5es%20sobre%20o%20credenciamento%20de%20Instrutor%20Parceiro%20na%20Nova%20CNH%20Brasil!"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-black py-2.5 px-3.5 rounded-xl transition cursor-pointer select-none flex items-center justify-center gap-1.5 shadow-xs shrink-0"
-                  >
-                    <MessageCircle className="h-4 w-4" />
-                    <span>WhatsApp</span>
-                  </a>
-                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenSelfRegister}
+                  className="w-full bg-emerald-50 hover:bg-emerald-100 border border-emerald-250 text-emerald-750 hover:text-emerald-900 text-xs font-black py-2.5 px-3 rounded-xl transition cursor-pointer select-none flex items-center justify-center gap-1.5 shadow-xs"
+                >
+                  📝 Cadastrar-se Automaticamente
+                </button>
               </div>
 
               <div className="text-center text-[10px] text-slate-400 border-t border-slate-100 pt-3">
@@ -8777,23 +8766,12 @@ ${formattedInstrutores}
                   <h4 className="font-extrabold text-[#0c2340] text-xs">🔗 Link Direto de Auto-Cadastro para Instrutores</h4>
                   <p className="text-slate-500 text-[11px]">Envie este link para que os novos instrutores parceiros possam se cadastrar sozinhos.</p>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={copySelfRegisterLink}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition active:scale-[0.98] shadow-xs cursor-pointer"
-                  >
-                    📋 Copiar Link
-                  </button>
-                  <a
-                    href={`https://wa.me/?text=${encodeURIComponent(`Olá Instrutor(a)! Venha fazer parte da rede credenciada de Instrutores Parceiros da Nova CNH Brasil. Faça seu auto-credenciamento rápido pelo link oficial: ${window.location.origin}${window.location.pathname}?cadastro-instrutor=true`)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="bg-[#25D366] hover:bg-[#20bd5a] text-white font-extrabold text-[11px] py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition active:scale-[0.98] shadow-xs cursor-pointer"
-                  >
-                    <MessageCircle className="h-3.5 w-3.5" />
-                    Enviar no WhatsApp
-                  </a>
-                </div>
+                <button
+                  onClick={copySelfRegisterLink}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition active:scale-[0.98] shrink-0 shadow-xs cursor-pointer"
+                >
+                  📋 Copiar Link de Auto-Cadastro
+                </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -8825,10 +8803,10 @@ ${formattedInstrutores}
 
                         <div className="text-xs text-slate-600 space-y-2 font-sans pt-1">
                           <div className="flex items-center justify-between gap-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-slate-400 text-xs">📱</span>
-                              <span className="font-semibold text-slate-500">Contato:</span>
-                              <strong className="text-slate-850 font-bold">{inst.whatsapp}</strong>
+                            <div className="flex items-center gap-1.5 min-w-0 truncate">
+                              <span className="text-slate-400 text-xs shrink-0">📱</span>
+                              <span className="font-semibold text-slate-500 shrink-0">Contato:</span>
+                              <strong className="text-slate-850 font-bold truncate">{inst.whatsapp}</strong>
                             </div>
                             {inst.whatsapp && (
                               <a
@@ -8837,7 +8815,7 @@ ${formattedInstrutores}
                                 rel="noreferrer"
                                 onClick={(e) => e.stopPropagation()}
                                 className="bg-[#25D366] hover:bg-[#20bd5a] text-white text-[10.5px] font-black px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-xs transition shrink-0 active:scale-95 cursor-pointer"
-                                title={`Chamar ${inst.nome} no WhatsApp`}
+                                title={`Chamar ${inst.nome} em particular no WhatsApp`}
                               >
                                 <MessageCircle className="h-3.5 w-3.5" />
                                 <span>WhatsApp</span>
@@ -8880,26 +8858,12 @@ ${formattedInstrutores}
                         className="flex flex-wrap justify-between items-center gap-2 border-t border-slate-100 pt-3 shrink-0"
                         onClick={(e) => e.stopPropagation() /* Prevent modal activation */}
                       >
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => setSelectedInstrutorDetail(inst)}
-                            className="text-[10.5px] text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 font-extrabold px-2.5 py-1 rounded-md transition cursor-pointer"
-                          >
-                            👁️ Ficha Detalhada
-                          </button>
-                          {inst.whatsapp && (
-                            <a
-                              href={`https://wa.me/55${inst.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá Instrutor(a) ${inst.nome}! Aqui é da coordenação do programa Nova CNH Brasil.`)}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[10.5px] text-white bg-[#25D366] hover:bg-[#20bd5a] font-extrabold px-2.5 py-1 rounded-md transition flex items-center gap-1 shadow-xs cursor-pointer"
-                              title={`Chamar ${inst.nome} em particular no WhatsApp`}
-                            >
-                              <MessageCircle className="h-3 w-3" />
-                              Chamar
-                            </a>
-                          )}
-                        </div>
+                        <button
+                          onClick={() => setSelectedInstrutorDetail(inst)}
+                          className="text-[10.5px] text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 font-extrabold px-2.5 py-1 rounded-md transition cursor-pointer"
+                        >
+                          👁️ Ficha Detalhada
+                        </button>
 
                         <div className="flex gap-1 font-sans">
                           {inst.foto && (
@@ -9537,30 +9501,17 @@ ${formattedInstrutores}
                                       })()}
                                     </td>
                                     <td className="p-3.5 text-right pr-4">
-                                      <div className="flex items-center justify-end gap-1.5">
-                                        {d.instrutor.whatsapp && (
-                                          <a
-                                            href={`https://wa.me/55${d.instrutor.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá Instrutor(a) ${d.instrutor.nome}! Aqui é da coordenação do programa Nova CNH Brasil a respeito do seu extrato e comissões.`)}`}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="bg-[#25D366] hover:bg-[#20bd5a] text-white p-1.5 rounded-lg transition shadow-xs flex items-center justify-center cursor-pointer"
-                                            title={`Chamar ${d.instrutor.nome} no WhatsApp`}
-                                          >
-                                            <MessageCircle className="h-3.5 w-3.5" />
-                                          </a>
-                                        )}
-                                        <button
-                                          type="button"
-                                          onClick={() => setSelectedCommissionInstructor(isSelected ? null : d.instrutor.nome)}
-                                          className={`text-[10.5px] font-black px-3 py-1.5 rounded-lg border transition cursor-pointer active:scale-95 whitespace-nowrap ${
-                                            isSelected 
-                                              ? 'bg-[#0c2340] text-white border-[#0c2340] shadow-sm' 
-                                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                                          }`}
-                                        >
-                                          {isSelected ? 'Fechar' : 'Ver Extrato'}
-                                        </button>
-                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedCommissionInstructor(isSelected ? null : d.instrutor.nome)}
+                                        className={`text-[10.5px] font-black px-3 py-1.5 rounded-lg border transition cursor-pointer active:scale-95 whitespace-nowrap ${
+                                          isSelected 
+                                            ? 'bg-[#0c2340] text-white border-[#0c2340] shadow-sm' 
+                                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        {isSelected ? 'Fechar' : 'Ver Extrato'}
+                                      </button>
                                     </td>
                                   </tr>
                                 );
@@ -12402,20 +12353,7 @@ ${formattedInstrutores}
                 </div>
 
                 <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-slate-600">Contato WhatsApp</label>
-                    {instrutorForm.whatsapp && instrutorForm.whatsapp.replace(/\D/g, '').length >= 10 && (
-                      <a
-                        href={`https://wa.me/55${instrutorForm.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá Instrutor(a) ${instrutorForm.nome}! Aqui é da coordenação do programa Nova CNH Brasil.`)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[10px] text-[#25D366] font-bold hover:underline flex items-center gap-1"
-                      >
-                        <MessageCircle className="h-3 w-3" />
-                        Abrir WhatsApp
-                      </a>
-                    )}
-                  </div>
+                  <label className="block text-xs font-bold text-slate-600">Contato WhatsApp</label>
                   <input
                     type="text"
                     required
@@ -12640,16 +12578,6 @@ ${formattedInstrutores}
                       Salvar no meu WhatsApp
                     </a>
                   </div>
-
-                  <a
-                    href={`https://wa.me/5581992389773?text=${encodeURIComponent(`Olá Flavia Micheline! Acabei de realizar meu auto-credenciamento como Instrutor Parceiro na Nova CNH Brasil.\n\n👤 *Nome:* ${newSelfRegisteredInstrutor.nome}\n📍 *Região:* ${newSelfRegisteredInstrutor.regiao}\n📜 *Credencial SENATRAN:* ${newSelfRegisteredInstrutor.credencialSenatran}\n📱 *WhatsApp:* ${newSelfRegisteredInstrutor.whatsapp}\n🔑 *Login Gerado:* ${newSelfRegisteredInstrutor.login}`)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-black py-2.5 px-3 rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-sm"
-                  >
-                    <MessageCircle className="h-4 w-4" />
-                    Enviar Comprovante à Secretaria no WhatsApp
-                  </a>
                 </div>
 
                 {/* REFERRAL LINK & QR CODE */}
@@ -12740,21 +12668,6 @@ ${formattedInstrutores}
                 <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto text-left">
                   <div className="bg-amber-50 border border-amber-150 rounded-xl p-3 text-[11px] text-slate-700 leading-relaxed">
                     💡 <strong>Como funciona o credenciamento?</strong> Ao se cadastrar, você ganha acesso instantâneo ao seu Painel de Instrutor. Você poderá receber saldos acumulados de maioridade de candidatos vinculados, assinar recibos digitais e receber suas comissões via PIX de forma automatizada.
-                  </div>
-
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
-                    <div className="text-[11px] text-emerald-900 font-medium leading-tight">
-                      💬 <strong>Dúvidas no credenciamento?</strong> Fale diretamente com a Secretaria de Gestão (Flavia Micheline) no WhatsApp.
-                    </div>
-                    <a
-                      href="https://wa.me/5581992389773?text=Ol%C3%A1%20Flavia%20Micheline%2C%20estou%20preenchendo%20o%20auto-credenciamento%20de%20Instrutor%20Parceiro%20e%20gostaria%20de%20orienta%C3%A7%C3%B5es."
-                      target="_blank"
-                      rel="noreferrer"
-                      className="shrink-0 bg-[#25D366] hover:bg-[#20bd5a] text-white text-[10px] font-black px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs transition"
-                    >
-                      <MessageCircle className="h-3.5 w-3.5" />
-                      Falar no WhatsApp
-                    </a>
                   </div>
 
                   <div className="space-y-1">
@@ -12918,31 +12831,20 @@ ${formattedInstrutores}
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100 p-4 bg-slate-50">
-                  <a
-                    href="https://wa.me/5581992389773?text=Ol%C3%A1%20Flavia%20Micheline%2C%20tenho%20d%C3%BAvidas%20sobre%20o%20credenciamento%20de%20instrutor%20parceiro."
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[11px] font-bold text-emerald-800 hover:text-emerald-950 flex items-center gap-1.5 transition"
+                <div className="flex items-center justify-end gap-2 border-t border-slate-100 p-4 bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => setIsInstrutorSelfRegisterOpen(false)}
+                    className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold py-2 px-4 rounded-xl transition cursor-pointer"
                   >
-                    <MessageCircle className="h-4 w-4 text-[#25D366]" />
-                    Suporte de Credenciamento no WhatsApp
-                  </a>
-                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setIsInstrutorSelfRegisterOpen(false)}
-                      className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold py-2 px-4 rounded-xl transition cursor-pointer"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold py-2 px-5 rounded-xl transition cursor-pointer shadow-xs"
-                    >
-                      Confirmar Auto-Cadastro
-                    </button>
-                  </div>
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold py-2 px-5 rounded-xl transition cursor-pointer shadow-xs"
+                  >
+                    Confirmar Auto-Cadastro
+                  </button>
                 </div>
               </form>
             )}
@@ -13615,20 +13517,7 @@ ${formattedInstrutores}
                     <div className="space-y-3.5 text-xs bg-slate-900/50 p-4 rounded-xl border border-slate-800 text-left">
                       <div>
                         <p className="text-slate-450 font-semibold">Contato Direto (WhatsApp)</p>
-                        <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                          <span className="text-white font-bold text-sm">📱 {inst.whatsapp}</span>
-                          {inst.whatsapp && (
-                            <a 
-                              href={`https://wa.me/55${inst.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá Instrutor(a) ${inst.nome}! Aqui é da coordenação do programa Nova CNH Brasil.`)}`} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-black px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5 shadow-sm transition"
-                            >
-                              <MessageCircle className="h-3.5 w-3.5" />
-                              Chamar no WhatsApp
-                            </a>
-                          )}
-                        </div>
+                        <strong className="text-white font-bold text-sm block mt-0.5">📱 {inst.whatsapp}</strong>
                       </div>
 
                       <hr className="border-slate-800/80" />
