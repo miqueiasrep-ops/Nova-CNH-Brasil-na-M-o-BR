@@ -8771,8 +8771,6 @@ ${formattedInstrutores}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {instrutores.map(inst => {
                   const numStudents = alunos.filter(a => a.instrutor === inst.nome).length;
-                  const percentCapacity = (numStudents / inst.vagas) * 105;
-                  const displayCapacity = Math.min(100, percentCapacity);
 
                   return (
                     <div 
@@ -8823,21 +8821,15 @@ ${formattedInstrutores}
                             </div>
                           )}
 
-                          <div className="flex items-center gap-1.5 border-t border-slate-200/60 pt-2 mt-1">
-                            <span className="text-emerald-700 font-semibold text-[11px]">👥 Alunos Ativos:</span>
-                            <strong className="text-emerald-850 font-extrabold text-[11px]">{numStudents} / {inst.vagas} vagas</strong>
+                          <div className="flex items-center justify-between border-t border-slate-200/60 pt-2 mt-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-emerald-700 font-semibold text-[11px]">👥 Alunos Ativos:</span>
+                              <strong className="text-emerald-850 font-extrabold text-[11px]">{numStudents} {numStudents === 1 ? 'aluno' : 'alunos'}</strong>
+                            </div>
+                            <span className="text-[9.5px] font-bold text-emerald-750 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-full font-sans">
+                              Sem limite de alunos
+                            </span>
                           </div>
-                        </div>
-
-                        {/* Capacity progress */}
-                        <div className="space-y-1 pt-1">
-                          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              className={`h-full rounded-full ${displayCapacity > 85 ? 'bg-amber-550' : 'bg-emerald-600'}`}
-                              style={{ width: `${displayCapacity}%` }}
-                            ></div>
-                          </div>
-                          <span className="text-[9px] text-slate-450 font-mono block text-right">Capacidade de Lotação: {Math.round(displayCapacity)}%</span>
                         </div>
                       </div>
 
@@ -10223,14 +10215,14 @@ ${formattedInstrutores}
 
                       <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
                         <div className="bg-purple-500/10 text-purple-400 p-3 rounded-xl shrink-0">
-                          <Info className="h-6 w-6" />
+                          <Users className="h-6 w-6" />
                         </div>
                         <div>
-                          <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Sua Capacidade</p>
+                          <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Capacidade de Alunos</p>
                           <h4 className="text-2xl font-black text-purple-300 mt-0.5 font-mono">
-                            {activeInstructor.vagas} <span className="text-xs text-slate-500 font-sans font-medium">Turma</span>
+                            Ilimitada <span className="text-xs text-emerald-400 font-sans font-semibold">({myStudents.length} ativos)</span>
                           </h4>
-                          <p className="text-[9px] text-[#32bcad] mt-0.5 font-sans">Vagas do instrutor no DETRAN</p>
+                          <p className="text-[9px] text-[#32bcad] mt-0.5 font-sans">Sem limite de alunos vinculados</p>
                         </div>
                       </div>
                     </div>
@@ -12333,16 +12325,10 @@ ${formattedInstrutores}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-600">Vagas Ativas (Capacidade)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="50"
-                    required
-                    value={instrutorForm.vagas}
-                    onChange={(e) => setInstrutorForm({ ...instrutorForm, vagas: Number(e.target.value) })}
-                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500"
-                  />
+                  <label className="block text-xs font-bold text-slate-600">Capacidade de Alunos</label>
+                  <div className="w-full text-xs p-2.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded font-bold flex items-center gap-1.5">
+                    <span>♾️</span> Sem limite de alunos (Ilimitado)
+                  </div>
                 </div>
 
                 <div className="space-y-1">
@@ -12671,16 +12657,10 @@ ${formattedInstrutores}
                     </div>
 
                     <div className="space-y-1">
-                      <label className="block text-xs font-bold text-slate-600">Capacidade de Alunos (Vagas)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="100"
-                        required
-                        value={selfVagas}
-                        onChange={(e) => setSelfVagas(Number(e.target.value))}
-                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-emerald-500"
-                      />
+                      <label className="block text-xs font-bold text-slate-600">Capacidade de Alunos</label>
+                      <div className="w-full text-xs p-2.5 bg-emerald-50 text-emerald-850 border border-emerald-200 rounded-xl font-bold flex items-center gap-1.5">
+                        <span>♾️</span> Capacidade Ilimitada
+                      </div>
                     </div>
                   </div>
 
@@ -13410,7 +13390,6 @@ ${formattedInstrutores}
       {selectedInstrutorDetail && (() => {
         const inst = selectedInstrutorDetail;
         const assignedStudents = alunos.filter(a => a.instrutor === inst.nome);
-        const totalSlotsPercent = Math.min(100, (assignedStudents.length / inst.vagas) * 100);
 
         return (
           <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-md flex items-center justify-center z-50 p-0 sm:p-4">
@@ -13458,7 +13437,7 @@ ${formattedInstrutores}
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-400">
                         <span>U.S. Regional: <strong className="text-slate-200 font-bold">{inst.regiao}</strong></span>
                         <span>•</span>
-                        <span>Capacidade: <strong className="text-slate-200">{inst.vagas} vagas credenciadas</strong></span>
+                        <span>Capacidade: <strong className="text-emerald-400 font-bold">Sem limite de alunos (Ilimitado)</strong></span>
                         <span>•</span>
                         {inst.credencialSenatran && (
                           <span className="bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-mono text-[9px] px-2 py-0.5 rounded font-black tracking-wider">
@@ -13475,8 +13454,8 @@ ${formattedInstrutores}
                       <strong className="text-white font-bold">{assignedStudents.length} vinculados</strong>
                     </div>
                     <div className="pt-1.5 flex justify-between gap-2">
-                       <span className="text-slate-400 text-left">Lotação Atual:</span>
-                       <span className="text-emerald-400 font-black">{Math.round(totalSlotsPercent)}% ocupado</span>
+                       <span className="text-slate-400 text-left">Limite de Vagas:</span>
+                       <span className="text-emerald-400 font-black">Ilimitado</span>
                     </div>
                   </div>
                 </div>
