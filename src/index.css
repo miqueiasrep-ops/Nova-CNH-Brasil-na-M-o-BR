@@ -83,3 +83,34 @@ input[type="range"]::-moz-range-thumb:hover {
 input[type="range"]::-moz-range-thumb:active {
   transform: scale(1.25) !important;
 }
+
+/* Global Print Styles to eliminate blank pages completely */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
+  }
+
+  html, body {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #020617 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* When printing receipts or modals, ensure full application background doesn't create empty layout pages */
+  body > #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .print\:hidden {
+    display: none !important;
+  }
+}

@@ -2093,6 +2093,7 @@ export default function App() {
   // Fale Conosco Form States
   const [faleNome, setFaleNome] = useState('');
   const [faleAssunto, setFaleAssunto] = useState('Dúvida Geral');
+  const [faleDestinatario, setFaleDestinatario] = useState('secretaria_flavia_1');
   const [faleMensagem, setFaleMensagem] = useState('');
   
   // Modal forms states (Admin Register)
@@ -2493,6 +2494,7 @@ export default function App() {
   const [selectedContractStudentId, setSelectedContractStudentId] = useState<string | null>(null);
   const [contractSearch, setContractSearch] = useState<string>('');
   const [isDownloadingContractPdf, setIsDownloadingContractPdf] = useState<boolean>(false);
+  const [isDownloadingReceiptPdf, setIsDownloadingReceiptPdf] = useState<boolean>(false);
 
   const handleEnrollDobChange = (dobValue: string, skipSimulatorSync = false) => {
     setEnrollDob(dobValue);
@@ -4235,83 +4237,85 @@ ${formattedInstrutores}
     }, 1500);
   };
 
-  const handleDownloadAdminContractPDF = (aluno: Aluno) => {
-    const element = document.getElementById(`printable-contract-${aluno.id}`);
-    if (!element) return;
+  // Central Helper to sanitize modern color spaces like oklch/oklab to prevent html2canvas crashes
+  const cleanModernColorSpaces = (targetElement?: HTMLElement | null) => {
+    const stylesToRestore: { element: HTMLElement; originalValue: string; isLink: boolean }[] = [];
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
 
-    // Helper to sanitize modern color spaces like oklch/oklab to prevent html2canvas crashes
-    const cleanModernColorSpaces = () => {
-      const stylesToRestore: { element: HTMLElement; originalValue: string; isLink: boolean }[] = [];
-      const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'));
-
-      const replaceNestedCSSFunction = (text: string, funcName: string, fallback: string): string => {
-        let index = text.indexOf(funcName + '(');
-        while (index !== -1) {
-          let openCount = 1;
-          let i = index + funcName.length + 1;
-          while (i < text.length && openCount > 0) {
-            if (text[i] === '(') openCount++;
-            else if (text[i] === ')') openCount--;
-            i++;
-          }
-          text = text.slice(0, index) + fallback + text.slice(i);
-          index = text.indexOf(funcName + '(');
+    const replaceNestedCSSFunction = (text: string, funcName: string, fallback: string): string => {
+      let index = text.indexOf(funcName + '(');
+      while (index !== -1) {
+        let openCount = 1;
+        let i = index + funcName.length + 1;
+        while (i < text.length && openCount > 0) {
+          if (text[i] === '(') openCount++;
+          else if (text[i] === ')') openCount--;
+          i++;
         }
-        return text;
-      };
+        text = text.slice(0, index) + fallback + text.slice(i);
+        index = text.indexOf(funcName + '(');
+      }
+      return text;
+    };
 
-      const cleanTextContent = (text: string): string => {
-        let clean = text;
-        clean = replaceNestedCSSFunction(clean, 'color-mix', 'rgb(30, 41, 59)');
-        clean = replaceNestedCSSFunction(clean, 'oklch', 'rgb(30, 41, 59)');
-        clean = replaceNestedCSSFunction(clean, 'oklab', 'rgb(30, 41, 59)');
-        clean = clean.replace(/oklch\([^)]+\)/g, 'rgb(30, 41, 59)');
-        clean = clean.replace(/oklab\([^)]+\)/g, 'rgb(30, 41, 59)');
-        return clean;
-      };
+    const cleanTextContent = (text: string): string => {
+      if (!text) return '';
+      let clean = text;
+      // Replaces oklch, oklab, color-mix and srgb functions
+      clean = clean.replace(/oklch\([^)]+\)/gi, '#1e293b');
+      clean = clean.replace(/oklab\([^)]+\)/gi, '#1e293b');
+      clean = clean.replace(/color-mix\([^;}]+\)/gi, '#1e293b');
+      clean = clean.replace(/color\(srgb[^)]+\)/gi, '#1e293b');
+      clean = replaceNestedCSSFunction(clean, 'color-mix', '#1e293b');
+      clean = replaceNestedCSSFunction(clean, 'oklch', '#1e293b');
+      clean = replaceNestedCSSFunction(clean, 'oklab', '#1e293b');
+      clean = replaceNestedCSSFunction(clean, 'color(srgb', '#1e293b');
+      return clean;
+    };
 
-      styles.forEach((el) => {
-        try {
-          if (el.tagName.toLowerCase() === 'style') {
-            const styleEl = el as HTMLStyleElement;
-            const originalText = styleEl.textContent || '';
-            if (originalText.includes('oklch') || originalText.includes('oklab') || originalText.includes('color-mix')) {
-              const cleanText = cleanTextContent(originalText);
-              styleEl.textContent = cleanText;
-              stylesToRestore.push({ element: styleEl, originalValue: originalText, isLink: false });
-            }
-          } else if (el.tagName.toLowerCase() === 'link') {
-            const linkEl = el as HTMLLinkElement;
-            const sheet = Array.from(document.styleSheets).find(s => s.ownerNode === linkEl);
-            if (sheet && sheet.cssRules) {
-              let cssText = '';
-              for (let i = 0; i < sheet.cssRules.length; i++) {
-                cssText += sheet.cssRules[i].cssText + '\n';
-              }
-              if (cssText.includes('oklch') || cssText.includes('oklab') || cssText.includes('color-mix')) {
-                const cleanText = cleanTextContent(cssText);
-
-                const tempStyle = document.createElement('style');
-                tempStyle.setAttribute('id', 'temp-sanitized-style-app');
-                tempStyle.textContent = cleanText;
-                document.head.appendChild(tempStyle);
-
-                linkEl.disabled = true;
-                stylesToRestore.push({ element: linkEl, originalValue: '', isLink: true });
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('Skipping stylesheet normalization for cross-origin or unreadable rules:', e);
-        }
-      });
-
+    styles.forEach((el) => {
       try {
-        const allElements = element.querySelectorAll('*');
+        if (el.tagName.toLowerCase() === 'style') {
+          const styleEl = el as HTMLStyleElement;
+          const originalText = styleEl.textContent || '';
+          if (originalText.includes('oklch') || originalText.includes('oklab') || originalText.includes('color-mix') || originalText.includes('color(srgb')) {
+            const cleanText = cleanTextContent(originalText);
+            styleEl.textContent = cleanText;
+            stylesToRestore.push({ element: styleEl, originalValue: originalText, isLink: false });
+          }
+        } else if (el.tagName.toLowerCase() === 'link') {
+          const linkEl = el as HTMLLinkElement;
+          const sheet = Array.from(document.styleSheets).find(s => s.ownerNode === linkEl);
+          if (sheet && sheet.cssRules) {
+            let cssText = '';
+            for (let i = 0; i < sheet.cssRules.length; i++) {
+              cssText += sheet.cssRules[i].cssText + '\n';
+            }
+            if (cssText.includes('oklch') || cssText.includes('oklab') || cssText.includes('color-mix') || cssText.includes('color(srgb')) {
+              const cleanText = cleanTextContent(cssText);
+
+              const tempStyle = document.createElement('style');
+              tempStyle.setAttribute('id', 'temp-sanitized-style-app');
+              tempStyle.textContent = cleanText;
+              document.head.appendChild(tempStyle);
+
+              linkEl.disabled = true;
+              stylesToRestore.push({ element: linkEl, originalValue: '', isLink: true });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Skipping stylesheet normalization for cross-origin or unreadable rules:', e);
+      }
+    });
+
+    if (targetElement) {
+      try {
+        const allElements = targetElement.querySelectorAll('*');
         allElements.forEach((el) => {
           const htmlEl = el as HTMLElement;
           const styleAttr = htmlEl.getAttribute('style');
-          if (styleAttr && (styleAttr.includes('oklab') || styleAttr.includes('oklch') || styleAttr.includes('color-mix'))) {
+          if (styleAttr && (styleAttr.includes('oklab') || styleAttr.includes('oklch') || styleAttr.includes('color-mix') || styleAttr.includes('color(srgb'))) {
             const cleanStyle = cleanTextContent(styleAttr);
             htmlEl.setAttribute('style', cleanStyle);
             stylesToRestore.push({ element: htmlEl, originalValue: styleAttr, isLink: false });
@@ -4320,22 +4324,27 @@ ${formattedInstrutores}
       } catch (e) {
         console.warn('Skipping inline style normalization:', e);
       }
+    }
 
-      return () => {
-        stylesToRestore.forEach((item) => {
-          if (item.isLink) {
-            (item.element as HTMLLinkElement).disabled = false;
+    return () => {
+      stylesToRestore.forEach((item) => {
+        if (item.isLink) {
+          (item.element as HTMLLinkElement).disabled = false;
+        } else {
+          if (item.element.tagName.toLowerCase() === 'style') {
+            item.element.textContent = item.originalValue;
           } else {
-            if (item.element.tagName.toLowerCase() === 'style') {
-              item.element.textContent = item.originalValue;
-            } else {
-              item.element.setAttribute('style', item.originalValue);
-            }
+            item.element.setAttribute('style', item.originalValue);
           }
-        });
-        document.querySelectorAll('#temp-sanitized-style-app').forEach(el => el.remove());
-      };
+        }
+      });
+      document.querySelectorAll('#temp-sanitized-style-app').forEach(el => el.remove());
     };
+  };
+
+  const handleDownloadAdminContractPDF = (aluno: Aluno) => {
+    const element = document.getElementById(`printable-contract-${aluno.id}`);
+    if (!element) return;
 
     setIsDownloadingContractPdf(true);
     setToastMessage('⏳ Preparando download do contrato em PDF...');
@@ -4494,14 +4503,21 @@ ${formattedInstrutores}
         useCORS: true,
         logging: false,
         scrollX: 0,
-        scrollY: 0
+        scrollY: 0,
+        onclone: (clonedDoc: Document) => {
+          clonedDoc.querySelectorAll('style').forEach((s) => {
+            if (s.textContent && (s.textContent.includes('okl') || s.textContent.includes('color-mix'))) {
+              s.textContent = s.textContent.replace(/oklch\([^)]+\)/gi, '#1e293b').replace(/oklab\([^)]+\)/gi, '#1e293b').replace(/color-mix\([^;}]+\)/gi, '#1e293b');
+            }
+          });
+        }
       },
       jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
 
     const runHtml2Pdf = () => {
       // Temporarily clean modern oklch/oklab color spaces to avoid html2canvas crash
-      const restoreStyles = cleanModernColorSpaces();
+      const restoreStyles = cleanModernColorSpaces(element);
 
       // Clone the element and clean it up to avoid html2canvas viewport/scrolling/height issues
       const clone = element.cloneNode(true) as HTMLElement;
@@ -4562,6 +4578,518 @@ ${formattedInstrutores}
     setTimeout(() => {
       element.setAttribute('style', originalStyle);
     }, 1500);
+  };
+
+  // Dedicated Print for Instructor Receipt (100% isolated, 0 blank pages)
+  const handlePrintInstructorReceiptDoc = () => {
+    const element = document.getElementById('printable-receipt');
+    if (!element || !viewingRecibo) return;
+
+    setToastMessage('⏳ Abrindo impressão oficial do recibo...');
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (!doc) {
+      setToastMessage('❌ Não foi possível abrir o gerenciador de impressão.');
+      return;
+    }
+
+    doc.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8">
+          <title>Recibo Nova CNH - ${viewingRecibo.recibo.id} - ${viewingRecibo.instrutorNome}</title>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 8mm 10mm;
+            }
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            html, body {
+              margin: 0;
+              padding: 0;
+              background-color: #ffffff;
+              color: #0f172a;
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+              font-size: 11px;
+              line-height: 1.4;
+              height: auto;
+              overflow: visible;
+            }
+            .receipt-wrap {
+              width: 100%;
+              max-width: 720px;
+              margin: 0 auto;
+              padding: 16px;
+              background: #ffffff;
+            }
+            .text-center { text-align: center; }
+            .text-left { text-align: left; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: 700; }
+            .font-black { font-weight: 900; }
+            .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+            .uppercase { text-transform: uppercase; }
+            .italic { font-style: italic; }
+            .tracking-tight { letter-spacing: -0.025em; }
+            .tracking-wider { letter-spacing: 0.05em; }
+            .tracking-widest { letter-spacing: 0.1em; }
+            .border-b-4 { border-bottom: 4px solid #0c2340; }
+            .border-b { border-bottom: 1px solid #e2e8f0; }
+            .border-t { border-top: 1px solid #e2e8f0; }
+            .border-2 { border: 2px solid #cbd5e1; }
+            .border { border: 1px solid #cbd5e1; }
+            .rounded-xl { border-radius: 12px; }
+            .rounded-2xl { border-radius: 16px; }
+            .p-3 { padding: 10px; }
+            .p-4 { padding: 12px; }
+            .p-4\\.5 { padding: 14px; }
+            .p-5 { padding: 16px; }
+            .p-6 { padding: 18px; }
+            .p-8 { padding: 20px; }
+            .pb-1\\.5 { padding-bottom: 6px; }
+            .pb-6 { padding-bottom: 16px; }
+            .pt-2 { padding-top: 8px; }
+            .pt-6 { padding-top: 14px; }
+            .pt-8 { padding-top: 18px; }
+            .space-y-1 > * + * { margin-top: 4px; }
+            .space-y-2 > * + * { margin-top: 6px; }
+            .space-y-3 > * + * { margin-top: 10px; }
+            .space-y-4 > * + * { margin-top: 12px; }
+            .space-y-6 > * + * { margin-top: 16px; }
+            .space-y-8 > * + * { margin-top: 20px; }
+            .grid { display: grid; }
+            .grid-cols-1 { grid-template-columns: 1fr; }
+            .grid-cols-2 { grid-template-columns: 1fr 1fr; }
+            .gap-3 { gap: 10px; }
+            .gap-4 { gap: 14px; }
+            .gap-8 { gap: 20px; }
+            .flex { display: flex; }
+            .items-center { align-items: center; }
+            .justify-between { justify-content: space-between; }
+            .justify-center { justify-content: center; }
+            .bg-slate-50 { background-color: #f8fafc; }
+            .bg-slate-100 { background-color: #f1f5f9; }
+            .bg-emerald-50 { background-color: #ecfdf5; }
+            .border-emerald-500 { border-color: #10b981; }
+            .text-emerald-400 { color: #34d399; }
+            .text-emerald-600 { color: #059669; }
+            .text-slate-950 { color: #020617; }
+            .text-slate-900 { color: #0f172a; }
+            .text-slate-850 { color: #1e293b; }
+            .text-slate-800 { color: #1e293b; }
+            .text-slate-700 { color: #334155; }
+            .text-slate-600 { color: #475569; }
+            .text-slate-500 { color: #64748b; }
+            .text-slate-400 { color: #94a3b8; }
+            .text-slate-300 { color: #cbd5e1; }
+            .text-white { color: #ffffff; }
+            .bg-\\[\\#0c2340\\] { background-color: #0c2340; }
+            .text-\\[\\#0c2340\\] { color: #0c2340; }
+            .text-xs { font-size: 11px; }
+            .text-sm { font-size: 12.5px; }
+            .text-xl { font-size: 18px; }
+            .text-2xl { font-size: 20px; }
+            .text-3xl { font-size: 24px; }
+            .text-\\[8px\\] { font-size: 8px; }
+            .text-\\[8\\.5px\\] { font-size: 8.5px; }
+            .text-\\[9px\\] { font-size: 9px; }
+            .text-\\[10px\\] { font-size: 10px; }
+            .text-\\[11px\\] { font-size: 11px; }
+            p { margin: 4px 0; text-align: justify; }
+            @media print {
+              html, body {
+                width: 100% !important;
+                height: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+              }
+              .receipt-wrap {
+                padding: 2mm !important;
+                max-width: 100% !important;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="receipt-wrap">
+            ${element.innerHTML}
+          </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    setTimeout(() => {
+      try {
+        if (iframe && iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe);
+        }
+      } catch (e) {}
+    }, 12000);
+  };
+
+  // Dedicated PDF Downloader for Instructor Receipt
+  const handleDownloadInstructorReceiptPDF = () => {
+    const element = document.getElementById('printable-receipt');
+    if (!element || !viewingRecibo) return;
+
+    setIsDownloadingReceiptPdf(true);
+    setToastMessage('⏳ Gerando arquivo PDF oficial do repasse...');
+
+    const opt = {
+      margin:       8,
+      filename:     `recibo_repasse_${viewingRecibo.recibo.id.toLowerCase()}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { 
+        scale: 2, 
+        useCORS: true,
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        onclone: (clonedDoc: Document) => {
+          clonedDoc.querySelectorAll('style').forEach((s) => {
+            if (s.textContent && (s.textContent.includes('okl') || s.textContent.includes('color-mix'))) {
+              s.textContent = s.textContent.replace(/oklch\([^)]+\)/gi, '#1e293b').replace(/oklab\([^)]+\)/gi, '#1e293b').replace(/color-mix\([^;}]+\)/gi, '#1e293b');
+            }
+          });
+        }
+      },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    const runHtml2Pdf = () => {
+      const restoreStyles = cleanModernColorSpaces(element);
+
+      const clone = element.cloneNode(true) as HTMLElement;
+      clone.style.position = 'absolute';
+      clone.style.left = '50%';
+      clone.style.transform = 'translateX(-50%)';
+      clone.style.top = `${window.scrollY}px`;
+      clone.style.zIndex = '999999';
+      clone.style.width = '700px';
+      clone.style.maxHeight = 'none';
+      clone.style.overflow = 'visible';
+      clone.style.height = 'auto';
+      clone.style.backgroundColor = '#ffffff';
+      clone.style.color = '#0f172a';
+      clone.style.padding = '24px';
+      clone.style.borderRadius = '12px';
+      document.body.appendChild(clone);
+
+      // @ts-ignore
+      window.html2pdf()
+        .from(clone)
+        .set(opt)
+        .save()
+        .then(() => {
+          clone.remove();
+          restoreStyles();
+          setIsDownloadingReceiptPdf(false);
+          setToastMessage('✅ Recibo do repasse baixado com sucesso!');
+        })
+        .catch((err: any) => {
+          clone.remove();
+          restoreStyles();
+          console.error('PDF error:', err);
+          setIsDownloadingReceiptPdf(false);
+          handlePrintInstructorReceiptDoc();
+        });
+    };
+
+    // @ts-ignore
+    if (window.html2pdf) {
+      runHtml2Pdf();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      script.onload = () => {
+        runHtml2Pdf();
+      };
+      script.onerror = () => {
+        setIsDownloadingReceiptPdf(false);
+        handlePrintInstructorReceiptDoc();
+      };
+      document.body.appendChild(script);
+    }
+  };
+
+  // Dedicated Print for Candidate Receipt (100% isolated, 0 blank pages)
+  const handlePrintCandidateReceiptDoc = () => {
+    const element = document.getElementById('printable-candidate-receipt');
+    if (!element || !viewingCandidateReceipt) return;
+
+    setToastMessage('⏳ Abrindo impressão oficial do recibo...');
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document || iframe.contentDocument;
+    if (!doc) {
+      setToastMessage('❌ Não foi possível abrir o gerenciador de impressão.');
+      return;
+    }
+
+    const alunoNome = viewingCandidateReceipt.aluno.nome || 'Candidato';
+    const idRecibo = viewingCandidateReceipt.idRecibo || 'RECIBO';
+
+    doc.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8">
+          <title>Recibo Nova CNH - ${idRecibo} - ${alunoNome}</title>
+          <style>
+            @page {
+              size: A4 portrait;
+              margin: 6mm 8mm;
+            }
+            * {
+              box-sizing: border-box;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            html, body {
+              margin: 0;
+              padding: 0;
+              background-color: #ffffff;
+              color: #0f172a;
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+              font-size: 11.5px;
+              line-height: 1.45;
+              height: auto;
+              overflow: visible;
+            }
+            .receipt-wrap {
+              width: 100%;
+              max-width: 720px;
+              margin: 0 auto;
+              padding: 16px;
+              background: #ffffff;
+            }
+            .text-center { text-align: center; }
+            .text-left { text-align: left; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: 700; }
+            .font-black { font-weight: 900; }
+            .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+            .uppercase { text-transform: uppercase; }
+            .italic { font-style: italic; }
+            .tracking-tight { letter-spacing: -0.025em; }
+            .tracking-wider { letter-spacing: 0.05em; }
+            .tracking-widest { letter-spacing: 0.1em; }
+            .border-b-4 { border-bottom: 4px solid #0c2340; }
+            .border-b { border-bottom: 1px solid #e2e8f0; }
+            .border-t { border-top: 1px solid #e2e8f0; }
+            .border-2 { border: 2px solid #e2e8f0; }
+            .border { border: 1px solid #cbd5e1; }
+            .rounded-xl { border-radius: 12px; }
+            .rounded-2xl { border-radius: 16px; }
+            .p-3 { padding: 10px; }
+            .p-3\\.5 { padding: 12px; }
+            .p-4 { padding: 14px; }
+            .p-4\\.5 { padding: 16px; }
+            .p-6 { padding: 18px; }
+            .p-8 { padding: 20px; }
+            .pb-6 { padding-bottom: 18px; }
+            .pt-6 { padding-top: 16px; }
+            .pt-2 { padding-top: 8px; }
+            .space-y-1 > * + * { margin-top: 4px; }
+            .space-y-2 > * + * { margin-top: 6px; }
+            .space-y-3 > * + * { margin-top: 10px; }
+            .space-y-6 > * + * { margin-top: 14px; }
+            .space-y-8 > * + * { margin-top: 18px; }
+            .grid { display: grid; }
+            .grid-cols-2 { grid-template-columns: 1fr 1fr; }
+            .grid-cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+            .gap-3 { gap: 10px; }
+            .gap-4 { gap: 14px; }
+            .flex { display: flex; }
+            .items-center { align-items: center; }
+            .justify-between { justify-content: space-between; }
+            .justify-center { justify-content: center; }
+            .bg-slate-50 { background-color: #f8fafc; }
+            .bg-slate-100 { background-color: #f1f5f9; }
+            .bg-emerald-50 { background-color: #ecfdf5; }
+            .border-emerald-300 { border-color: #6ee7b7; }
+            .border-emerald-500 { border-color: #10b981; }
+            .text-emerald-400 { color: #34d399; }
+            .text-emerald-600 { color: #059669; }
+            .text-emerald-700 { color: #047857; }
+            .text-emerald-800 { color: #065f46; }
+            .text-indigo-900 { color: #312e81; }
+            .text-slate-950 { color: #020617; }
+            .text-slate-900 { color: #0f172a; }
+            .text-slate-800 { color: #1e293b; }
+            .text-slate-700 { color: #334155; }
+            .text-slate-600 { color: #475569; }
+            .text-slate-500 { color: #64748b; }
+            .text-slate-400 { color: #94a3b8; }
+            .text-slate-300 { color: #cbd5e1; }
+            .text-white { color: #ffffff; }
+            .bg-\\[\\#0c2340\\] { background-color: #0c2340; }
+            .text-\\[\\#0c2340\\] { color: #0c2340; }
+            .text-xs { font-size: 11px; }
+            .text-sm { font-size: 12.5px; }
+            .text-xl { font-size: 18px; }
+            .text-2xl { font-size: 20px; }
+            .text-3xl { font-size: 24px; }
+            .text-\\[9px\\] { font-size: 9px; }
+            .text-\\[10px\\] { font-size: 10px; }
+            .text-\\[11px\\] { font-size: 11px; }
+            p { margin: 4px 0; text-align: justify; }
+            @media print {
+              html, body {
+                width: 100% !important;
+                height: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+              }
+              .receipt-wrap {
+                padding: 2mm !important;
+                max-width: 100% !important;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="receipt-wrap">
+            ${element.innerHTML}
+          </div>
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 250);
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    setTimeout(() => {
+      try {
+        if (iframe && iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe);
+        }
+      } catch (e) {}
+    }, 12000);
+  };
+
+  // Dedicated PDF Downloader for Candidate Receipt
+  const handleDownloadCandidateReceiptPDF = () => {
+    const element = document.getElementById('printable-candidate-receipt');
+    if (!element || !viewingCandidateReceipt) return;
+
+    setIsDownloadingReceiptPdf(true);
+    setToastMessage('⏳ Gerando arquivo PDF oficial do recibo...');
+
+    const receiptId = viewingCandidateReceipt.idRecibo || 'RECIBO';
+    const opt = {
+      margin:       8,
+      filename:     `recibo_nova_cnh_${receiptId.toLowerCase()}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { 
+        scale: 2, 
+        useCORS: true,
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        onclone: (clonedDoc: Document) => {
+          clonedDoc.querySelectorAll('style').forEach((s) => {
+            if (s.textContent && (s.textContent.includes('okl') || s.textContent.includes('color-mix'))) {
+              s.textContent = s.textContent.replace(/oklch\([^)]+\)/gi, '#1e293b').replace(/oklab\([^)]+\)/gi, '#1e293b').replace(/color-mix\([^;}]+\)/gi, '#1e293b');
+            }
+          });
+        }
+      },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    const runHtml2Pdf = () => {
+      const restoreStyles = cleanModernColorSpaces(element);
+
+      const clone = element.cloneNode(true) as HTMLElement;
+      clone.style.position = 'absolute';
+      clone.style.left = '50%';
+      clone.style.transform = 'translateX(-50%)';
+      clone.style.top = `${window.scrollY}px`;
+      clone.style.zIndex = '999999';
+      clone.style.width = '700px';
+      clone.style.maxHeight = 'none';
+      clone.style.overflow = 'visible';
+      clone.style.height = 'auto';
+      clone.style.backgroundColor = '#ffffff';
+      clone.style.color = '#0f172a';
+      clone.style.padding = '24px';
+      clone.style.borderRadius = '12px';
+      document.body.appendChild(clone);
+
+      // @ts-ignore
+      window.html2pdf()
+        .from(clone)
+        .set(opt)
+        .save()
+        .then(() => {
+          clone.remove();
+          restoreStyles();
+          setIsDownloadingReceiptPdf(false);
+          setToastMessage('✅ Recibo em PDF baixado com sucesso!');
+        })
+        .catch((err: any) => {
+          clone.remove();
+          restoreStyles();
+          console.error('PDF error:', err);
+          setIsDownloadingReceiptPdf(false);
+          // Fallback to print dialog
+          handlePrintCandidateReceiptDoc();
+        });
+    };
+
+    // @ts-ignore
+    if (window.html2pdf) {
+      runHtml2Pdf();
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      script.onload = () => {
+        runHtml2Pdf();
+      };
+      script.onerror = () => {
+        setIsDownloadingReceiptPdf(false);
+        handlePrintCandidateReceiptDoc();
+      };
+      document.body.appendChild(script);
+    }
   };
 
   // Export CSV Helper
@@ -4965,15 +5493,25 @@ ${formattedInstrutores}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
+                  onClick={handleDownloadInstructorReceiptPDF}
+                  disabled={isDownloadingReceiptPdf}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-[10.5px] font-black py-1.5 px-3 rounded-lg transition uppercase tracking-wider cursor-pointer flex items-center gap-1 shadow-sm disabled:opacity-50"
+                  title="Baixar em arquivo PDF"
+                >
+                  {isDownloadingReceiptPdf ? '⏳ Gerando...' : '📥 Baixar PDF'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintInstructorReceiptDoc}
                   className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10.5px] font-black py-1.5 px-3 rounded-lg transition uppercase tracking-wider cursor-pointer flex items-center gap-1"
+                  title="Imprimir ou Salvar pelo Navegador"
                 >
                   🖨️ Imprimir
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewingRecibo(null)}
-                  className="text-slate-400 hover:text-white hover:bg-slate-800 p-1.5 rounded-lg transition animate-none"
+                  className="text-slate-400 hover:text-white hover:bg-slate-800 p-1.5 rounded-lg transition animate-none cursor-pointer"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -5080,7 +5618,6 @@ ${formattedInstrutores}
                   <div className="space-y-3 text-center md:text-left">
                     <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Emitente / Pagador</div>
                     <div className="py-2 inline-block">
-                      {/* Fake stamp badge style */}
                       <div className="border border-[#0c2340]/20 bg-[#0c2340]/5 px-3 py-1.5 rounded text-slate-850 font-serif italic text-xs flex items-center justify-center gap-1.5">
                         <span className="text-base">🏢</span>
                         <div>
@@ -5150,56 +5687,47 @@ ${formattedInstrutores}
 
             </div>
 
-            {/* Print styles override (hidden in screen) */}
-            <style>{`
-              @media print {
-                html, body {
-                  background: white !important;
-                  color: black !important;
-                }
-                body * {
-                  visibility: hidden !important;
-                }
-                #printable-receipt, #printable-receipt * {
-                  visibility: visible !important;
-                }
-                #printable-receipt {
-                  position: absolute !important;
-                  left: 0 !important;
-                  top: 0 !important;
-                  width: 100% !important;
-                  height: auto !important;
-                  padding: 15mm !important;
-                  margin: 0 !important;
-                  background: white !important;
-                  color: black !important;
-                  box-shadow: none !important;
-                  border: none !important;
-                }
-              }
-            `}</style>
-
             {/* Footer action bar (Non-printable) */}
-            <div className="bg-slate-50 px-6 py-4 flex items-center justify-end gap-3 border-t border-slate-200 print:hidden shrink-0">
-              {viewingRecibo.recibo.status !== 'assinado_gov' && (
+            <div className="bg-slate-50 px-6 py-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 print:hidden shrink-0">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setToastMessage(`✉️ Notificação enviada! O link para a assinatura do Recibo ${viewingRecibo.recibo.id} foi encaminhado com sucesso ao WhatsApp e E-mail de ${viewingRecibo.instrutorNome}.`);
-                    setViewingRecibo(null);
-                  }}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black py-2.5 px-6 rounded-xl text-xs transition uppercase tracking-wider cursor-pointer shadow-sm flex items-center gap-1.5"
+                  onClick={handleDownloadInstructorReceiptPDF}
+                  disabled={isDownloadingReceiptPdf}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black py-2.5 px-4 rounded-xl text-xs transition uppercase tracking-wider cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  ✉️ Enviar para o Instrutor
+                  {isDownloadingReceiptPdf ? '⏳ Gerando...' : '📥 Baixar PDF'}
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setViewingRecibo(null)}
-                className="bg-slate-900 hover:bg-slate-850 text-white font-black py-2.5 px-6 rounded-xl text-xs transition uppercase tracking-wider cursor-pointer shadow-sm"
-              >
-                Fechar Documento
-              </button>
+                <button
+                  type="button"
+                  onClick={handlePrintInstructorReceiptDoc}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-black py-2.5 px-4 rounded-xl text-xs transition uppercase tracking-wider cursor-pointer shadow-sm flex items-center gap-1.5"
+                >
+                  🖨️ Imprimir
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {viewingRecibo.recibo.status !== 'assinado_gov' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setToastMessage(`✉️ Notificação enviada! O link para a assinatura do Recibo ${viewingRecibo.recibo.id} foi encaminhado com sucesso ao WhatsApp e E-mail de ${viewingRecibo.instrutorNome}.`);
+                      setViewingRecibo(null);
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-black py-2.5 px-4 rounded-xl text-xs transition uppercase tracking-wider cursor-pointer shadow-sm flex items-center gap-1.5"
+                  >
+                    ✉️ Enviar Notificação
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setViewingRecibo(null)}
+                  className="bg-slate-900 hover:bg-slate-850 text-white font-black py-2.5 px-5 rounded-xl text-xs transition uppercase tracking-wider cursor-pointer shadow-sm"
+                >
+                  Fechar
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -5221,15 +5749,25 @@ ${formattedInstrutores}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => window.print()}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-[10.5px] font-black py-1.5 px-3 rounded-lg transition uppercase tracking-wider cursor-pointer flex items-center gap-1 shadow-sm"
+                  onClick={handleDownloadCandidateReceiptPDF}
+                  disabled={isDownloadingReceiptPdf}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-[10.5px] font-black py-1.5 px-3 rounded-lg transition uppercase tracking-wider cursor-pointer flex items-center gap-1 shadow-sm disabled:opacity-50"
+                  title="Baixar em arquivo PDF"
                 >
-                  🖨️ Imprimir Recibo
+                  {isDownloadingReceiptPdf ? '⏳ Gerando...' : '📥 Baixar PDF'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintCandidateReceiptDoc}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10.5px] font-black py-1.5 px-3 rounded-lg transition uppercase tracking-wider cursor-pointer flex items-center gap-1"
+                  title="Imprimir ou Salvar pelo Navegador"
+                >
+                  🖨️ Imprimir
                 </button>
                 <button
                   type="button"
                   onClick={() => setViewingCandidateReceipt(null)}
-                  className="text-slate-400 hover:text-white hover:bg-slate-800 p-1.5 rounded-lg transition"
+                  className="text-slate-400 hover:text-white hover:bg-slate-800 p-1.5 rounded-lg transition cursor-pointer"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -5341,38 +5879,10 @@ ${formattedInstrutores}
                 </div>
               </div>
 
-              {/* Print CSS Rules */}
-              <style>{`
-                @media print {
-                  html, body {
-                    background: white !important;
-                    color: black !important;
-                  }
-                  body * {
-                    visibility: hidden !important;
-                  }
-                  #printable-candidate-receipt, #printable-candidate-receipt * {
-                    visibility: visible !important;
-                  }
-                  #printable-candidate-receipt {
-                    position: absolute !important;
-                    left: 0 !important;
-                    top: 0 !important;
-                    width: 100% !important;
-                    height: auto !important;
-                    padding: 15mm !important;
-                    margin: 0 !important;
-                    background: white !important;
-                    color: black !important;
-                    box-shadow: none !important;
-                    border: none !important;
-                  }
-                }
-              `}</style>
             </div>
 
             {/* Modal Footer Actions (Non-printable) */}
-            <div className="bg-slate-50 px-6 py-4 flex items-center justify-between gap-3 border-t border-slate-200 print:hidden">
+            <div className="bg-slate-50 px-6 py-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 print:hidden">
               <a
                 href={`https://wa.me/55${viewingCandidateReceipt.aluno.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(
                   `🧾 *RECIBO OFICIAL DE PAGAMENTO - NOVA CNH BRASIL*\n\n` +
@@ -5390,13 +5900,30 @@ ${formattedInstrutores}
                 <span>💬</span> Enviar no WhatsApp
               </a>
 
-              <button
-                type="button"
-                onClick={() => setViewingCandidateReceipt(null)}
-                className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-2.5 px-6 rounded-xl text-xs transition cursor-pointer shadow-sm"
-              >
-                Fechar
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleDownloadCandidateReceiptPDF}
+                  disabled={isDownloadingReceiptPdf}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black py-2.5 px-4 rounded-xl text-xs transition uppercase tracking-wider cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDownloadingReceiptPdf ? '⏳ Gerando...' : '📥 Baixar PDF'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintCandidateReceiptDoc}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-black py-2.5 px-4 rounded-xl text-xs transition uppercase tracking-wider cursor-pointer shadow-sm flex items-center gap-1.5"
+                >
+                  🖨️ Imprimir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingCandidateReceipt(null)}
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-2.5 px-6 rounded-xl text-xs transition cursor-pointer shadow-sm"
+                >
+                  Fechar
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -10355,10 +10882,10 @@ ${formattedInstrutores}
                     Fale Conosco — Suporte & Orientação
                   </h3>
                   <p className="text-slate-500 text-xs md:text-sm max-w-2xl">
-                    Precisa de ajuda com sua inscrição, suporte para o simulador ou esclarecimento sobre os contratos? Entre em contato por nossos canais de atendimento oficiais!
+                    Precisa de ajuda com sua inscrição, suporte para o simulador, emissão de boletos/recibos ou esclarecimento sobre os contratos? Entre em contato por nossos canais de atendimento oficiais da Secretaria de Gestão e do Instrutor!
                   </p>
                 </div>
-                <div className="bg-emerald-50 text-emerald-800 rounded-xl px-4 py-2 border border-emerald-100 flex items-center gap-2 text-xs font-bold leading-tight shadow-xs">
+                <div className="bg-emerald-50 text-emerald-800 rounded-xl px-4 py-2 border border-emerald-100 flex items-center gap-2 text-xs font-bold leading-tight shadow-xs shrink-0">
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -10367,16 +10894,17 @@ ${formattedInstrutores}
                 </div>
               </div>
 
+              {/* Grid with Contact Cards and Quick Messenger Form */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch pt-2">
                 {/* Left Column: Fast Messenger Form (Envio Direto) */}
-                <div className="lg:col-span-7 bg-white rounded-2xl p-5 md:p-6 border border-slate-200/75 shadow-xs flex flex-col justify-between text-left space-y-4">
+                <div className="lg:col-span-6 bg-white rounded-2xl p-5 md:p-6 border border-slate-200/75 shadow-xs flex flex-col justify-between text-left space-y-4">
                   <div className="space-y-2">
                     <h4 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-2">
                       <MessageSquare className="h-4 w-4 text-[#112d52]" />
                       Mensagem Rápida Direta
                     </h4>
                     <p className="text-[11px] text-slate-450">
-                      Preencha os campos abaixo para formular sua mensagem automaticamente e enviá-la para nosso instrutor por WhatsApp ou por E-mail.
+                      Preencha os campos abaixo para formular sua mensagem automaticamente e enviá-la para a Secretaria de Gestão ou para o Instrutor via WhatsApp ou E-mail.
                     </p>
                   </div>
 
@@ -10394,19 +10922,33 @@ ${formattedInstrutores}
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider block">Qual o Assunto?</label>
+                        <label className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider block">Falar com:</label>
                         <select
-                          value={faleAssunto}
-                          onChange={(e) => setFaleAssunto(e.target.value)}
+                          value={faleDestinatario}
+                          onChange={(e) => setFaleDestinatario(e.target.value)}
                           className="w-full bg-slate-50 border border-slate-200 focus:border-[#112d52] rounded-xl px-3 py-1.5 text-slate-800 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-[#112d52] transition-all cursor-pointer"
                         >
-                          <option value="Inscrição de Candidato">Inscrição de Candidato</option>
-                          <option value="Suporte do Simulador">Suporte do Simulador / Aulas</option>
-                          <option value="Dúvidas sobre o Contrato">Dúvidas sobre o Contrato</option>
-                          <option value="Plano de Poupança Baú">Plano de Poupança Baú / Pagamentos</option>
-                          <option value="Parcerias e Patrocínio">Parcerias e Outros</option>
+                          <option value="secretaria_flavia_1">Secretaria (Flavia) - (81) 99238-9773</option>
+                          <option value="secretaria_flavia_2">Secretaria (Flavia) - (81) 98318-5596</option>
+                          <option value="instrutor_miqueias">Instrutor Miqueias - (81) 99201-1024</option>
                         </select>
                       </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider block">Qual o Assunto?</label>
+                      <select
+                        value={faleAssunto}
+                        onChange={(e) => setFaleAssunto(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-[#112d52] rounded-xl px-3 py-1.5 text-slate-800 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-[#112d52] transition-all cursor-pointer"
+                      >
+                        <option value="Inscrição de Candidato">Inscrição de Candidato / Matrícula</option>
+                        <option value="Dúvidas com a Secretaria">Dúvidas com a Secretaria de Gestão</option>
+                        <option value="Suporte do Simulador">Suporte do Simulador / Aulas Teóricas</option>
+                        <option value="Dúvidas sobre o Contrato">Dúvidas sobre o Contrato</option>
+                        <option value="Plano de Poupança Baú">Plano de Poupança Baú / Pagamentos</option>
+                        <option value="Parcerias e Patrocínio">Parcerias e Outros</option>
+                      </select>
                     </div>
 
                     <div className="space-y-1">
@@ -10416,7 +10958,7 @@ ${formattedInstrutores}
                         onChange={(e) => setFaleMensagem(e.target.value)}
                         rows={3}
                         className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-[#112d52] rounded-xl p-3 text-slate-800 text-xs font-medium placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#112d52] transition-all resize-none"
-                        placeholder="Digite os detalhes da sua mensagem de apoio ou solicitação..."
+                        placeholder="Digite os detalhes da sua mensagem de apoio, dúvida ou solicitação..."
                       />
                     </div>
                   </div>
@@ -10429,14 +10971,23 @@ ${formattedInstrutores}
                           alert("Por favor, preencha seu nome e sua mensagem para direcionar o atendimento.");
                           return;
                         }
-                        const waText = `Olá Miqueias! Meu nome é ${faleNome.trim()}, e tenho uma solicitação referente a "${faleAssunto}":\n\n"${faleMensagem.trim()}"`;
-                        const url = `https://wa.me/5581992011024?text=${encodeURIComponent(waText)}`;
+                        let targetPhone = "5581992389773";
+                        let destinatarioNome = "Flavia Micheline (Secretária de Gestão)";
+                        if (faleDestinatario === 'secretaria_flavia_2') {
+                          targetPhone = "5581983185596";
+                          destinatarioNome = "Flavia Micheline (Secretária de Gestão)";
+                        } else if (faleDestinatario === 'instrutor_miqueias') {
+                          targetPhone = "5581992011024";
+                          destinatarioNome = "Instrutor Miqueias";
+                        }
+                        const waText = `Olá ${destinatarioNome}! Meu nome é ${faleNome.trim()}, e tenho uma solicitação referente a "${faleAssunto}":\n\n"${faleMensagem.trim()}"`;
+                        const url = `https://wa.me/${targetPhone}?text=${encodeURIComponent(waText)}`;
                         window.open(url, '_blank');
                       }}
                       className="bg-[#25D366] hover:bg-[#20ba56] text-white font-extrabold py-2.5 px-4 rounded-xl text-xs transition duration-150 active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                     >
                       <MessageSquare className="h-4 w-4 shrink-0" />
-                      Enviar via WhatsApp (81)
+                      Enviar via WhatsApp
                     </button>
 
                     <button
@@ -10447,9 +10998,9 @@ ${formattedInstrutores}
                           return;
                         }
                         const emailSubject = `Suporte Nova CNH - ${faleAssunto}`;
-                        const emailBody = `Olá Miqueias,\n\nMeu nome é ${faleNome.trim()}.\n\nAssunto: ${faleAssunto}\n\nMensagem:\n${faleMensagem.trim()}\n\nAtenciosamente,\n${faleNome.trim()}`;
-                        const mailtoUrl = `mailto:miqueias.instructor@gmail.com?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
-                        window.location.href = mailtoUrl.replace('miqueias.instructor@gmail.com', 'miqueias.instrutor@gmail.com');
+                        const emailBody = `Olá,\n\nMeu nome é ${faleNome.trim()}.\n\nAssunto: ${faleAssunto}\n\nMensagem:\n${faleMensagem.trim()}\n\nAtenciosamente,\n${faleNome.trim()}`;
+                        const mailtoUrl = `mailto:miqueias.instrutor@gmail.com?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+                        window.location.href = mailtoUrl;
                       }}
                       className="bg-[#0c2340] hover:bg-slate-900 text-white font-extrabold py-2.5 px-4 rounded-xl text-xs transition duration-150 active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                     >
@@ -10460,93 +11011,171 @@ ${formattedInstrutores}
                 </div>
 
                 {/* Right Column: Static & Interactive Direct Contacts Cards */}
-                <div className="lg:col-span-5 flex flex-col justify-between gap-4">
-                  {/* WhatsApp Support Direct Button */}
-                  <div className="bg-emerald-50/40 rounded-2xl p-5 border border-emerald-100 flex flex-col justify-between space-y-4 text-left flex-1">
-                    <div className="flex items-start gap-3">
-                      <div className="h-10 w-10 text-xl rounded-xl bg-emerald-500 text-white flex items-center justify-center font-bold shadow-sm">
-                        💬
-                      </div>
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] font-black text-emerald-800 uppercase tracking-wider font-mono">Contato Pragmático</span>
-                        <h4 className="font-extrabold text-[#0c2340] text-sm md:text-base">Canal do WhatsApp Oficial</h4>
-                        <p className="text-slate-505 text-[10.5px]">
-                          Fale direto com o instrutor Miqueias para aprovação rápida, suporte a simulação ou documentos.
-                        </p>
+                <div className="lg:col-span-6 flex flex-col justify-between gap-4">
+                  {/* CARD 1: SECRETARIA DE GESTÃO (FLAVIA MICHELINE) */}
+                  <div className="bg-gradient-to-br from-blue-50/70 to-indigo-50/50 rounded-2xl p-5 border-2 border-blue-200/80 shadow-xs flex flex-col justify-between space-y-4 text-left">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="h-10 w-10 text-xl rounded-xl bg-[#0c2340] text-white flex items-center justify-center font-bold shadow-sm shrink-0">
+                          🏛️
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="inline-flex items-center gap-1 text-[9.5px] font-black text-blue-700 uppercase tracking-wider font-mono bg-blue-100/80 px-2 py-0.5 rounded-md">
+                            Secretaria de Gestão
+                          </span>
+                          <h4 className="font-black text-slate-900 text-base">
+                            Flavia Micheline
+                          </h4>
+                          <p className="text-slate-600 text-[11px]">
+                            Secretária de Gestão — Informações de matrículas, emissão de boletos/recibos, agendamentos e suporte aos alunos.
+                          </p>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="bg-white border border-emerald-100 rounded-xl p-3 flex items-center justify-between shadow-xs font-mono">
-                      <div>
-                        <span className="text-[8px] text-slate-400 block uppercase font-bold">WhatsApp Suporte:</span>
-                        <span className="text-sm font-black text-emerald-700 tracking-wider">
-                          (81) 99201-1024
-                        </span>
+                    {/* Dual Phone Numbers for Secretaria */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      {/* Número 1 */}
+                      <div className="bg-white border border-blue-100 rounded-xl p-3 flex flex-col justify-between gap-2 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-[8.5px] text-slate-400 block uppercase font-extrabold tracking-wider">Secretaria (Linha 1):</span>
+                            <span className="text-[13px] font-black text-[#0c2340] font-mono tracking-tight">
+                              (81) 99238-9773
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText("81992389773");
+                              setToastMessage("📋 Número copiado: (81) 99238-9773 (Flavia Micheline)");
+                            }}
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-800 px-2 py-1 rounded text-[10px] font-bold tracking-wide transition active:scale-95 cursor-pointer border border-blue-200/50"
+                            title="Copiar número"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                        <a
+                          href="https://wa.me/5581992389773?text=Ol%C3%A1%20Flavia%20Micheline%2C%20gostaria%20de%20informa%C3%A7%C3%B5es%20sobre%20a%20Nova%20CNH%20Brasil!"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full bg-[#25D366] hover:bg-[#20ba56] text-white font-extrabold py-1.5 px-3 rounded-lg text-[11px] flex items-center justify-center gap-1 transition uppercase tracking-wider shadow-xs text-center"
+                        >
+                          <span>WhatsApp (Linha 1)</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText("81992011024");
-                          setToastMessage("📋 WhatsApp copiado! (81) 99201-1024");
-                        }}
-                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-850 px-2.5 py-1.5 rounded-lg text-[10px] font-bold tracking-wide transition active:scale-95 cursor-pointer border border-emerald-200/50"
-                      >
-                        Copiar
-                      </button>
-                    </div>
 
-                    <a
-                      href="https://wa.me/5581992011024"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="w-full bg-emerald-500 hover:bg-emerald-450 text-slate-950 font-black py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition uppercase tracking-wider shadow-sm text-center"
-                    >
-                      <span>Conversar no WhatsApp</span>
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
+                      {/* Número 2 */}
+                      <div className="bg-white border border-blue-100 rounded-xl p-3 flex flex-col justify-between gap-2 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-[8.5px] text-slate-400 block uppercase font-extrabold tracking-wider">Secretaria (Linha 2):</span>
+                            <span className="text-[13px] font-black text-[#0c2340] font-mono tracking-tight">
+                              (81) 98318-5596
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText("81983185596");
+                              setToastMessage("📋 Número copiado: (81) 98318-5596 (Flavia Micheline)");
+                            }}
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-800 px-2 py-1 rounded text-[10px] font-bold tracking-wide transition active:scale-95 cursor-pointer border border-blue-200/50"
+                            title="Copiar número"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                        <a
+                          href="https://wa.me/5581983185596?text=Ol%C3%A1%20Flavia%20Micheline%2C%20gostaria%20de%20informa%C3%A7%C3%B5es%20sobre%20a%20Nova%20CNH%20Brasil!"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full bg-[#25D366] hover:bg-[#20ba56] text-white font-extrabold py-1.5 px-3 rounded-lg text-[11px] flex items-center justify-center gap-1 transition uppercase tracking-wider shadow-xs text-center"
+                        >
+                          <span>WhatsApp (Linha 2)</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Mail Support Direct Button */}
-                  <div className="bg-indigo-50/40 rounded-2xl p-5 border border-indigo-100 flex flex-col justify-between space-y-4 text-left flex-1">
-                    <div className="flex items-start gap-3">
-                      <div className="h-10 w-10 text-xl rounded-xl bg-indigo-900 text-white flex items-center justify-center font-bold shadow-sm">
-                        ✉️
+                  {/* Dual Grid: Instrutor Miqueias & E-mail Oficial */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* WhatsApp Instrutor Miqueias */}
+                    <div className="bg-emerald-50/50 rounded-2xl p-4 border border-emerald-100 flex flex-col justify-between space-y-3 text-left">
+                      <div className="flex items-start gap-2.5">
+                        <div className="h-8 w-8 text-base rounded-lg bg-emerald-500 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                          🚗
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[9px] font-black text-emerald-800 uppercase tracking-wider font-mono">Suporte Técnico</span>
+                          <h4 className="font-extrabold text-[#0c2340] text-xs">Instrutor Miqueias</h4>
+                          <span className="text-[12px] font-black text-emerald-700 block font-mono">
+                            (81) 99201-1024
+                          </span>
+                        </div>
                       </div>
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] font-black text-indigo-800 uppercase tracking-wider font-mono">Correio Eletrônico</span>
-                        <h4 className="font-extrabold text-[#0c2340] text-sm md:text-base">Nosso Endereço de E-mail</h4>
-                        <p className="text-slate-505 text-[10.5px]">
-                          Para questões administrativas corporativas, contratos digitais ou propostas de fomento local.
-                        </p>
+
+                      <div className="flex items-center gap-1.5">
+                        <a
+                          href="https://wa.me/5581992011024"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black py-1.5 px-2 rounded-lg text-[10.5px] flex items-center justify-center gap-1 transition uppercase tracking-wider text-center"
+                        >
+                          <span>WhatsApp</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText("81992011024");
+                            setToastMessage("📋 WhatsApp copiado: (81) 99201-1024");
+                          }}
+                          className="bg-white hover:bg-emerald-100 text-emerald-800 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-emerald-200 transition cursor-pointer"
+                        >
+                          Copiar
+                        </button>
                       </div>
                     </div>
 
-                    <div className="bg-white border border-indigo-100 rounded-xl p-3 flex items-center justify-between shadow-xs font-mono">
-                      <div className="truncate max-w-[200px] md:max-w-[230px]">
-                        <span className="text-[8px] text-slate-400 block uppercase font-bold">E-mail Oficial:</span>
-                        <span className="text-[11.5px] font-black text-indigo-900 tracking-tight lowercase">
-                          miqueias.instrutor@gmail.com
-                        </span>
+                    {/* Mail Support Direct */}
+                    <div className="bg-indigo-50/50 rounded-2xl p-4 border border-indigo-100 flex flex-col justify-between space-y-3 text-left">
+                      <div className="flex items-start gap-2.5">
+                        <div className="h-8 w-8 text-base rounded-lg bg-indigo-900 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                          ✉️
+                        </div>
+                        <div className="space-y-0.5 truncate">
+                          <span className="text-[9px] font-black text-indigo-800 uppercase tracking-wider font-mono">E-mail Institucional</span>
+                          <h4 className="font-extrabold text-[#0c2340] text-xs truncate">Administração & Contratos</h4>
+                          <span className="text-[10px] font-bold text-indigo-900 block truncate lowercase font-mono">
+                            miqueias.instrutor@gmail.com
+                          </span>
+                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText("miqueias.instrutor@gmail.com");
-                          setToastMessage("📋 E-mail copiado: miqueias.instrutor@gmail.com");
-                        }}
-                        className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-850 px-2.5 py-1.5 rounded-lg text-[10px] font-bold tracking-wide transition active:scale-95 cursor-pointer border border-indigo-200/50"
-                      >
-                        Copiar
-                      </button>
-                    </div>
 
-                    <a
-                      href="mailto:miqueias.instrutor@gmail.com"
-                      className="w-full bg-[#112d52] hover:bg-slate-900 text-white font-extrabold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition uppercase tracking-wider shadow-sm text-center"
-                    >
-                      <span>Escrever E-mail Agora</span>
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
+                      <div className="flex items-center gap-1.5">
+                        <a
+                          href="mailto:miqueias.instrutor@gmail.com"
+                          className="flex-1 bg-[#112d52] hover:bg-slate-900 text-white font-extrabold py-1.5 px-2 rounded-lg text-[10.5px] flex items-center justify-center gap-1 transition uppercase tracking-wider text-center"
+                        >
+                          <span>E-mail</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText("miqueias.instrutor@gmail.com");
+                            setToastMessage("📋 E-mail copiado: miqueias.instrutor@gmail.com");
+                          }}
+                          className="bg-white hover:bg-indigo-100 text-indigo-800 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-indigo-200 transition cursor-pointer"
+                        >
+                          Copiar
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                 </div>
