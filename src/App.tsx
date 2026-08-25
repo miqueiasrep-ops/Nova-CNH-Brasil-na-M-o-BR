@@ -5,6 +5,7 @@
 
 import { CandidateEnrollmentForm } from './components/CandidateEnrollmentForm';
 import { FreeTheoreticalCourse } from './components/FreeTheoreticalCourse';
+import { SalesKanbanCrm } from './components/SalesKanbanCrm';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Plus, 
@@ -1542,7 +1543,7 @@ export default function App() {
   // UI state
   // Default tab is 'capa' so the visual presentation with the image of the happy youth starts immediately on screen load
   const [currentTab, setCurrentTab] = useState<'app-jovem' | 'gestao' | 'capa' | 'simulador-poupanca' | 'area-instrutor'>('capa');
-  const [adminSubTab, setAdminSubTab] = useState<'database' | 'contracts' | 'commissions' | 'recibos'>('database');
+  const [adminSubTab, setAdminSubTab] = useState<'database' | 'contracts' | 'commissions' | 'recibos' | 'crm'>('database');
   const [selectedCommissionInstructor, setSelectedCommissionInstructor] = useState<string | null>(null);
   const [commissionSearch, setCommissionSearch] = useState<string>('');
   const [signingRecibo, setSigningRecibo] = useState<{ instrutor: Instrutor, recibo: ReciboQuitacao } | null>(null);
@@ -7337,78 +7338,110 @@ ${formattedInstrutores}
                     Simule o financiamento da sua habilitação planejada com base na quantidade personalizada de aulas práticas que deseja poupar.
                   </p>
 
-                  {/* ESCOLHA DO PLANO NO SIMULADOR */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">Selecione o Plano a Simular:</label>
+                  {/* ESCOLHA DO PLANO NO SIMULADOR COM DESTAQUE MÁXIMO AO PLANO 18+ ANOS */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                        <span>🎯 Escolha o seu Plano:</span>
+                      </label>
+                      <span className="text-[10px] text-indigo-700 font-extrabold bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                        ⭐ 18+ Anos: Início Imediato
+                      </span>
+                    </div>
+
+                    {/* Guia explicativo rápido para evitar qualquer confusão de planos */}
+                    <div className="bg-blue-50/80 border border-blue-200/80 rounded-xl p-2.5 text-[11px] text-slate-700 leading-snug flex items-start gap-2">
+                      <span className="text-base shrink-0">💡</span>
+                      <div>
+                        <strong className="text-slate-900 font-bold">Dúvida na escolha?</strong> Se você já completou <strong className="text-indigo-900 font-black">18 anos ou mais</strong>, selecione o plano <strong className="text-indigo-900 font-black">⭐ 18+ Anos (CNH Facilitada)</strong> para início imediato das aulas sem esperar!
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* 1. PLANO 18+ ANOS - DESTAQUE PRINCIPAL E EVIDÊNCIA MÁXIMA */}
+                      <div
+                        onClick={() => {
+                          setSelectedPlanToPreview('adulto-18');
+                        }}
+                        className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none relative overflow-hidden group ${
+                          calcPlano === 'adulto-18'
+                            ? 'bg-gradient-to-br from-indigo-50 via-white to-blue-50/70 border-indigo-600 shadow-md ring-2 ring-indigo-400/40'
+                            : 'bg-white border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50/30'
+                        }`}
+                      >
+                        {/* Ribbon / Badge de Recomendado */}
+                        <div className="flex items-center justify-between gap-1 mb-1.5">
+                          <span className="text-[8.5px] font-black px-2 py-0.5 rounded-md bg-indigo-600 text-white font-sans uppercase tracking-wider flex items-center gap-1 shadow-xs">
+                            ⭐ MAIS ESCOLHIDO
+                          </span>
+                          <span className="text-[8.5px] font-black px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-900 font-mono border border-indigo-200">
+                            18+ ANOS
+                          </span>
+                        </div>
+                        <div>
+                          <h5 className="font-black text-slate-900 text-xs">CNH 18+ Anos</h5>
+                          <span className="text-[10px] text-indigo-700 font-extrabold block mt-0.5">Adultos & Início Imediato</span>
+                          <p className="text-[9.5px] text-slate-500 font-medium leading-tight mt-1">
+                            Aulas práticas e teóricas já liberadas em até 12x s/ juros.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 2. PLANO POUPANÇA JOVEM (17 ANOS) */}
                       {(!isAuthenticated || calculateAge(currentStudent.dob) < 18) && (
                         <div
                           onClick={() => {
                             setSelectedPlanToPreview('jovem-17');
                           }}
-                          className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none ${
+                          className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none ${
                             calcPlano === 'jovem-17'
-                              ? 'bg-emerald-50/70 border-emerald-500 shadow-xs'
+                              ? 'bg-emerald-50/70 border-emerald-500 shadow-xs ring-2 ring-emerald-400/30'
                               : 'bg-white border-slate-200 hover:bg-slate-50'
                           }`}
                         >
                           <div>
-                            <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center justify-between gap-1 mb-1.5">
                               <span className="font-extrabold text-[9px] text-emerald-800 uppercase font-sans tracking-wide">
-                                Poupança Jovem
+                                Menor de 18
                               </span>
-                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-sans shrink-0">
+                              <span className="text-[8.5px] font-black px-1.5 py-0.5 rounded-md bg-emerald-500 text-slate-950 font-mono">
                                 17 ANOS
                               </span>
                             </div>
-                            <h5 className="font-bold text-slate-900 text-xs mt-1">Planejamento Ativo</h5>
+                            <h5 className="font-bold text-slate-900 text-xs">Poupança Jovem</h5>
+                            <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">Poupar até Maioridade</span>
+                            <p className="text-[9.5px] text-slate-500 font-medium leading-tight mt-1">
+                              Guarde mensalmente e estude a teoria até os 18 anos.
+                            </p>
                           </div>
                         </div>
                       )}
 
-                      <div
-                        onClick={() => {
-                          setSelectedPlanToPreview('adulto-18');
-                        }}
-                        className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none ${
-                          calcPlano === 'adulto-18'
-                            ? 'bg-indigo-50/70 border-indigo-500 shadow-xs'
-                            : 'bg-white border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div>
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="font-extrabold text-[9px] text-indigo-800 uppercase font-sans tracking-wide">
-                              CNH Facilitada
-                            </span>
-                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-indigo-500 text-white font-sans shrink-0">
-                              18+ ANOS
-                            </span>
-                          </div>
-                          <h5 className="font-bold text-slate-900 text-xs mt-1">Início Sem Juros</h5>
-                        </div>
-                      </div>
-
+                      {/* 3. PLANO TREINO HABILITADO */}
                       <div
                         onClick={() => {
                           setSelectedPlanToPreview('habilitado');
                         }}
-                        className={`p-3 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none ${
+                        className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none ${
                           calcPlano === 'habilitado'
-                            ? 'bg-violet-50/70 border-violet-500 shadow-xs'
+                            ? 'bg-violet-50/70 border-violet-500 shadow-xs ring-2 ring-violet-400/30'
                             : 'bg-white border-slate-200 hover:bg-slate-50'
                         }`}
                       >
                         <div>
-                          <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-center justify-between gap-1 mb-1.5">
                             <span className="font-extrabold text-[9px] text-violet-800 uppercase font-sans tracking-wide">
-                              Treino Habilitado
+                              Já Tem CNH
                             </span>
-                            <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-violet-500 text-white font-sans shrink-0">
-                              JÁ TEM CNH
+                            <span className="text-[8.5px] font-black px-1.5 py-0.5 rounded-md bg-violet-500 text-white font-mono">
+                              TREINO
                             </span>
                           </div>
-                          <h5 className="font-bold text-slate-900 text-xs mt-1">Prática & Controle</h5>
+                          <h5 className="font-bold text-slate-900 text-xs">Já Habilitados</h5>
+                          <span className="text-[10px] text-violet-700 font-bold block mt-0.5">Prática & Perder Medo</span>
+                          <p className="text-[9.5px] text-slate-500 font-medium leading-tight mt-1">
+                            Aulas no trânsito e baliza para motoristas inseguros.
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -8313,7 +8346,19 @@ ${formattedInstrutores}
                   </h2>
                   <p className="text-slate-500 text-xs mt-0.5">Monitore os saldos dos candidatos, acesse os contratos assinados e acompanhe as comissões dos instrutores</p>
                 </div>
-                <div className="flex flex-wrap border border-slate-200 bg-slate-50 p-1 rounded-xl">
+                <div className="flex flex-wrap border border-slate-200 bg-slate-50 p-1 rounded-xl gap-1">
+                  <button
+                    onClick={() => setAdminSubTab('crm')}
+                    className={`px-3 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer select-none ${
+                      adminSubTab === 'crm'
+                        ? 'bg-emerald-600 text-white shadow-md'
+                        : 'text-slate-700 hover:text-slate-950 bg-white border border-slate-200/80'
+                    }`}
+                  >
+                    <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>CRM de Vendas (Kanban)</span>
+                    <span className="bg-amber-400 text-slate-950 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase">Novo</span>
+                  </button>
                   <button
                     onClick={() => setAdminSubTab('database')}
                     className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 cursor-pointer select-none ${
@@ -8402,6 +8447,23 @@ ${formattedInstrutores}
                   </div>
                 </div>
               </div>
+
+              {adminSubTab === 'crm' && (
+                <SalesKanbanCrm
+                  alunos={alunos}
+                  setAlunos={setAlunos}
+                  instrutores={instrutores}
+                  onSaveToCloud={(updated) => {
+                    saveAllAlunosToFirestore(updated);
+                    try {
+                      localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(updated));
+                    } catch (err) {
+                      console.warn('Storage sync error:', err);
+                    }
+                  }}
+                  onOpenCandidateDetail={(lead) => setSelectedStudentDetail(lead)}
+                />
+              )}
 
               {adminSubTab === 'database' && (
                 <>
@@ -8637,9 +8699,25 @@ ${formattedInstrutores}
                                 <span className="truncate" title={a.endereco}>{a.endereco}</span>
                               </div>
                             )}
-                            <div className="flex items-center gap-1">
-                              <span className="text-slate-400">📱</span>
-                              <span>WhatsApp: <strong className="text-slate-700">{a.whatsapp}</strong></span>
+                            <div className="flex items-center justify-between gap-1.5 pt-0.5">
+                              <div className="flex items-center gap-1 min-w-0 truncate">
+                                <span className="text-slate-400 text-xs shrink-0">📱</span>
+                                <span className="text-slate-500 shrink-0">WhatsApp:</span>
+                                <strong className="text-slate-750 font-bold truncate">{a.whatsapp}</strong>
+                              </div>
+                              {a.whatsapp && (
+                                <a
+                                  href={`https://wa.me/55${a.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá ${a.nome}! Tudo bem? Passando para saber como está o seu processo na Nova CNH Brasil. Você já encontrou um instrutor ou ainda tem interesse em realizar o processo conosco?`)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="bg-[#25D366] hover:bg-[#20bd5a] text-white text-[10.5px] font-black px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-xs transition shrink-0 active:scale-95 cursor-pointer"
+                                  title={`Enviar mensagem de lembrete para ${a.nome} no WhatsApp`}
+                                >
+                                  <MessageCircle className="h-3.5 w-3.5" />
+                                  <span>WhatsApp</span>
+                                </a>
+                              )}
                             </div>
                             <div className="flex items-center gap-1">
                               <span className="text-slate-400">🔑</span>
@@ -12934,10 +13012,10 @@ ${formattedInstrutores}
                         <div>
                           <p className="text-slate-400 font-medium">WhatsApp Principal</p>
                           <a 
-                            href={`https://wa.me/55${a.whatsapp.replace(/\D/g, '')}`} 
+                            href={`https://wa.me/55${a.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá ${a.nome}! Tudo bem? Passando para saber como está o seu processo na Nova CNH Brasil. Você já encontrou um instrutor ou ainda tem interesse em realizar o processo conosco?`)}`} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="text-white hover:text-indigo-400 font-bold flex items-center gap-1 mt-0.5"
+                            className="text-white hover:text-[#25D366] font-bold inline-flex items-center gap-1 mt-0.5"
                           >
                             <span>📱</span> {a.whatsapp}
                           </a>
@@ -14035,10 +14113,15 @@ ${formattedInstrutores}
             )}
 
             {selectedPlanToPreview === 'adulto-18' && (
-              <div className="bg-gradient-to-r from-indigo-600 to-indigo-900 text-white p-5">
-                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-100 font-mono">Simulador de Planos</span>
+              <div className="bg-gradient-to-r from-indigo-700 via-indigo-900 to-blue-900 text-white p-5 border-b-2 border-amber-400">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-indigo-100 font-mono">Simulador de Planos</span>
+                  <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-amber-400 text-slate-950 rounded-full shadow-xs">
+                    ⭐ MAIS ESCOLHIDO
+                  </span>
+                </div>
                 <h3 className="text-xl font-black mt-1 flex items-center gap-2">
-                  <span>⚡</span> CNH Facilitada Maiores — Início 18+ Anos
+                  <span>⚡</span> CNH Facilitada Adultos — Início Imediato 18+ Anos
                 </h3>
               </div>
             )}

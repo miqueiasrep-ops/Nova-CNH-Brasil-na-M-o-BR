@@ -46,6 +46,17 @@ export interface Comprovante {
   observacao?: string;
 }
 
+export type EtapaCrm = 'novo_lead' | 'em_atendimento' | 'proposta_enviada' | 'negociacao' | 'ganho' | 'perdido';
+
+export type TemperaturaLead = 'quente' | 'morno' | 'frio';
+
+export interface NotaCrm {
+  id: string;
+  data: string;
+  texto: string;
+  autor?: string;
+}
+
 export interface Aluno {
   id: string;
   nome: string;
@@ -78,6 +89,13 @@ export interface Aluno {
   comprovantes?: Comprovante[];
   baixasPagamento?: BaixaPagamento[];
   updatedAt?: string;
+  // CRM Kanban fields
+  etapaCrm?: EtapaCrm;
+  temperatura?: TemperaturaLead;
+  origemLead?: string;
+  observacoesCrm?: string;
+  notasCrm?: NotaCrm[];
+  dataUltimoContato?: string;
   [key: string]: any;
 }
 
