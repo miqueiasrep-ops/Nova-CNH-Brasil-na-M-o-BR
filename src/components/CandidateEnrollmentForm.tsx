@@ -916,6 +916,7 @@ export function CandidateEnrollmentForm({
       formaPagamento: enrollFormaPagamento,
       baixasPagamento: existingBaixas,
       comprovantes: existingComprovantes,
+      etapaCrm: 'ganho',
       updatedAt: new Date().toISOString()
     };
 

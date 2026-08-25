@@ -112,3 +112,23 @@ export interface Depoimento {
   origem?: string;
 }
 
+/**
+ * Retorna se um candidato é considerado oficialmente matriculado
+ * (i.e. já fechou negócio / etapa 'ganho', ou é um aluno ativo do banco)
+ * Leads em prospecção no CRM (novo_lead, em_atendimento, proposta_enviada, negociacao, perdido)
+ * NÃO são considerados matriculados até que o negócio seja fechado.
+ */
+export const isAlunoMatriculado = (aluno?: Aluno | null): boolean => {
+  if (!aluno) return false;
+  // Se possui etapa de CRM explicitamente definida
+  if (aluno.etapaCrm) {
+    return aluno.etapaCrm === 'ganho';
+  }
+  // Se foi gerado com prefixo de lead e não foi promovido a 'ganho'
+  if (aluno.id && aluno.id.startsWith('LEAD-')) {
+    return false;
+  }
+  // Caso contrário, é um aluno matriculado (ex.: cadastrado pelo formulário oficial de matrícula)
+  return true;
+};
+

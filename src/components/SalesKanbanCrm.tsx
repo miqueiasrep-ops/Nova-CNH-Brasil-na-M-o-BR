@@ -35,7 +35,7 @@ interface SalesKanbanCrmProps {
   onOpenCandidateDetail?: (aluno: Aluno) => void;
 }
 
-const ETAPAS: { id: EtapaCrm; titulo: string; icon: string; corBadge: string; corBorda: string; bgCol: string; descricao: string }[] = [
+const ETAPAS: { id: EtapaCrm; titulo: string; icon: string; corBadge: string; corBorda: string; bgCol: string; descricao: string; statusMatricula: string }[] = [
   {
     id: 'novo_lead',
     titulo: 'Novos Contatos / Leads',
@@ -43,7 +43,8 @@ const ETAPAS: { id: EtapaCrm; titulo: string; icon: string; corBadge: string; co
     corBadge: 'bg-blue-100 text-blue-800 border-blue-200',
     corBorda: 'border-blue-500',
     bgCol: 'bg-blue-50/40',
-    descricao: 'Contatos recentes aguardando primeiro atendimento'
+    descricao: 'Contatos recentes aguardando primeiro atendimento',
+    statusMatricula: '⏳ Não Matriculado (Em Prospecção)'
   },
   {
     id: 'em_atendimento',
@@ -52,7 +53,8 @@ const ETAPAS: { id: EtapaCrm; titulo: string; icon: string; corBadge: string; co
     corBadge: 'bg-amber-100 text-amber-800 border-amber-200',
     corBorda: 'border-amber-500',
     bgCol: 'bg-amber-50/40',
-    descricao: 'Conversando no WhatsApp e identificando necessidades'
+    descricao: 'Conversando no WhatsApp e identificando necessidades',
+    statusMatricula: '⏳ Não Matriculado (Em Prospecção)'
   },
   {
     id: 'proposta_enviada',
@@ -61,7 +63,8 @@ const ETAPAS: { id: EtapaCrm; titulo: string; icon: string; corBadge: string; co
     corBadge: 'bg-indigo-100 text-indigo-800 border-indigo-200',
     corBorda: 'border-indigo-500',
     bgCol: 'bg-indigo-50/40',
-    descricao: 'Recebeu valores, parcelamento e categoria'
+    descricao: 'Recebeu valores, parcelamento e categoria',
+    statusMatricula: '⏳ Não Matriculado (Em Prospecção)'
   },
   {
     id: 'negociacao',
@@ -70,7 +73,8 @@ const ETAPAS: { id: EtapaCrm; titulo: string; icon: string; corBadge: string; co
     corBadge: 'bg-purple-100 text-purple-800 border-purple-200',
     corBorda: 'border-purple-500',
     bgCol: 'bg-purple-50/40',
-    descricao: 'Alinhando forma de pagamento e instrutor'
+    descricao: 'Alinhando forma de pagamento e instrutor',
+    statusMatricula: '⏳ Não Matriculado (Em Prospecção)'
   },
   {
     id: 'ganho',
@@ -79,7 +83,8 @@ const ETAPAS: { id: EtapaCrm; titulo: string; icon: string; corBadge: string; co
     corBadge: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     corBorda: 'border-emerald-500',
     bgCol: 'bg-emerald-50/40',
-    descricao: 'Venda ganha! Aluno cadastrado e ativo'
+    descricao: 'Venda fechada! Liberado na Área de Matrículas e Banco de Dados',
+    statusMatricula: '✅ Matrícula Ativa no Banco de Dados'
   },
   {
     id: 'perdido',
@@ -88,7 +93,8 @@ const ETAPAS: { id: EtapaCrm; titulo: string; icon: string; corBadge: string; co
     corBadge: 'bg-slate-100 text-slate-700 border-slate-200',
     corBorda: 'border-slate-400',
     bgCol: 'bg-slate-50/50',
-    descricao: 'Adiou decisão ou não respondeu'
+    descricao: 'Adiou decisão ou não respondeu',
+    statusMatricula: '🚫 Não Matriculado (Arquivado)'
   }
 ];
 
@@ -152,9 +158,24 @@ export function SalesKanbanCrm({
   };
 
   const moveAlunoStage = (alunoId: string, newEtapa: EtapaCrm) => {
+    const targetAluno = alunos.find(a => a.id === alunoId);
+    const nowIso = new Date().toISOString();
+    
+    let updatedNotas = targetAluno?.notasCrm || [];
+    if (newEtapa === 'ganho') {
+      const notaFechamento: NotaCrm = {
+        id: 'nota_ganho_' + Date.now(),
+        data: nowIso,
+        texto: '🏆 Negócio fechado com sucesso! Candidato matriculado e liberado no Banco de Dados oficial.',
+        autor: 'Fechamento de Venda'
+      };
+      updatedNotas = [notaFechamento, ...updatedNotas];
+    }
+
     updateAlunoCrm(alunoId, { 
       etapaCrm: newEtapa,
-      dataUltimoContato: new Date().toISOString()
+      notasCrm: updatedNotas,
+      dataUltimoContato: nowIso
     });
   };
 
@@ -304,6 +325,17 @@ export function SalesKanbanCrm({
             <Plus className="w-4 h-4" />
             <span>+ Novo Lead / Interessado</span>
           </button>
+        </div>
+      </div>
+
+      {/* BANNER INFORMATIVO: REGRA DE MATRÍCULA APÓS FECHAMENTO */}
+      <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 flex items-start gap-3 text-amber-900 text-xs shadow-xs">
+        <span className="text-base shrink-0 mt-0.5">🔒</span>
+        <div className="space-y-0.5">
+          <strong className="font-extrabold text-amber-950 block">Fluxo Seguro de Matrículas e CRM:</strong>
+          <p className="text-amber-800 text-[11px] leading-relaxed">
+            Cadastros inseridos no Kanban ficam <strong>exclusivamente nesta esteira de vendas</strong> e <strong>NÃO</strong> aparecem na Área de Matrículas, Banco de Dados Oficial nem Contratos até que você <strong>feche o negócio</strong> (movendo para a coluna <em>"🏆 Matrícula Concluída"</em> ou clicando em <em>"Fechar Negócio"</em>).
+          </p>
         </div>
       </div>
 
@@ -553,6 +585,40 @@ export function SalesKanbanCrm({
                               <span className="font-extrabold text-slate-700">{lead.origemLead || 'Direto'}</span>
                             </div>
                           </div>
+
+                          {/* STATUS DE MATRÍCULA (INDICADOR EXPLÍCITO) */}
+                          <div className="pt-0.5">
+                            {coluna.id === 'ganho' ? (
+                              <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 text-[10px] font-extrabold px-2.5 py-1 rounded-lg flex items-center justify-between">
+                                <span className="flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span>Matrícula Ativa no Banco</span>
+                                </span>
+                                <span className="text-[9px] bg-emerald-200 text-emerald-800 px-1.5 py-0.2 rounded font-mono font-bold">
+                                  OFICIAL
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="bg-slate-100/80 border border-slate-200 text-slate-600 text-[9.5px] font-semibold px-2 py-0.5 rounded-lg flex items-center justify-between">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3 text-amber-500 shrink-0" />
+                                  <span>Em Prospecção (Não matriculado)</span>
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* BOTÃO DE FECHAR NEGÓCIO DIRETO (SE AINDA NÃO GANHO) */}
+                          {coluna.id !== 'ganho' && (
+                            <button
+                              type="button"
+                              onClick={() => moveAlunoStage(lead.id, 'ganho')}
+                              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition active:scale-95 cursor-pointer"
+                              title="Fechar negócio e liberar este candidato para a Área de Matrículas e Banco de Dados"
+                            >
+                              <span>🏆 Fechar Negócio (Matricular)</span>
+                            </button>
+                          )}
 
                           {/* NOTAS RECENTES OU OBSERVAÇÃO */}
                           {lead.notasCrm && lead.notasCrm.length > 0 && (

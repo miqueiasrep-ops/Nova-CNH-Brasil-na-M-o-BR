@@ -54,7 +54,7 @@ import {
 } from 'lucide-react';
 import { LinkEnrollmentModal, parseCandidateLink, safeAtob } from './components/LinkEnrollmentModal';
 import { StudentTestimonials } from './components/StudentTestimonials';
-import { Aluno, BaixaPagamento, Comprovante, Depoimento, Instrutor, ReciboQuitacao } from './types';
+import { Aluno, BaixaPagamento, Comprovante, Depoimento, Instrutor, ReciboQuitacao, isAlunoMatriculado } from './types';
 import { DEFAULT_ALUNOS, DEFAULT_INSTRUTORES, DEFAULT_DEPOIMENTOS } from './lib/defaultData';
 import {
   subscribeAlunos,
@@ -2615,8 +2615,8 @@ export default function App() {
     }
   }, [alunos]);
 
-  // Clean deduplicated alunos list for all views and stats
-  const cleanAlunos = useMemo(() => deduplicateAlunosList(alunos), [alunos]);
+  // Clean deduplicated alunos list for all views, database, contracts and stats (apenas alunos com negócio fechado / matrícula concluída)
+  const cleanAlunos = useMemo(() => deduplicateAlunosList(alunos).filter(isAlunoMatriculado), [alunos]);
 
   // Current logged in Aluno object
   const currentStudent = useMemo(() => {
@@ -5961,8 +5961,8 @@ ${formattedInstrutores}
                   onChange={(e) => setManualReceiptAlunoId(e.target.value)}
                   className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 font-bold"
                 >
-                  <option value="">-- Escolha o candidato --</option>
-                  {alunos.map(a => (
+                  <option value="">-- Escolha o candidato matriculado --</option>
+                  {cleanAlunos.map(a => (
                     <option key={a.id} value={a.id}>
                       {a.nome} (ID: {a.id} | CPF: {a.cpf || 'Sem CPF'}) - Cat. {a.categoria}
                     </option>
@@ -6151,7 +6151,7 @@ ${formattedInstrutores}
                   }}
                   className="bg-transparent text-white text-xs font-bold focus:outline-none pr-6 font-sans cursor-pointer py-0.5"
                 >
-                  {alunos.map(al => {
+                  {cleanAlunos.map(al => {
                     const age = calculateAge(al.dob);
                     return (
                       <option key={al.id} value={al.id} className="bg-slate-900 text-white font-sans">
@@ -6253,7 +6253,7 @@ ${formattedInstrutores}
               }`}
             >
               <Users className="h-4 w-4" />
-              ⚙️ {isAdminAuthenticated ? `Área Administrativa (${alunos.length})` : 'Área Administrativa 🔒'}
+              ⚙️ {isAdminAuthenticated ? `Área Administrativa (${cleanAlunos.length})` : 'Área Administrativa 🔒'}
             </button>
           </div>
 
@@ -6321,7 +6321,7 @@ ${formattedInstrutores}
                             e.preventDefault();
                             const cleanInput = loginIdAttempt.trim().toUpperCase();
                             const cleanCpfInput = loginIdAttempt.replace(/\D/g, '');
-                            const matched = alunos.find(a => {
+                            const matched = cleanAlunos.find(a => {
                               const cleanId = (a.id || '').trim().toUpperCase();
                               if (cleanId === cleanInput) return true;
                               // Match by CPF if provided
@@ -8870,7 +8870,7 @@ ${formattedInstrutores}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {instrutores.map(inst => {
-                  const numStudents = alunos.filter(a => a.instrutor === inst.nome).length;
+                  const numStudents = cleanAlunos.filter(a => a.instrutor === inst.nome).length;
 
                   return (
                     <div 
@@ -9034,7 +9034,7 @@ ${formattedInstrutores}
 
                       {/* CANDIDATES DIRECTORY */}
                       <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                        {alunos.filter(aluno => {
+                        {cleanAlunos.filter(aluno => {
                           if (!contractSearch) return true;
                           const term = contractSearch.toLowerCase();
                           return (aluno.nome?.toLowerCase().includes(term) ||
@@ -9079,7 +9079,7 @@ ${formattedInstrutores}
                           );
                         }).reverse()}
 
-                        {alunos.filter(aluno => {
+                        {cleanAlunos.filter(aluno => {
                           if (!contractSearch) return true;
                           const term = contractSearch.toLowerCase();
                           return (aluno.nome?.toLowerCase().includes(term) ||
@@ -9096,7 +9096,7 @@ ${formattedInstrutores}
                     {/* RIGHT PANEL: CONTRACT ACTIVE VIEW */}
                     <div className="lg:col-span-8 bg-white p-5 rounded-2xl border border-slate-205 shadow-sm flex flex-col h-[750px]">
                       {(() => {
-                        const selectedAluno = alunos.find(a => a.id === selectedContractStudentId);
+                        const selectedAluno = cleanAlunos.find(a => a.id === selectedContractStudentId);
                         if (!selectedAluno) {
                           return (
                             <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
@@ -9348,7 +9348,7 @@ ${formattedInstrutores}
 
               {adminSubTab === 'commissions' && (() => {
                 const commissionData = instrutores.map(inst => {
-                  const instStudents = alunos.filter(a => a.instrutor === inst.nome);
+                  const instStudents = cleanAlunos.filter(a => a.instrutor === inst.nome);
                   const totalVendas = instStudents.reduce((acc, a) => acc + getStudentBaseValue(a), 0);
                   const totalPaymentReceived = instStudents.reduce((acc, a) => {
                     const baseTotal = getStudentBaseValue(a);
@@ -9379,7 +9379,7 @@ ${formattedInstrutores}
                   totalLiberado: commissionData.reduce((acc, d) => acc + Math.max(0, (d.totalPaymentReceived * 0.80) - (d.instrutor.saldoPago || 0)), 0)
                 };
 
-                const unassignedStudents = alunos.filter(a => !a.instrutor || a.instrutor === '' || a.instrutor === 'Aguardando Atribuição');
+                const unassignedStudents = cleanAlunos.filter(a => !a.instrutor || a.instrutor === '' || a.instrutor === 'Aguardando Atribuição');
 
                 const handleDownloadCommissionCSV = () => {
                   let csvContent = "data:text/csv;charset=utf-8,";
@@ -9886,7 +9886,7 @@ ${formattedInstrutores}
                 }
 
                 const allReceipts: AllReceiptItem[] = [];
-                alunos.forEach(a => {
+                cleanAlunos.forEach(a => {
                   if (a.baixasPagamento && a.baixasPagamento.length > 0) {
                     a.baixasPagamento.forEach(b => {
                       allReceipts.push({ aluno: a, baixa: b });
@@ -9930,8 +9930,8 @@ ${formattedInstrutores}
 
                       <button
                         onClick={() => {
-                          if (alunos.length > 0) {
-                            setManualReceiptAlunoId(alunos[0].id);
+                          if (cleanAlunos.length > 0) {
+                            setManualReceiptAlunoId(cleanAlunos[0].id);
                           }
                           setManualReceiptValor(200);
                           setManualReceiptData(new Date().toISOString().substring(0, 10));
@@ -10265,7 +10265,7 @@ ${formattedInstrutores}
 
                 {/* Dashboard Stats Overview */}
                 {(() => {
-                  const myStudents = alunos.filter(a => a.instrutor === activeInstructor.nome);
+                  const myStudents = cleanAlunos.filter(a => a.instrutor === activeInstructor.nome);
                   const totalVendas = myStudents.reduce((acc, a) => acc + getStudentBaseValue(a), 0);
                   const totalPaymentReceived = myStudents.reduce((acc, a) => {
                     const baseTotal = getStudentBaseValue(a);
@@ -10560,7 +10560,7 @@ ${formattedInstrutores}
 
                     {/* Filtered Student listings */}
                     {(() => {
-                      const myStudents = alunos.filter(a => a.instrutor === activeInstructor.nome);
+                      const myStudents = cleanAlunos.filter(a => a.instrutor === activeInstructor.nome);
                       const myFilteredStudents = myStudents.filter(a => 
                         a.nome.toLowerCase().includes(instSearchQuery.toLowerCase()) || 
                         a.id.toLowerCase().includes(instSearchQuery.toLowerCase())
