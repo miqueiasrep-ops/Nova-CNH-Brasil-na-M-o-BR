@@ -7358,73 +7358,55 @@ ${formattedInstrutores}
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {/* 1. PLANO 18+ ANOS - DESTAQUE PRINCIPAL E EVIDÊNCIA MÁXIMA */}
+                      {/* 1. PLANO 18+ ANOS - CARRO-CHEFE / MAIS ESCOLHIDO COM ALERTA VISUAL */}
                       <div
                         onClick={() => {
                           setSelectedPlanToPreview('adulto-18');
                         }}
-                        className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none relative overflow-hidden group ${
+                        className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none relative overflow-hidden group shadow-sm ${
                           calcPlano === 'adulto-18'
-                            ? 'bg-gradient-to-br from-indigo-50 via-white to-blue-50/70 border-indigo-600 shadow-md ring-2 ring-indigo-400/40'
-                            : 'bg-white border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50/30'
+                            ? 'bg-gradient-to-br from-indigo-900 via-indigo-800 to-blue-900 border-amber-400 shadow-lg ring-3 ring-amber-400/70 text-white scale-[1.02]'
+                            : 'bg-gradient-to-br from-indigo-50/90 via-white to-blue-50/90 border-indigo-500 hover:border-indigo-600 hover:shadow-md ring-2 ring-indigo-300/40'
                         }`}
                       >
-                        {/* Ribbon / Badge de Recomendado */}
+                        {/* ALERTA: CARRO-CHEFE / MAIS ESCOLHIDO */}
                         <div className="flex items-center justify-between gap-1 mb-1.5">
-                          <span className="text-[8.5px] font-black px-2 py-0.5 rounded-md bg-indigo-600 text-white font-sans uppercase tracking-wider flex items-center gap-1 shadow-xs">
-                            ⭐ MAIS ESCOLHIDO
+                          <span className={`text-[8.5px] font-black px-2 py-0.5 rounded-md uppercase font-sans tracking-wider flex items-center gap-1 shadow-xs ${
+                            calcPlano === 'adulto-18' 
+                              ? 'bg-amber-400 text-slate-950 animate-pulse' 
+                              : 'bg-gradient-to-r from-amber-500 to-indigo-600 text-white animate-pulse'
+                          }`}>
+                            🔥 CARRO-CHEFE / MAIS ESCOLHIDO
                           </span>
-                          <span className="text-[8.5px] font-black px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-900 font-mono border border-indigo-200">
+                          <span className={`text-[8.5px] font-black px-1.5 py-0.5 rounded-md font-mono ${
+                            calcPlano === 'adulto-18' 
+                              ? 'bg-indigo-950/80 text-amber-300 border border-amber-400/40' 
+                              : 'bg-indigo-100 text-indigo-950 border border-indigo-200'
+                          }`}>
                             18+ ANOS
                           </span>
                         </div>
                         <div>
-                          <h5 className="font-black text-slate-900 text-xs">CNH 18+ Anos</h5>
-                          <span className="text-[10px] text-indigo-700 font-extrabold block mt-0.5">Adultos & Início Imediato</span>
-                          <p className="text-[9.5px] text-slate-500 font-medium leading-tight mt-1">
-                            Aulas práticas e teóricas já liberadas em até 12x s/ juros.
+                          <h5 className={`font-black text-xs flex items-center gap-1 ${calcPlano === 'adulto-18' ? 'text-white' : 'text-slate-900'}`}>
+                            <span>⚡</span> CNH 18+ Anos (Adulto)
+                          </h5>
+                          <span className={`text-[10px] font-black block mt-0.5 ${calcPlano === 'adulto-18' ? 'text-amber-300' : 'text-indigo-700'}`}>
+                            Início Imediato • Sem Espera
+                          </span>
+                          <p className={`text-[9.5px] font-medium leading-tight mt-1 ${calcPlano === 'adulto-18' ? 'text-slate-200' : 'text-slate-600'}`}>
+                            Aulas práticas e teóricas liberadas na hora em até 12x s/ juros.
                           </p>
                         </div>
                       </div>
 
-                      {/* 2. PLANO POUPANÇA JOVEM (17 ANOS) */}
-                      {(!isAuthenticated || calculateAge(currentStudent.dob) < 18) && (
-                        <div
-                          onClick={() => {
-                            setSelectedPlanToPreview('jovem-17');
-                          }}
-                          className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none ${
-                            calcPlano === 'jovem-17'
-                              ? 'bg-emerald-50/70 border-emerald-500 shadow-xs ring-2 ring-emerald-400/30'
-                              : 'bg-white border-slate-200 hover:bg-slate-50'
-                          }`}
-                        >
-                          <div>
-                            <div className="flex items-center justify-between gap-1 mb-1.5">
-                              <span className="font-extrabold text-[9px] text-emerald-800 uppercase font-sans tracking-wide">
-                                Menor de 18
-                              </span>
-                              <span className="text-[8.5px] font-black px-1.5 py-0.5 rounded-md bg-emerald-500 text-slate-950 font-mono">
-                                17 ANOS
-                              </span>
-                            </div>
-                            <h5 className="font-bold text-slate-900 text-xs">Poupança Jovem</h5>
-                            <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">Poupar até Maioridade</span>
-                            <p className="text-[9.5px] text-slate-500 font-medium leading-tight mt-1">
-                              Guarde mensalmente e estude a teoria até os 18 anos.
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 3. PLANO TREINO HABILITADO */}
+                      {/* 2. PLANO TREINO HABILITADO */}
                       <div
                         onClick={() => {
                           setSelectedPlanToPreview('habilitado');
                         }}
                         className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none ${
                           calcPlano === 'habilitado'
-                            ? 'bg-violet-50/70 border-violet-500 shadow-xs ring-2 ring-violet-400/30'
+                            ? 'bg-violet-50/90 border-violet-600 shadow-xs ring-2 ring-violet-400/40'
                             : 'bg-white border-slate-200 hover:bg-slate-50'
                         }`}
                       >
@@ -7444,6 +7426,40 @@ ${formattedInstrutores}
                           </p>
                         </div>
                       </div>
+
+                      {/* 3. PLANO POUPANÇA JOVEM (17 ANOS) - POSICIONADO POR ÚLTIMO COM COR DIFERENCIADA */}
+                      {(!isAuthenticated || calculateAge(currentStudent.dob) < 18) && (
+                        <div
+                          onClick={() => {
+                            setSelectedPlanToPreview('jovem-17');
+                          }}
+                          className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all flex flex-col justify-between text-left select-none relative overflow-hidden group ${
+                            calcPlano === 'jovem-17'
+                              ? 'bg-emerald-50/90 border-emerald-600 shadow-xs ring-2 ring-emerald-400/40'
+                              : 'bg-teal-50/50 border-teal-200 hover:border-teal-300 hover:bg-teal-50/80'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1 mb-1.5">
+                            <span className="text-[8.5px] font-black px-1.5 py-0.5 rounded-md bg-teal-100 text-teal-800 font-sans uppercase tracking-wide border border-teal-200">
+                              Menor de 18
+                            </span>
+                            <span className="text-[8.5px] font-black px-1.5 py-0.5 rounded-md bg-emerald-500 text-slate-950 font-mono">
+                              17 ANOS
+                            </span>
+                          </div>
+                          <div>
+                            <h5 className="font-bold text-slate-900 text-xs flex items-center gap-1">
+                              <span>🌱</span> Poupança Jovem
+                            </h5>
+                            <span className="text-[10px] text-emerald-700 font-bold block mt-0.5">
+                              Poupar até Maioridade (Baú)
+                            </span>
+                            <p className="text-[9.5px] text-slate-500 font-medium leading-tight mt-1">
+                              Guarde parcelado s/ juros e libere 100% no aniversário de 18!
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 

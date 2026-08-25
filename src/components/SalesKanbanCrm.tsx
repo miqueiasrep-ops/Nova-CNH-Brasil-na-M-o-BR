@@ -438,8 +438,8 @@ export function SalesKanbanCrm({
             >
               <option value="todos">Todos os Planos</option>
               <option value="adulto-18">⭐ Plano 18+ Anos (Adulto)</option>
-              <option value="jovem-17">🌱 Poupança Jovem (17 Anos)</option>
               <option value="habilitado">🚗 Já Habilitado</option>
+              <option value="jovem-17">🌱 Poupança Jovem (17 Anos)</option>
             </select>
           </div>
         </div>
@@ -873,27 +873,13 @@ export function SalesKanbanCrm({
                     onClick={() => setNewLeadPlano('adulto-18')}
                     className={`p-2.5 rounded-xl border text-left transition ${
                       newLeadPlano === 'adulto-18'
-                        ? 'bg-indigo-50 border-indigo-500 text-indigo-900 ring-2 ring-indigo-400'
-                        : 'bg-slate-50 border-slate-200 text-slate-600'
+                        ? 'bg-indigo-900 border-amber-400 text-white ring-2 ring-amber-400 font-extrabold shadow-sm'
+                        : 'bg-indigo-50/80 border-indigo-300 text-indigo-950 hover:bg-indigo-100'
                     }`}
                   >
-                    <span className="text-[9px] font-black text-indigo-700 block uppercase">⭐ Recomendado</span>
+                    <span className="text-[8.5px] font-black text-amber-500 block uppercase">🔥 Carro-Chefe</span>
                     <strong className="text-xs font-bold block">18+ Anos</strong>
-                    <span className="text-[9px] text-slate-500">Início Imediato</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setNewLeadPlano('jovem-17')}
-                    className={`p-2.5 rounded-xl border text-left transition ${
-                      newLeadPlano === 'jovem-17'
-                        ? 'bg-emerald-50 border-emerald-500 text-emerald-900 ring-2 ring-emerald-400'
-                        : 'bg-slate-50 border-slate-200 text-slate-600'
-                    }`}
-                  >
-                    <span className="text-[9px] font-black text-emerald-700 block uppercase">🌱 Poupança</span>
-                    <strong className="text-xs font-bold block">17 Anos</strong>
-                    <span className="text-[9px] text-slate-500">Menores de 18</span>
+                    <span className={`text-[9px] ${newLeadPlano === 'adulto-18' ? 'text-indigo-200' : 'text-slate-500'}`}>Início Imediato</span>
                   </button>
 
                   <button
@@ -908,6 +894,20 @@ export function SalesKanbanCrm({
                     <span className="text-[9px] font-black text-purple-700 block uppercase">🚗 Prática</span>
                     <strong className="text-xs font-bold block">Habilitados</strong>
                     <span className="text-[9px] text-slate-500">Perder o Medo</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setNewLeadPlano('jovem-17')}
+                    className={`p-2.5 rounded-xl border text-left transition ${
+                      newLeadPlano === 'jovem-17'
+                        ? 'bg-teal-50 border-teal-500 text-teal-900 ring-2 ring-teal-400'
+                        : 'bg-slate-50 border-slate-200 text-slate-600'
+                    }`}
+                  >
+                    <span className="text-[9px] font-black text-teal-700 block uppercase">🌱 Poupança</span>
+                    <strong className="text-xs font-bold block">17 Anos</strong>
+                    <span className="text-[9px] text-slate-500">Menores de 18</span>
                   </button>
                 </div>
               </div>
