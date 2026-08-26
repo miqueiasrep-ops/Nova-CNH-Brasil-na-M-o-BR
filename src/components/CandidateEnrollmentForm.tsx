@@ -1325,7 +1325,7 @@ export function CandidateEnrollmentForm({
                             ? `• Plano Inteligente Poupança Jovem 17 anos (investimento em depósitos de poupança congelada em ${enrollParcelas}x parcelas mensais confortáveis faturadas sob adesão de ${(enrollCreatedCard.valorTotal/enrollParcelas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} sem juros).`
                             : enrollPlano === 'habilitado'
                             ? `• Plano de Treinamento Autônomo para Habilitados parcelado sob opção in até ${enrollParcelas}x de ${(enrollCreatedCard.valorTotal/enrollParcelas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} sem juros.`
-                            : `• Plano CNH Facilitada Maiores de 18 anos, dividido em até ${enrollParcelas}x parcelas mensais recorrentes de ${(enrollCreatedCard.valorTotal/enrollParcelas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} sem juros.`
+                            : `• Plano CNH Facilitada Maiores de 18 anos, dividido em até ${enrollParcelas}x parcelas mensais recorrentes de ${(enrollCreatedCard.valorTotal/enrollParcelas).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`
                       }
                     </span>
                   </p>

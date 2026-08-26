@@ -738,10 +738,10 @@ export function SalesKanbanCrm({
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 font-sans leading-relaxed italic bg-white p-2.5 rounded-lg border border-slate-200">
-                  "Olá {activeWhatsappScriptLead.nome}! Tudo bem? Aqui é da equipe da Nova CNH Brasil. Vi que você tem interesse na sua habilitação ({activeWhatsappScriptLead.categoria}). O nosso **Plano 18+ Anos** está com início imediato e condições facilitadas em até 12x s/ juros. Gostaria de ver uma simulação rápida sem compromisso?"
+                  "Olá {activeWhatsappScriptLead.nome}! Tudo bem? Aqui é da equipe da Nova CNH Brasil. Vi que você tem interesse na sua habilitação ({activeWhatsappScriptLead.categoria}). O nosso **Plano 18+ Anos** está com início imediato e condições facilitadas em até 12x. Gostaria de ver uma simulação rápida sem compromisso?"
                 </p>
                 <a
-                  href={`https://wa.me/55${activeWhatsappScriptLead.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá ${activeWhatsappScriptLead.nome}! Tudo bem? Aqui é da equipe da Nova CNH Brasil.\n\nVi que você tem interesse na sua primeira habilitação (${activeWhatsappScriptLead.categoria}). O nosso *Plano 18+ Anos* está com início imediato e parcelamento facilitado em até 12x sem juros!\n\nGostaria que eu te enviasse uma simulação rápida dos valores e instrutores disponíveis na sua região?`)}`}
+                  href={`https://wa.me/55${activeWhatsappScriptLead.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá ${activeWhatsappScriptLead.nome}! Tudo bem? Aqui é da equipe da Nova CNH Brasil.\n\nVi que você tem interesse na sua primeira habilitação (${activeWhatsappScriptLead.categoria}). O nosso *Plano 18+ Anos* está com início imediato e parcelamento facilitado em até 12x!\n\nGostaria que eu te enviasse uma simulação rápida dos valores e instrutores disponíveis na sua região?`)}`}
                   target="_blank"
                   rel="noreferrer"
                   onClick={() => {
