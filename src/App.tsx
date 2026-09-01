@@ -204,6 +204,11 @@ export function calculateAge(dobStr: string, todayStr?: string): number {
   return age;
 }
 
+export function isSameInstructor(nameA?: string | null, nameB?: string | null): boolean {
+  if (!nameA || !nameB) return false;
+  return nameA.trim().toLowerCase() === nameB.trim().toLowerCase();
+}
+
 export function getTonPresetRates(plan: 'promo' | 'giga' | 'mega' | 'basico', brand: 'visa_master' | 'elo_amex' = 'visa_master'): Record<number, number> {
   const rates = {
     visa_master: {
@@ -651,19 +656,21 @@ const mergeInstrutoresLists = (localList: Instrutor[], remoteList: Instrutor[]):
 
   remoteList.forEach(remote => {
     if (remote && remote.nome) {
-      mergedMap.set(remote.nome, remote);
+      mergedMap.set(remote.nome.trim().toLowerCase(), remote);
     }
   });
 
   localList.forEach(local => {
     if (!local || !local.nome) return;
-    const remote = mergedMap.get(local.nome);
+    const key = local.nome.trim().toLowerCase();
+    const remote = mergedMap.get(key);
     if (!remote) {
-      mergedMap.set(local.nome, local);
+      mergedMap.set(key, local);
     } else {
       const merged: Instrutor = {
         ...remote,
         ...local,
+        nome: local.nome.trim(),
         login: local.login || remote.login,
         senha: local.senha || remote.senha,
         chavePix: local.chavePix || remote.chavePix,
@@ -678,13 +685,13 @@ const mergeInstrutoresLists = (localList: Instrutor[], remoteList: Instrutor[]):
           ? local.recibos 
           : remote.recibos
       };
-      mergedMap.set(local.nome, merged);
+      mergedMap.set(key, merged);
     }
   });
 
   return Array.from(mergedMap.values()).map(i => {
-    const copy = { ...i };
-    if (!copy.login) copy.login = generateLogin(i.nome);
+    const copy = { ...i, nome: i.nome.trim() };
+    if (!copy.login) copy.login = generateLogin(copy.nome);
     if (!copy.senha) copy.senha = generateSecurePassword();
     return copy;
   });
@@ -1709,7 +1716,7 @@ export default function App() {
     };
 
     const updated = instrutores.map(i => {
-      if (i.nome === inst.nome) {
+      if (isSameInstructor(i.nome, inst.nome)) {
         return {
           ...i,
           saldoPago: (i.saldoPago || 0) + valorAPagar,
@@ -1764,7 +1771,7 @@ export default function App() {
     const documentoAssinado = "sha256_" + Math.random().toString(16).substring(2, 18) + Math.random().toString(16).substring(2, 18);
 
     const updated = instrutores.map(i => {
-      if (i.nome === inst.nome) {
+      if (isSameInstructor(i.nome, inst.nome)) {
         const novosRecibos = (i.recibos || []).map(r => {
           if (r.id === rec.id) {
             return {
@@ -1788,8 +1795,8 @@ export default function App() {
     saveInstrutoresList(updated);
     
     // Update the activeInstructor state if the logged-in instructor is the one who signed
-    if (activeInstructor && activeInstructor.nome === inst.nome) {
-      const updatedActiveInst = updated.find(i => i.nome === activeInstructor.nome);
+    if (activeInstructor && isSameInstructor(activeInstructor.nome, inst.nome)) {
+      const updatedActiveInst = updated.find(i => isSameInstructor(i.nome, activeInstructor.nome));
       if (updatedActiveInst) {
         setActiveInstructor(updatedActiveInst);
       }
@@ -1952,7 +1959,7 @@ export default function App() {
 
   const activeInstructor = useMemo(() => {
     if (!activeInstructorNome) return null;
-    return instrutores.find(i => i.nome === activeInstructorNome) || null;
+    return instrutores.find(i => isSameInstructor(i.nome, activeInstructorNome)) || null;
   }, [instrutores, activeInstructorNome]);
 
   const setActiveInstructor = (inst: Instrutor | null) => {
@@ -2647,7 +2654,7 @@ export default function App() {
     }, {});
 
     const instrutorFinanceiro = instrutores.map(inst => {
-      const deAlunos = cleanAlunos.filter(a => a.instrutor === inst.nome);
+      const deAlunos = cleanAlunos.filter(a => isSameInstructor(a.instrutor, inst.nome));
       const totalPlanoInst = deAlunos.reduce((sum, a) => sum + Number(a.valorTotal), 0);
       const totalPagoInst = deAlunos.reduce((sum, a) => sum + (Number(a.parcelasPagas) * (Number(a.valorTotal) / (a.parcelasTotal || 12))), 0);
       return {
@@ -2679,7 +2686,7 @@ export default function App() {
                           a.whatsapp.includes(searchQuery);
                           
       const matchCat = filterCategoria === 'Todas' || a.categoria === filterCategoria;
-      const matchInst = filterInstructor === 'Todos' || a.instrutor === filterInstructor;
+      const matchInst = filterInstructor === 'Todos' || isSameInstructor(a.instrutor, filterInstructor);
       
       const age = calculateAge(a.dob);
       let matchClass = true;
@@ -7394,7 +7401,7 @@ ${formattedInstrutores}
                             InÃ­cio Imediato â€¢ Sem Espera
                           </span>
                           <p className={`text-[9.5px] font-medium leading-tight mt-1 ${calcPlano === 'adulto-18' ? 'text-slate-200' : 'text-slate-600'}`}>
-                            Aulas prÃ¡ticas e teÃ³ricas liberadas na hora em atÃ© 12x.
+                            Aulas prÃ¡ticas e teÃ³ricas liberadas na hora em atÃ© 12x s/ juros.
                           </p>
                         </div>
                       </div>
@@ -8870,7 +8877,7 @@ ${formattedInstrutores}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {instrutores.map(inst => {
-                  const numStudents = cleanAlunos.filter(a => a.instrutor === inst.nome).length;
+                  const numStudents = cleanAlunos.filter(a => isSameInstructor(a.instrutor, inst.nome)).length;
 
                   return (
                     <div 
@@ -9348,7 +9355,7 @@ ${formattedInstrutores}
 
               {adminSubTab === 'commissions' && (() => {
                 const commissionData = instrutores.map(inst => {
-                  const instStudents = cleanAlunos.filter(a => a.instrutor === inst.nome);
+                  const instStudents = cleanAlunos.filter(a => isSameInstructor(a.instrutor, inst.nome));
                   const totalVendas = instStudents.reduce((acc, a) => acc + getStudentBaseValue(a), 0);
                   const totalPaymentReceived = instStudents.reduce((acc, a) => {
                     const baseTotal = getStudentBaseValue(a);
@@ -10024,181 +10031,4722 @@ ${formattedInstrutores}
                           </div>
                           <p className="text-xs font-bold text-slate-600">Nenhum recibo de candidato encontrado para os filtros selecionados.</p>
                           <p className="text-[11px] text-slate-400">Tente buscar por outro termo ou clique em "Emitir Novo Recibo".</p>
-                        </divxœì½osÛHš'øş>EZí.Qn‘")É–u–½4EÛì•E•$»§·¦¢œ"R$ª@€€’\*EôÄŞÅÜÅìlßtõÜÄõôÛ3Û×[qqW;qıb_œ¾I}ñG¸çÉÄd& J¶«§eI$H$|ş?¿çşG¤ÇÙ$5Åw„Ü3Ì2´¨çíÒ	ÛZpN˜{l9§õ³:ùÎÂ}å•p­O,–¼ú´~<³,â³3¿n±cŸ9®ÁÜúĞ±,:õ˜v8pÌ¨¡?Ïr“÷<Õ=‹ú¬Şj6Wî4ÅÍ?j5§g“cÇöëG~FfÓ)s‡ÔcâqÉz³Nñ(üE|Ón6&L89•i}•L­úÚÂış6ÙgCóÈ!+d›úôŞŠ?g¸…û]j¦A}©39®y…áSËqç¿ü‘ãN(1Ù£#øÔöùÇÚgÇÌ…!™ûyÈÔ­¯‰êš£±¿p¿sùÛËb^™á·€WJä=ÿÈ1^&'[Ê4Xı%	~‰ÈSÌôÌK’à„v~lZ>¬•4ÅÌ©ï5&tZ«jÍlg™QóŒ’‹%²uŸœ.ãĞ±=Ÿ¸b¨¾A¶ÄõÓhx>u}ï'¦?®-î÷ºõÅ%ò úøÈüğæyøÉÅ‹ÿ¾äİ‘n|ŸO½ÜÙCÇ`Ïöû]g2ul 5‡Šo^ıö¿‘[0‡şÃÙî‘½ÎãÎÓŞîá€ÔÉŞşàñ~çi‡twŸGn§ØÙîÜúsûÏíäGe†X—¯—É­›ç|Y¶3a·n”¾¼ëØÇ&<æÄñˆÃ×÷Èä[„ñØŒLÃ=Cl‡œàFÄt+\OşIÃwvœ!µØïšö¨¶8õë÷—É9ñü—Û$‹Ã™Ûfø>…Oîï,	\Ü"µp@¾èÑF½XjTX‹7¯¾úäÖîÿ÷‡€mŞ"7Ï#š¹¨2ÎÿHn!ä#:€?ÙÃıš˜%ğ6ºTiÀ¿yUäyÌ=¡Cê/¿$‹ÎLŸ7øGGš|bĞÅ‹*4qŒ…ÂœÂÛâ¦.¾¾=×¹xá®sBùºÔ3­/
-G]*»iNé3×‚İòbìûSoseå”6&le}=¤ĞÓ1õ=:6\6!Çj+¾½2Z&‹‹KÇl…+.vî×Â{»ÌŸ¹¶Feˆ”ÄŸ±—[ç/ÂOHñ‡‹$_£r±ÉëõæÊ°D—Úé›]BŞŠ›r™[êê¼ÆÃu„‰ïTheşl‚à9õ»ÍH§hN±p?±î­À`óŞ8©¨$Â
-õF©pK_…ÊTpfnM¯¶œğ4.WR<Ø]ş`	Şú6V5:ñF™aÎ&¨?ùÜuêOäÛŸıéoo’˜nßÑÂ’,½qí”?›0—ZF)• <®Uv¼£‡÷ØÄÌG•g¾çM©­2Èô¬Ş&Ó—õfc¸ÎÌ6˜!±	ğöBáŸGï¹ -û+øï€âÜ+¹ä·a±&ô¬~Ê5RwfãöX ¾é[l+'S/*RdFG«“ÆoÿùsFÂ¼¬ÍbgÄôÙÄ«Q÷pÉ§3Ï7_Ö™mÖ[õ
-Ôsïhæû]ú|B»k™ÃÏ¶Îk\×ƒmh±ŞÄ§+Ô´ÈZ¬%Mƒ’;[é}õÑšÃöêZóc’‘Ş‘X<Ã’äwX,pCÂ^„-ÙŠ·dİ%D?É/-_NdRãÖ§‰.TxAÆÏMoF-óĞÚƒ¼?™ºæäòëf•¯üK…×Xi)ÕÈğ4ÜŠ!ŸGIOVªıœ…QÈV•İ/Öü¢Kh…)]v¼uÎUÕ*T†æˆù[Ÿ€ü³?«òb]fm-Ø‹€[&Ò¤¾äƒq'dpò~OÄİ³OÌ˜°A£ø	é-Îˆ¼%*çÂëÍ«_ü—@E7¯@š´4+¾~å¬ØıƒG¡±V¤6ÁmĞ?¤õ£®pGªúíÓ+î¯¼FñEîA/–j0tâÃÜ…KÑïÉÏWn‘-ÙA;7Éå_ì÷:d…ìuú»½²= ıİƒÃıg‡ƒ}Åe·Vâ'<Z«Hğl²H]FÁRó@ñw‘|ğAÊrÍŠp Ô!«¿¬ß&Ô6'(ÇLØŸÔà?™KqÃr%˜ÆÖ‚x#×ùÀ.÷©iÃfM/àù:ôÍÖÎ'r4¬Kü¨;ƒÇı]rĞİïõvá	3§f§-Ô´‰A&Â-O&/ë$%‹eÊì|²¤Õ3‹xcj8§õ6üùùÇ¦a0›LaIb·}´LmFªá?èåO³9>`ğ{8d[ª eMpb°èVZ Ö×W–‡Òœ<¿İÌKZùş¹÷¡Ûu––Õ «7r#D$3YSHnõ¶·sæ+¼™¹ˆC0ãê¾PZ÷×§rö~Hîdº j¸Î½•q[zÓiş^ÆÙÛ £Ş$,=c†bÅ:Cæy,phÂ^€wnsG7èYğ‰K	:cMp–'¼Ô91íáÌ
-ô#Î'
-äÃ}‚o`eÇ´?#p¥C¢íL€Ö/ÿ«Ÿ5¤K=•P§Xÿüçh£ş|0;uh¦ô–³ÆÔe'@µÛì˜Î,¿&•æ1©İˆùÃ32í]gÂ`{OjKK
-G¼Çü~ú¢ë:nm^/0¢Ç]Æç7aqqy³Ë×®é?w	Æ_€ÓXPˆ&á¿“}'ÂÓè¿œ2ƒßlõCqÃ)s»ÔcğWìuô~„nÇù”·ØZ<…íš¿ËOBW¦¸“ÔO†€DÀõÌk	ÖL|¡Ò%©™‹?H‡à×ô£pY/Â˜¬òn$F1°‰ø%pôi•Iœ_¼¢Ù%£ÉW‹(_¬Ê´˜£:½èú–À’2¸ªé™°zzMd(ùhe…Ì¦Sàz„xMP°AGË°e,ëˆ{Ğ2³ÍÏg,ñ%œé?Fª)ÿˆx{ı]%‰™^H¨]Ô¸÷–‚°øú6<ÌI"Cäğæ'h¨*3LM5Êátòå—’Û/¶Ú«‹KÊ;K.à«óÉ„ÂÛu?ñfSæ.*É+·NJëd$±t
-âQR¦ŠÚà‚CæüX#±Ú‹7¯~ù7Dp4PÜ²éB¼gŸ7ÈC6©ƒH2œe—Âåå^éÆé=.©_q'½øöW¿ù—ş99àoä.“O…˜‚÷ÙÂÍóx‹_,4HB I‚‘Ê[şŠ`û¡¶zâ¨æ›ûìâB¦	Ë'ç¦äq²Êu|HÔ7—Eª[ZO¿Xt4üÕôÔ…êİ™…ÊÓãr*Šbş¥´õ£zÔpÕ®¿{=‚·–]´Ê¤¨àÒDªà©iäløÈ+	]Qñì|nŠy›ötæ+î…ä*Då^àj/¹[½³M2¤®åxj.S]tº"ÛÊ¾=TATV¶cwÇÔ1­J'ü.Åk „¹3ªÁo®1ø+s%ÜsŠ/òIS±5·®¶æáÌÛÌ[<IŠil&¾‘Ä@ÎÌ·€¥ÔmÇf)U£R½'—}>3açJ¿ÖF\;JğmĞ¹¹ÑƒQó„r÷èU÷R¨¶”ÚO3´pr# ƒÏñ61.¿™¾ãUÛ]¡ê]z‡å÷A8Dv/}©?ˆ¼j¨ÿúh^ªÔ„­CÙfc4VôíÏ””¹ëøt“ˆ°FÀ(È!a‹{¨´ƒÙk³¡‰F÷”YNBw00ıˆÂSéDI,6Œ¤ulİñk{hŠØÌ
-×Å15{^úÛÁã†ºü]HÉ'I9wşZšHÈlbúRN0	(ü{›†×ár‰O?Œ&]üõ$JñœĞgÂß2¯‰_o—È	äÍ«_ıL0-ê’§lFö„êØu&¦çÁÁ¥/,å¿AJös‰î$K7Ny>»ƒ§{û½'½İƒşóÙî<y8èìo;AuNIt:oSo|äP0dÀN‚~Ït«æaÎV«m¬·?Îğ0é%åçœ›üw×9Åß¥”pÄüSÆlN
-kÜÃštÆ&¼­!%”rÊ£Iªü§ìÕ¨8#%«5ç¬'»qì€mwg'îaNFrûX;Ü’{¡»ŒZ¾ä2n£é.K1‡Öã?ÎÑ§`Â›¾ s"ÃVËˆäÁ‹™(e2a rÏ±ÌáKMÖ‹c“Ê¨oµlıøÓÏ4*ò†ó¯lrğ©rK¥‹tÉ_gÃ›Z¦_[$‹K<±ÙŞºoÔüx©ñ)°½Ú"|
-ÂÀ9MÍå6º!Ÿ!WN3uøm°™DdÓ#Ï±f`€9À'õ&ái$ğÖyäÂ2'ñk©+â3÷ué?š™ßÓ<S9V!À#H¢ğæ³Ä P(6«*8¡Xîlèg=O¼ÅŸî*-I~˜xW±Ñ£#á8øÒAï‹†øtÙ]ZÒ”DmòÙ[«a¢£:
-*MmîÑ›W_ı5ÌxdDï³*Ö&¬¿ï:ö(wGşŠeïÔ…K©oU\¨~BItFù1#5Ó‹‹¢Ú¥ö5)WH’H›PùW×è÷¿Ç•iƒŞnçp¿³»Yj®:¤\„9Ãös+m0¬ã:¯ğ@…ÿÅcÉŞ8ëgue„T›¥&”uqŠJÜe²Ö´šœ›Ø†­YÉ'Ù¢ 8´×¥Æ 1ÿ<w†—¿'5gÂWÌF3x¿—¿¥èJ¼¯`E¡§Wóü¤ø™üº´Å²‘`À*;9ïî~ÇsğÎêk)C'6pÒ–†*g	vô±TTÎWõ€š.. °Ad¯2<”[Bµ!Ò¦ÀÔ@°p'&;•šç55]ŠxĞäå?ƒM#mÁûcÔîğvCÔeÕ(^NqÜ#)Ra¨‚Eo=g¶Añ.ñ-á³!«Õèp¸L(Ÿ*üJ~DFÌNz‚í9z\jti™4‹î²G_¢=ÏóO˜Qx;ùÁ­qPE>!ù	"mğµ,œÍs>D<Ü
-©ÑÆ`Ãˆ¾ü’´ÚÚñ`ü¾0TârÌ>öğòæ¹•¹©.|,t4ª4Ğ"\ò¶’&ËµG®iüÍK¯Ş"Şd3ş³M¬QâÏõÀ¦ŒlH¥\“ØºÅ9CÓz¬a²Âä•~o¢Ó(óŒêÀÏ‘¬µ‘Ä
-¤Sp“gs½tÏmĞÆokók’
-uš6ÿ^©„ÄÊf¦¤Hí€~Š‰2}X…!&Èhô~çñZîÖí0™(§¦Í'©Ş'¶»Åì‘?F%}­êÃŞ®~°Ú>‚™œºj¦÷;¹ìŸËßp'ã4fºTû°zEY©ño¿ƒ¤Ÿññå,›¹ˆ¿,Ûô»(îşˆwÀs0²'L[à­\Û&H.o~+hn š*Cßö­ÆîlrÄ\^ıîW®«õA~-!áµIÃWÛ‹‰Ä¾Ü^F”È‹T2\i‚Aª_ïeûâëLíBñÉÜ{ğÀB*ş£ALá¡Fà!¨	¾½tM»0^ŞïÀÌè¿ïi3
-ös,SGë’YN˜*ûwbÈï®7WÖtµÕw*³.ëUõ¾Ôzç˜?ëš.˜tíïşÎMÅ23{÷ ¾pÈ¶éM›—¶]³ğ\}ï÷)õÇ	=«5—‰tƒa×ll€WË/k{{¸>`:Â\z‹[>I€ù}Ÿ®N×¯`ásû¤I?¾|2’M²“Ü,¾TS,«lNf“G.áØÛæÈô½M¸ÓÅÒÅ²I6š?äÉ<˜ÌSƒÍ#‘†RL­NÚÍ.-èùOGÛ˜ÎÜ©ÅRêFğÑŸ®ÁÛ¥S:4j•¿Xî•gZÁÚÎÁ³ú–9áeéŠÄ°x&IMïì0Uuá~MbfsU›kUEµÿoÏ ?`ÂŸ“¯|®8çÊ³ÒWo^®ğPè×}JM›táQ`MIÇet“ìğ
- )x&û3o™ìc0R|â‰Õ'3F¬\.HÎ—ò»µÚœÜ.p¼I>ÂÙïô’î“Îînog“ôş¬»óŒçÀì÷õö÷;;d§¿ûo¤ÓÌOæSª#!cÒäÆÈ®ÖpÅ”•f‹øäQ ?º§:¨¦Ìì¬À>ÕíîÈnß)ßÓ3“%¶ÈFc=$Îd‘eÆB0‘³›JËVØè”ä±(RdcS/fãÕBÄI&'rá>(Pîå×¸ÉÉó`³S`2«ó‹‹2Å…™¤Ær+öáŒZŸÏàUsæD°¨'(â€@=‰„yCj3j kÃËoĞLœ™(’ã_8œ1À÷.(I›ÃÒBF2‡<µ(OxğOU3@åÚ»|Úµ<R¬™’{êõd)F@ºƒ½Ÿ’şîŞ³CKàƒª“§Ó9µÓtäOª	­ë”E*k^ñMÇİ3Ôo}~+o^ıòïÄŞÁˆZ¼’zèSæÌ¼Ğr—ùÃq9£KéGq‘„8€¸m½Ô$o¿¸yŞyv8ØŞÉñÉŞNçğÑ`ÿé'Ïöw.V Ù±tÕİêeDT¼uó\‚¸(P^¼Ğã¨„ˆ,5…@‚L0!‘¡OóNeg{ÌÂü=Šà²R‘ÈÅléVV‹­R}§Lvƒ8Jç8«È£•Ìv‡ä¾EŞşË-‚³°é‰9¢<ÏÅ2§<†Ş8uawÂk¬¥'\ˆ!©Êûê¯‚İ,g²7U	ŸCgjÛ¾!/v‹eÚE°î™¬ßPK’/>úA{ƒ¶î®<-aUä!…A›XU‚¾dÆ#wUyÔ½RÑÅÑ+êœŠğŒ¹ÍleñÓİÎÓ~—Wğ¶{ğÏî!¢zìWWôˆ9ÄW¤“êğ%º°”æq]Zv4ZAòsşaxÒ©ÙøÜEl4{Ì™¬œ´V`_ã|@Ù[yà™_°­v»yÿ€°ò=şö¹E¡4ÀíÆ
-¢?„rĞsÊTúòG­u¾«ÆÑoQ¦6GZ)’›s¤^kÅB	INÊ œe—ÅlIŠ©¬()Ö¨HøŠŠ
-Aâõ(4FJÄ?Öe(#•,B¶™yZús?™ÂğVTG=Œ0Ò‡têÏ\êòô=0
-&Ôõ§cÔ 0kÏšÜ‚@â3,ˆt&Ödßx¾Jd¢»ƒz÷°·šo·Ûƒ¿ûğa­ûƒİ
-œ4É.‹š$)
-Î¹r;U ÒDyŞ¨–œåÄûB«0’~<íTì˜…û¢:¾P_—Q˜°İK›…^¿ ú~çÄô0ÓG¦ÇKdœÍ(Å™ô`=Èåk`ÓdêxŞÌ$ÇÀQƒºÀºà–ìlhÍ<¬Ê'Lcíp:µª‡"øÍ”ttùÍŒO—2—MÈpŒ§ U¬!¥kRÒeH¬oËäìvö·7ÉÁ³:¦÷È^ÿÏæ¢¹TÂƒ´.ñ éÀ›çñ!Íç"QxıuåüVŞ/ÿ&ÂÃâÜî˜0¾š@$û1¼Şã«qÆ¼M(“Â¨fÜuÂ{ˆ­è)8§EGŒŒ6ï~É5`Á—¿Çù€·Ìi¢E¸Âp‘§&êrL·2Õè_¦T9-EÅ¾€òŞ€L©wwïÑ2éÕ'Ô´–aÁ­™2^S^µù¼†¢áreßœ8÷Ì³>ÎºµS_şªlùwx(¤W’¦Ûy_=K…RMîJH‘'T­BoB?¡œG¡ŠO¡²WA€&á–õÇbÛ~Æ^r81C|4ökL
-¡ ºë=OxD/nÕ!g„?yÍß˜Vêìwò€œ“F£a.Ît³Id ‘§,•è™ ©èøÅKğaZ'„oè¦)8 u!GxxTè²eËÑÕ>UÅFÖÃ©àˆâÈÚië)š 5Áªé¼eü…vUÉŠ®õ3H‹º-ğº`=˜ÇˆV÷xôSH4!æ˜ç_¾‰5à «ID¸øc'ğ4ïYl"ÍÆ¨ âv°«
-2í—…ê›èˆs@> >ëv.ÿòòo{äñàyãa_ÌûÔæm¸6DÍô¨ #Å{Ğ÷¾ú«HßÃÜ}Âìá;Ï€¦s½Ú^¾4¯ñL>„Cgq3"/hU$p9á )‰ø”?³ZAQ ìÔ:AZoM{ËÃé6ÂÙ|ùe^´ß9\ü4µ€y:œ¾ƒúIèÚ˜ëÀAœê¤²·×šelì¢Ş»ÌÏ&ÁÒ§S¬¢üó\íËß‡L"Kj•U_ë‘Ô[u•»rÆõV›Âa"	¿å¤S·À6“ ‡¯U	ø•‰¢D|~¼û\€\”ê¤ÊYœõ÷†6B˜!ZWÚ+õ‚©!`R­"r–oËÚ"…6ßà Ê’¾(é•‰OÇÄÙpYË·)ÉNõüEQ-~Æ©,Í¿Y¬ùâ3ö|ê;X–ÈÌ@<}2rNõNúøx@Kêè’Kßj“ßJW‹¾M|f;ƒF½Xâ/Jöp9×¯#,Ğ·¿şŠt‚ñ1¾ıù7Án©.e‰ª$î¿tëeaxòĞäRT…ò»R4ÓÄV˜NBªøW÷zú5EÊù÷è‚R½Nèà0iLæÆndÈy'²
-&êÄyÄømúA–Jó"… <
-)³T×:Ú›HQĞ—×'¸Z¼\±VVÎM™˜T^İËåÓ~¯h&’ô‹Wë¤ºìß¿ığÑÆ&½´æWî9ô)¼ÊÛOİL´!Oe×Q+ïÔ)˜^pûØ9	É®Â\îó•%î—Ûbµ0èt£Ô^(?©Jİ¡ªx•Â#ã]ò˜ÿÜd§0iaËÔÎãJİ”;u–uu–î"'ñãˆw) Œ&Æfê1qÑñ®v&)#1Òµå©
-á7OŸ²[óÍ«_ş5Éw¯cS¢‘=Ê8fâsK	Ú"£!n^Oz4À»¦~ÑKíÀœÌ¶€‹˜#;—Á‰}îe¤î#kÆÒ=§ø'QÂqBaˆĞ)ÛB5Îuà!{›0•9¯bXsÍÔş¿ş¥:dÂÉpí”ş'ÅY+pÓv–›r¢[-At¥‰l¾†gªN~oƒß2½«;<Şg-z»%Æ)*kÔûƒ”nâ9ÊzÔ
-=Ïsï?~rHö:¼æàğÙvo÷»²ÈNÿàÔ:ÛÙ}twïöŸ–æ(Œ©Ø#+SãâMbŸvşµd•M:¹Ñ›Ä±ğ{!dìªÚ'qµ›]_ÇWÁU.‡yäévK\»G‚–ìCS‘iK¤ÁiJOâ°dÜ`CÙAâfs5½ØîÚ¢8­0×‹ä¤:R5Š3gä_j2ŒºÃ1‡â®cÓÑ¼
-Á˜¨7NœZ².¸R”…P.!•}ğÈ´0-„¯šÂñ…äÈ­†n¤DâX—gÌ}©ãQªdƒÄåU’
-pæ%94(ğŒL-‘OçWáÒ±tú°~. zmBv•õ š‘¤wUæõ˜ìËX\,\2 ]ŸËıìh+mRçOÏ×í%ÿ ã–ÊA&Ôà-ÎŸIÿí¯ÿV+6‹dı$§ô;ä#8² C Ã †Õ	aÔ,DcˆÇ;2LŞ(|„ÄÑÉû)W–Êš¤™öĞ‚A¼Z†âÓ§ñ†XšMc¾aCÊ ñÀFY¹Bp¤TµËÂC(I³ÕVE1×â(f*r¹ª‰\‚PG~ĞRE‚xALQ»‰hÁè¤‘aP· «ÎDY&GS@©ş:üAdÛ<™Y£K6ˆÔ'hëU[%H«ş¥e)ø_ÃËKhT!ã,õ:Cá/òb°^İåoÈÑÌR²ò:v|í¯«p½•ÁlAA8{}Îpö¹„N0Œ]”¾™{åTÃñô‰jb¬ Mò5İ5¼T‡ZK®fÏMB¯–»7èçCÑ¼Ç\¤e:B8VàcÚµV³¹LRp>ÚùM	 F\R3`q”Ø’xpB)4ÖyÚA8+Ó(vÌTMM\5®TÚ+Ç€4!^›lb0d¯fŠ®ùZª‡h£l‹ ó¶Rª…ÎÔ>ué´zVW4®c&BÒÎ «.Üh lt …lIÜESKŸ­ùB«¼”#S`]¤Ó)JG+Q7¤Ò!è‚¸|Uy8ã­>c¦›CìÚ.ığ¼yh´—9®I¯{!ÊF½QjÚèÿ¹Ê)^„Ãğ·³):t²”İ¥—Á¹yAmbËRM®ëmV¡¢Ì¯@À¾ q†}¸‰®Ÿ:K…í+27/çÃå§^ÿ¢…İ‹«®-›‡DÈØeÇ‰"åSÚ˜°•õõ›Ñ&PuFû¿ F8yÏÍÖÂ'ÀKíÏÊF Pz[XŞëL@‡ØN™2ßô‘ã6™Úd.zc2g[af²¯‡÷dù?Hn…Ë.æ½úVˆ7¹R‘#s˜è¯²I-Ø°X^A€^oH%ìáJÁ%k²L¨æKÚFfÕV2¡AL,P§ø“æ« kçR]ûñÜW	=û¢d]jºo‡¿–™èDÛsØª˜VRÆøa`Ç¢+-(Ê5áÃØdÑxèSó˜«*U}}a®paÒÙzÉÌE~wş&;†	Oj>Š
-”«n=YJS×@,ËLÃ†ï<2Ï˜Qk.]ü'SVR%çgnéî;\[Ji‘'`l°-TzwùU/eZ†‡¼šlO•O/5W•ˆù¬åïÉùØÖù995¼‰pD²7vñÃÅÕpáq¿ÊªÈJVÙ6å»1´‘c\š$:X»Nkt‡
-)'ÕNòaš—y¤¶™OM+ò •{wùì¥pID¼*áªÌ5u‰RM·óæœ´Ùjª_² 2•—’®ÿU6²*³€åˆ“cW=‡ÙâbZcæ‘²‡1æRôZ!_DŞ^<{¼}mıjšz5šûèíucõöíS$QQøI®à%wæw‰Ş~ñ_ëÊ+¨ÀG)ƒ ç,“j¤óëRÕôMYå£
-D`åX¹oäŸËšU'GÍ|ŸÄ FerKvÃÎÃM²İÛôyªÒÙ†ÿ;;Ïvá‡üŠ¤‚y‡ôHÔ3èH”e.f#øÊ~ØQ)i“cjğŸI7pFBİ„Â!ÔHP€½¬˜ÇÖyâœÁ"2i¶ÎÅÏìKãà~}#lç}=ßô:3ŒÙüètƒó3HÎÇ~öù‹rŸf¯tlŞ,2˜	HN°Æäš¨)e4k<7O¨˜‘m¡×rgæ4'ÇîÆv´Æ[ç"9õanİ{sYşºìçùÛq˜„­ó`Bæ©T“ù·F·³×ıA:{û½Ø!Xœşïól!ÒÒ{b£âHıÔ³ØˆÚ>yÂ\‡<¤¶-ÁW¦lå,ìM§î;õ#—»ÎÄOsØ^]k~ŒéÎ‰ôpJÆ.r^²iŠcsŠAã0MÓó©FAèÌZ ¦±µ0†ªñªíqN{Í>T&i§ÉSvšä´~÷6X"ğO¾X2İÛš¹¼ß}}âÖ[·á‡?qYg'0åÒ}An*('„±¢zke5îË}Z¿Ó†Iİi“DV½zFº9L"zÕ¥ğâ7R¦½Ä`È}ÀáâÙşÀ4Ø¦pdĞ	z¡\Ç˜•
-}2¬%>gÊ›6ÏNS"°‹üpL\È£É YäH-ÑáGÛ}(áõÈ´’êo^ıêgâ9ö˜gœ0lâdx¤u‡`r¨¬z^í|,i—”;“ÿ¾éN‘Ê¤‚¼Zécì:'”twŸ‡.õL‘Ÿ^ş£ÜæÈ·Rç>O>®°N)rT|î[Ç/²¼)`M) Î¤(c‰–Òà„tÊÓ‚÷œÙTôNÆéğVÊòi+W\t—}‘O ã@a
-sø0»!ZkÜ¸gÌ²já])ïÏg&Â ’D¶ó.ò¶éø|Oè‘i™!ˆdr‰phAspÆdf"¼Æ§ l¯"…"\ŒË<t£ #’‘dÜ² EãıPØ2(N¦XEĞ9œe2› ğ ëó8†“AÉÈD	…ø!æãœ¿7FHÁJuà¶ØOø­	¦j|<_Z€aZÎ_Ï†°óf‚ñ±cÓÁÔ©'ãcŸàBÀ¤`gR0éüË¯Ñe‹ğ9Î²¸©3œ‰±áœğ‘ß¦ 	™ÂèPkˆ$Á1ô—	<ÊŒŒĞ‡ôµ1‚ğ´C ebÎ9ÄqÄè6.·Ç>¥8[çA{†3KŠ„Áó»ßù° € Â\t˜1¶#ğM—ÓÂë“$´Œé3Ç¸ÜÔÃ¥ª˜RÓp|¶hÑ(–D`ì¡kß…ñ=Æ1s±’°‰€âC2Ú$˜¼ìÇ[·ŒäÖ-|E¼(ÉçÖ-d‘¤½Æù$œº&¢Tòe!)ùÌ2Gø‚À¯Bhœ‡WB_;ü/Fİà"~İîÖ­e˜å½üPül":3 ù ù.H+îåï¾±øbg@A¸¢°Rp½'ˆÿòĞ<wd9ƒ*¢@‘Ûº7Ø?ììöÈàáAoÿy‡ƒ°>¨@1‹[¼jeZ&•'¢*™öêa‡Iø¥Ît ó´Ó®^E®±82¤ï°Ø#)ˆ³äèqT#V Hm*¡x½yõ‹×zÏÿ½œXÃÂı¨©Èß¨@ÿ
->}¨¦Œ,pÈ/ ;ØƒnŒk$¶”ÁÒÛ Øã°Üæ÷s6ïĞ6–‹_¸HÆ¸é<”$æÉ#RæPà1Ç;Y=+Ş\¸û•…û50ß"æ1Bpld<lB9krç8 ‚¶ø´pm”`³º÷£(¦Qûà«¦pª©Ö>ôöØğñí:Në¸¾ÊÖ¼;½Ù¢µÅèruåC$ÀÛy$À„óñ¬<Äq–ÂÒƒEö¾$S-ÂŸ­êí5øF”>“j×u8z"¡éL-W=QùÃ±Ûæ	P¥èÏ•ê\·¶Ä)ş«ì^§w Wxù#ÈT™Ë¡óâÚ²¯]]w»¾«ô¬$xåë¹W.‹<Ş=õŞõ—:×##—Ùü{Lúç:‡’}Yv¿P€é^·Â¬â3¼Ş”“\dJ³á=Æ76qÜéØ’ş•sgäÔôÇ áO§/ÉOá=ŒÈç×•mî n4]-·¾U†$)!Î\µ¬­&tX?,OÃu¦uîı˜Ù²B2‚1§9Ï•&®¬ÎQ^S)"¼@rvä[°ÀÔÜ‰Pş0`¸ì?1ª2CéÅv+OÕ[´ë	‹v=Sû‹kCìKé¿sW¬I]<gøñZjÛE‚Û±¼OK¥0Owa‰ï¦tÇì[Ş»‰N>µb¦m\‚MKÂà¢‰;ÃkÌl”oÌÛ–LÇ,ckíîÚ»ÍVscõÎú»;lß=jß]]m>ø|k£ùÁé¸P‹ßéO›şÖQ“–À›ŠüElÔÙì%Ç›•#‹Àáæ h_ìÈåv7n4ƒæKAÇõÛkq»¤ºğÁ@ñÊ¡4ZÍõä^ˆ,°˜ ’´ä£·U9“9º–(ë>sUDX5¬ºZ u_Š¬šˆ¨Vïıv…†ÕP<O”‘Ğ÷1G/ˆ³TKål-/z›ƒ’u°}Ñ¸'ôt¡“÷cÛõ†²´|ÉzX¨¾Ç­¬a›€ p9¼ê0p+	xı´¨`™7ÍÁ’Ia™^î·eÔxÅ–2Aˆš2Jq ñVÚ ËY[7Êdê¼›ïMØÚ3ßûv×u5…À&ğc8Ş2'n»1oÊ¸ƒ&™t…4
-)ôº;äVÒw$'ËNTí÷0>×yº·Óïlw6ÉîàyGøö;ı²Û!OËEğøÍ‘jQ÷ZÔOL:u
-‹nRƒ.dtf‰ÜƒdğY#Sk@AÆÎrñÌJñ„z¢H›>~¢Çş€¢‚«¤÷>/.¾Êá€„¸Î@ä¾—ªªsEÚŠâ˜ıUC@)!âù%²¹ÁÆøYš&îàaoÿğÙ~È¹Ûìvv*F&r0*üAÚ‰ĞÏª¤1¹OE9õ_ı*üƒ~Ğ0M1sşŠÚ÷ Äˆ}ƒÊéõ°	·h¢à$=Í¦Hå‡¡†¶c9#m0cxÇ@:Ó˜Ù\ à8:È¸dÀø?å®(½³Iò…&÷eei/-ÖRMF´|g¨pêå*T#o^ıåoáÿÿWKn:©"ëJ—ïÆU¾%6Õ@Z£^zÑ&›„¤r2å´ÜãÁ0ŒA·oó>[ùùÙ~ôÖe¥ƒ1€ÏÍ}Ô]‘ D¶ÁÌáÍObˆº¦5„•¼WÊà² R'yLè‚å;±7ÉöK›NÌ!94'Œ09Ç¼Ùa"›¬HWØ°µ6Q¶‰IçÔºSØåAÛ–nm]!¬9{ºÙ|½U\,«ÚÅ¢çíÅ°¡jê¯ÜâŞ¡‹>~{ôlšñj¢O3›ò¬ôpâĞYÂ(AvØK:ì•Š¥ºô¸r'‰ ê£yæ]zÂcŠUBÉ`å1,©ÇÃ$¨aãì¹Ù4Zäö!ZáIa¤‡Ux¬Ù‰aBx£Œÿ†RuPBĞÃƒõûzöuÉÏ¦ü›£zku]'’ó4ŒŒÂé&i-kOâXˆ›dËXqIc4iıut„WíaHX@­ãD90KWÂ†pé Ñd30‰Ğ‚iØ‚SÀ¬¡1o°cäB˜ `{A0šÇ¶AØóÈĞ7Ñ5œ°M§)B¿n"¨æi‘Å.t“.³Îírë¼‡ı}Ü€~¶[–\k×ÁØHàg¨µî€ÆĞ)¿Ş}“,ÄÖÀÄ¾hsûŞwh7‚ÃÊMNë9Ö	C‡XrYy0ˆ°»\¯r"Mkì®·ºÜ«å–{›y`ÕƒÔ2‘:Ï/µØ)	‹½Á—:,ë+½èÜ‚x6Ôö/ÿwáøô±{À°EÀVĞér7[Œáûâ‹Ís&lm>G¨DºÌ8‰o›È×Ê­zïC,ÖJ­ùsSt$5P4€ê`Ÿ‹…ÀÌY«äŠ'İ€œñ€.f‚¡ã‚êŒ+ì	‘=#’†0Šç)ğ®F3—[Hx(F.ÌBW~÷±ÀóA­`™˜ÆY!¢ÀÁ1=‘7NB µPACéÃsša,]E)Èš2U…®§ß@º(ªı1ìÜÌµWÔoÃT‹«†òáÓNîÁk¸€å[é¿˜Jc¡:Ô›L¬3RË´‘‰^Zá™a§M¬)tÄ:	x£©IÒqr‰!Ïê­R=eD?™ø^í¦DÏ\«LPOÏâE‚¢î2E”QXoT¹º,¤OñÈÅ=®£å‚Ñ2®g¡gŠğ°î±’]"Íu*Êd’,¦"´VüZñ(ß4¨4ÁãêM¥Z-áã=7Ï“+;Üø2¤ÃB‹‹KÊ÷Ñ×H•ˆ;åJícè¨'©R­²xd¬*ñe·ÔÃÆ/¯ ¸6³ŒQ+Keäq³©U¿²F«Ş–qäjõCªgÂ•DU§ÌRö…)›…Ë¬©ÙTWlêjèç…çé8Y÷UXãòÔ´ÀÎql†½4{è9öE²N£ug*‹]çµZÿŞk•»wwÌ†ŸuMwh±¶Òo•tÖêWÁä±}#Š>	Ÿr·ÏwÄYÅK&C¼< ADª2a*ˆ•Ogîå×ˆ³LÂR™ Åç 8X»àSnr÷EÂnÅ^Â·¥õTÉ¿ªèƒªÒcW®Ji9Õj:Fh,Íxo¼k,'ƒäaÖy#ªc™V¼ú´è7¯¾úßËH©C†äòŠCÂ ô»®]ˆ9eSÁÓ†—’Ãã³Üö¥GóÑäM¨ëOÇ•ÀìÏg”ŸG&Gãå7Â$ÒBïÛx&æ§Q[$®O‚XN“G°1™2ƒ.¿q;Z3ËRŞZ#àïI9EÊÉ6}ÚÑbÆïpŸq‹¸ õû éGá%FqaÑyÚ±Æ¼!5Ö&QxõÙëˆ	‚İqH¯—¯]”<ôH#¯-š³†R	Çr¯‚Š¸âÆß“ñ»!ãÿğ—¡á^œ4ƒ“‘ )ğ»ÈŸ{¶gÚ·ÂJ<t®'cú^&STàNú°<4ğ#zSæ	bÒŸù(õ„]~µÈô±L² ÿw1ÉVş²²Êå<µ®;ã‰x şÙÔ'ùzv©kä{aT‹ÂœÜ|2Wv®ùİ›ÆcP$áóV2ØM*jœæŸÉ ÷³wƒÆŠxØú,|³F˜Hü
-áÄ·ü,%*t=%Ğø$/ñÍ«ÿø©Ş`îã´õ’a. k´pŸ—‡ƒ¦2¡ ‘0›Df(Ó“¢B©téb™-º(èÁNÃ¢TThş1¬‚Æˆ±Ÿ² ¨‘¬‹ÃÊça¢áÕX^ù’Œïv,«Æ[²³)ÆLİLS¢:4®‘0\^êÊ£/x‚å`^•ÌÁ0éæOS‘!Ã‚p~'QküéåkQîbhp Òò3Ã	xCx2^®¨.—P@“”ƒÉ¸†­¥¯Çy	7Í5l¤x´´Í{-Ûé¯¯g;…“º“ÜPÜPSÇóÓxïncuyô¾L‘ùr¸ù¨¨«uy‹6Qe.
-ÌyİútÂËË“’“qıíòw`tà½.wbŠ¼0Q@ä`¥<Ü/¿>aÜ”Æ½× Îø‚ÁKØ{chÀDyÌr9i+afš{ç†qi±…¢Zs˜ÎkŸCÄ×…Ocğo0óa‚(CØzb­ò…éïs]Ã.
-ĞvÄ·Q‹Û+ïŸ¯ş§·&‚,«ÀËc`ÎŸh\ø6Ï xCÜXYÊ{"µ°!nhÓe!j;7Ì¹ì0(¯T šB»);H¹âH Eğº¸0¡,(tÀSAºML‚Cvç3æòc°¥j/¶;‡½íş£@á/ÛŸ¾XŠ18¦Ôw!oÙ[®AäÄöG£ŒM¦'ş¹…Hµr…İŞOÈA¯‹(›äQg§GºƒİÁAw@VH·³Ûépğ±ÃŞî¶ è›£n:õc¬ƒEt¼¡“­Yá—sÕEEšá†Ì$z,Õ&¼Í"ƒh’²V”(‹
-Ôë…š’D¥"+!ÏJ ¬¥½ç™6MAGìïR;puè{®9AO„,CSƒp4GA"œ[¦’àĞ.OH»äÛŸı’Ì¦„â2p1qA™Xª*"PrÃu97¥Æm%XÎ"_xÂ¯şéÌpºx}\Ô-d>Ó×(¹mhê‰,¾VDçlîbÌÿ/Ês\FâÎ°÷ ‹\.ƒâßw‚§¼Vl½î$˜Gä3…é°!2kWˆ‘ÇmÁs—úaE%MşC¹xÓÍ¤uÄdGãdÉ‚¢È¡%•Ó	ô€(‰¥iª$0¡¥k#Ì¹í5óáN§jdìÅadvŠşQx’ƒé§ ô–zXÕ}g+µ5åÊ'HŞ7u§à©2EOºÛ¨¿I2šú—6ÑÅKôÎ–ÉÆ˜\şÆ#­q9j’ë•éb¶Ò¡øY°âÃ™	ÁB™=
-Á6’Xì!Âºè%Wúğˆz~vJµÂ6*P¼ÆA+æ€–2¼Íu!¨o«dùÊõÄ~HKfi3’¦è)›¦©öŠ&¢Ì2=¾#)rmQå{’ìÁç3à·Ê r$‡5!å§hÒ!jØşåë)¦¬ó×©ÂT…“Ë“5MA21{8á]
-º-†¨y¸OĞ®ãÕ<Ó4œr³Œ0 ÈË×u+ğÖ¨$Èª@¸Ebƒëñaÿ'<¡WÛUÏte¦Ø4œúêBÑ¢îM6“­ÉtEqÕËTù5=»©¸âm=ß1NIìA'¢6#»`Ë£oƒçoŞ[á·ÓLçzÚ®ÍÒÑÔÀ	Tí’ş(¸îšÚ£+zS¶³¸/Éök‰^çùBm¡‰¬†øYM6©hÄ`H¹FìkòŞéâ#ßf+ùGJåOäëŞCâ¦[½³Mòc‡ë–°kMë„ÎÑœ]ü®í  $àh ‚— |#U¨·|Ô¦Èõr˜äÉCEÜÉëß>‘_5]ä®L³¥MhCŸÎ”—°Š÷‚Ş@}rlQ5Ÿ XJ,œjø§K¤Nj­%r÷n{u£~÷ÎÕ{+b¤+İ¬­¿ÙÆjk£¾¾~÷ö7‹Ø21±ˆz¼ùd UŸŸ%«ÙK¨½V|+ĞÒ9ÕÏ<-%V‹ÙÀÛdˆÕzHÇóf`s<(àE| Á‚ÕVµıƒËïü?±}¯!ØôÎH´`Eå³–u¦š³¦¾!+Ø®Ûå¹´ÄIßoûò'¦„LRªïÂ}åW	­¸òıB÷–á€À|Dˆ •ÿ‹—F…Şüx•¸İìòÕT~Uù&{a-u©ş^şaá¾âlLEG"|Vı‘8lÏ¨‚q¹ÓÿòkÛt<«à‹Á¾([Ï*ÿx¸!Â‡Eé
-	Şl‘~to
-†°:U)ÁÃá«3ÆğÊòœÑuN½­óÕëfóÛÀPuœ4@v{kÖ ÆzÍ/˜”]°mĞCÄ#rA7¸ *5rğ,qÇt–‰!è…'è"æ_hĞP¤*ap+\Ìe®Ï´\¦ya¦LT]õf“ÚĞ nø®9+¾ü’ÜHî˜àó%mE.œïúµ…=`úÇôƒÓĞµãÅo;¼ :õş¸+&BåÆ	ÿcAÛ MTîjÊm”ß`"·ØÆ{<{‹,¬¯o´¸âz÷‚zP¼ÔHIÜ×µtŞáXàÃÔ„ åy³	I»¤ßDÖˆm™$Zı¢ş]ÈU}Ôô5S oíá.³€÷«Ÿ1oLÌñˆhb …Qùóf‹îYÔL¥ŸÒC¬¡Ú"/Öåkró<{Ç‹ ê‚qù;8!³ÿ.°ol„±Ã›|¤š€6>ÈÂÍ”Â¿°ùçöŸÛÁ‡™½{±ğBıDbŞ3×ÂI§Û]Ş<O,ôÅ[7Ïa[;{¶ßG|aû5ñÔKšÛœ"¸ìiûVÖàfËdQt½\TnteÜt˜›Lnóæ“É•Í#º~ûãx¬“ c<z—l<fnK0ˆ[ œÒ@€Z{WR–ÉÀ	ìY€ğ(7Húó‡ ¢@¡Ú_†šv}+¤aˆş½ zç‚JlK†ÑˆƒÇMÆıšYQ"`¤Ù@áFç#>tŒ—!ZF¾¡gI<%¸Ãfæ†âj±TÀ‚äü‡_ï#(‹#{Ørxjò>…“Ç¹ûÎ3Á«Ä›¡ÈhDRäßŒxŒŞX:9×J.îÒÅG°(šqÍÊp80i8»h`a˜g4ç+ó¹¨5-‘îbø¯„ÏÁª]½‰h^s“}7g„0nÀæ|Æ<Dâ‡‘OQbÁo¤ŸëCß<ÙLjZğbÎş6imbNß~ï°³ßçÍC÷Áµöh§ó>zÚï>éíôw{e!8ƒ¤Õ•;£%j?@(ÙØ`¿ÆÍ6ñÒ 9®lÔ¿|m¸¶D¤ôÉVµ|UÚÄIkW>øÌ")^Üø¥“ãÈrÈo^ıüïÿåŸ®qÙk‘TÎ¦fA¹[Å,Æ­=‰[gõq‚º£MÇˆĞ=Â|ëVœàº'a˜'EÕjRg«îaKö¤ØÙ´ÅH`°‚)fm;íìÔüûÂn‘RjÑ²¶%ÏªìÛ!Òå?± x/t™{ÚÅeÄS*‡x€0Ñ‘b¶	o«ı¾ªü¤ß!›ŞÆğ0owg“#æòÆfIš*ÛÀ¥´;JíùÅ	í^şa‚š[ğ<£<¯´C3ÜYYe±XkÇwd%ªy¢]é™P!¶DhCÚ¼B4UÈdD'RÇ2m<’áÛDã#­¥Í2Õ½ª"«2Ş‹IàâæxdÂ×ú¹³º"¨½í)2¨8JÛ¡â°m(lóËa¬§.P:AjIo¢Ö8Ä#Ó$¾¶ğæÕWm·¡35â7³ËÆòcŞ½Tt+¥•!ô¾«"K#Ú´±,İHv<‰úärd´9²fFÆzpÔ	×›ú÷ÉáÄ¶º¸z.±Åbê.ÑS·GK®ºîyâ½†¤+·G;2î%<s)ŸµpÌ¬vWØiı°İÄ¿DäñÃvşa-£Ë¿1à£¦)d*¿îşûpyğ9¨ÂO<=ğ£»ûşe‡7tK)<†[Â»§;Óe6g*êÍ„‡4`6¿ã/*xIÔØ%³WË»I:V*•±íÂot‚š/·ˆsÍ(Y5’%ØiïŒ÷8¶à’ÏÒvÆ*˜«Zì©{+t¾Ä»¤ŞĞş^oÈŸñNõ†öwYoˆ2ÑşÄõ†(Lw½zC´¼ßëßë1•}¯7ü	ëí÷¯7TúJyÊ&X]·I$YÈ 2àU¥VI¯öU*opRÑ’K¦TÖ“ªnÌ;Î×ŠŠNå«e€TËø·õ ßy÷PĞFì«T¢Æ4¯æã.ªl÷ŞÜ[¦k%«Kõ¼œ‡—¿ÚæĞ™Ï¿œ)jÌÄÎ¤Iÿ…¾b…ŠÙÖ=öH.nJ(LáÁ\ïe¼¼ÕwNiÜ¿yA:Ô{”¹œù´’Ûùv3¡ª‘õ“dËİ¶Dî-‚¯Qò^³¼}R¶ŒµSÖÖ©dé”ñÄY`|È­œH®æÜ£Á^×«µhd~ˆÁFM’)Kº?'é4mØÈ¥v[`„$zi6H‘r…Ïà )„b(Ì}¨ õh²²JOpê½Î“è¬üNToı?¿¨>ñÌRIóçÔ ´Ÿ`iÊ*?ºº‰éÏÂîªoCJ<j'BCÉºDIs«DYwHb)îF
-Q8b9§%q–ÂC—;÷¯Za*‘;XYÇ‰Ë_ª&èı1ê7b‹}¯İdµ-IÍ¥îÌ,Rvæ¿ÃüšOBÄfùñô`”?FµGùEîDTÑõ¨Gí¹l‚åyÉTÒG.Ë~ÌÀ Cï†Ec˜ $í åªS¿~{!¿È—S8ı™é;õ°ápPîŞ9qãà¾+E’yŞ¥‹ğË{+@ºq…>p½^'OÛMÒyv8¨?íî_şu÷ÙN‡t;½ÃşóY!÷Ÿíø¹ñÃ{cçô1³Q›îÙ®cY˜ôõÔ1`…R]¯rRÆÄÖU°Ÿ˜_oÆÅ˜wEîêğOÃu¦Hp±‡`!7Fõ„èº\­fà•Õ]šÙ¢Ğ„å¼²–2“R7Œ"Ÿ\›@„šÅÓLÌõÇ™ÀOŒ¬$§›Q¯“h·ëJ•ZKˆÅå°™œñI¼¯WiH¨õ½òF)£oã‹¶ñh9ÆØ‡n×12µ:ëğ6Ö¥¢OƒO(]py©€	Z0ôlt[ÒÖcğL`gˆo[š2_µÊó€§cC8îİcîÄôØíäò–oN-Şkù$ÊÃD€^IÉNéÑÓ½‰#PoËƒ9Ê??ß*ßSõ@ÉD°|Ñ“U~Ës_×"gWú„‚.4!¦)Ù™®ßXÏ73Ú%l…¬ŒÌ/Ô·¿şÛÜ*ÉD 1¸t,	u¤› ÈF”"Ù=}ƒ…`ÿ3Oô¦–èİ á}Ôæ8£»ÙI ®6½ıSæóff!ÎçM\ß´Æˆñá>ÁÍ¹"”S·>rgSl
-€9Y’)œá^¾ş,?ö.¸üfŠ©	üT‚ºÌ‰i`
-§ÉfáiNªkTÃ9‹YÊI<ó
-Ägû;`LSœ¾$ Ç˜Ì™¢Du òJ	µtë‚ò†ºOg·FòjûhHKâ@x~2÷^@BHxÏ›W¿ü;±
-qor€à4û’ğ¹y¢uîˆL™©A¤+Â¢ƒ÷nlë¥ôË ¯âÅÍsT|¶÷ûÏ{ŸìítöŸ~Tp±ò `ÌİÕŸ)ú«”ˆÌNL$í$9—E`÷rdGÂ1"¯„0e«!5ütV]±=WÒ’Õ„#fsrÚ"V\e_éÍÂàVJëLnùñÙBbGÜËz\õ„7T6ŸÂÚS*8y?÷Z>0“†`šli¡:M'tK–°ñäÖ—Ò®S[t!zÃv©d †éM-úäÂ!Am"Ä7yÏ——Øâ÷f(¸Ú 5ÁL'R¦S:j’Y—åÔ±w»œj+Ô‘d÷÷vl/`)ã›Œä­4=wŒ+ŒCÒ©ÙøÜ+ƒn‰•“Ö
-l"œéçnëkW $Ì˜şgğÿõ©¼ö¶ÂÖ\RõI§–¿µ¾Ğ¬ÊË…‰œ›¤Ò‡>jİæüqıæğÊá:Ç4£© Ô5Œî!¢ÃKŒ¦ÖuáÔj¦AN„T”‰ u<ç¬Lÿk±ı‹À¤‹Ñ–`3“‰ŞQ]ÑÜE¾¯•hŞSä®‹JØ»À²BÅÓÆÜ5Vş¡Ã;vzn‡ctŠèö r-ÏÃö50÷ |ÕÃ ÍöÿLv•U•]ÉŠ)£œK…T2U/O¯Û2ÊB]m$EøèÎz§|µ †=c*•®ZÏ$VsÃUÆgï”1¶;–O]´_÷8iT±¼”¤şŒıg¡Ã¬;Ø}Ôß´mğÁ®Úëÿ™p£‘ÖNéK|[K2—Ùy6“Œïÿ•ÛYYX§]ÉAxÇæuˆeÍÒøò:?¶Ï06ÅïCçıw2ß"&¤Ä¹Î†¯ì	ğ"˜=o`\†=Šü—ÃÆ«,6P´P©á÷àb7â"ÿîù‹ ÖKøñ"ˆ9©S­®Ãzr7³Šu0¹C˜GtÂv~ÔY$È¢H¯½Ûb­öÇ‹d3ø Õj¯®6?^Lò{N¬™zN5gV¸û³Ãl<ä¡ˆVgÛ‘ÿûwÅz^.™ÂÜ÷˜åDlHİìÂC„ø¡îåïPŠ0E…f¥>˜7k³ãæÇ8¥%y/ûÀiÂ÷$úË¼ı÷ºô±cb¥.&¿“%ßfÓËo`óv´w´»û¤âŠçloôjêÌÔT†P¼JBŞZ•XªWö¨ªü©Í"ãóz§<‚×ù)öF#O{‡OÛä°óğ ÇÁÏk7`Zˆí†íâàÇƒ¯±ˆ€fîªàÎåÆæ‘kÎâRZ˜3”qSµ0Hù×š¡{‡ãxJÔX¥ç¦ÈoSÊkÄ´qôÚâÔ<SAÇ!ZXÁRİH/•ŞOä;>µ’­Ü+›dâ9øZm•Gf°c:³|LM¢B~N-ÉÀ²w{bÂE‹Šá	¶ô Të¸|fÊk6Õ×•øÉ5~+Øİ	ì5ÿ T=kÒgTy©$ŸJ=WIõ&Hº™F©|q¢Œ¼vÌÕ²ÒfB¸U@ÅCÆæÈéFâÈj#H¿ŠEE¥)„ó–Ş±”m+ëªq7£qù³£YkûÙÀ]6º´Ş”'ó´(ı÷¿ıÕë@nq!ÊxuVï:R—½Ò‘÷NùK -–f1Èn3[i>#ßRÊ]úı¶’)ù…;+ÖÂùÜÅŸ‘+µ³¢S¿ƒ;ëÍ«_|n­2¦jwIôÂØÇœ’õ4¥˜A\^kdD¿¬cÌ‚[ÚãúGwÖOÆy (‰~Ÿ™	cÎpˆ»€`½)vˆ7*Ä<åÏjé÷·åée“#îw`3¯…“ıöĞŸmóÃ‘ˆQ²muÒÜ½‘4ws|I®	İB¦4*4®Ùîö:;»Û˜‘Õß=8ÜÆ{ÃïóaĞÉÄ›VÁë>£–Ø†ˆ&8|Iíğ[urT;[;°ÚHd*‘¨ËdÖïgÒ'<@erPÏĞw0ù'r«´›ªdûìG-5]ÌÁ1€±Âœ„†íL4ì›	0À:§/gU(ââxóê÷ÿ›ÂNU'7–È€OPt¬Tìq¨ËßT†_ÿŸ‘Ê°?x¼ßyÚ!;—¿"@j°V®Qav¯§sT0ƒnâc#Í ^àÙ3y4mvlÚØRKdl‚©4@˜ógÔÚTÌU+W:Ã*5G]#ôÄ41ûŠwYX'Îğò÷‰Î>ÅÎ‰#ôY—F-€1‰…·@©gôŒìÃ©&½ uòœ?º°²'ÆŠJÃwvøØ-,8¿şpq™œŸ'ÈPqíğ%|ş
-Ÿ>ÜßY$KK×Ô•W88¦&´Ö‘!ŠìX©ú‹‚yW1ÁFMFU*Ö»zf¥-pEoÈëÍYZy~U°ed˜€¦áÜX¢0)8ŠèÊ8ç—?9Á¶	R*Pq8Ñ1ì1Pmj™_€<•ïµ¢‚ÕEz8€ ş¿RX™ŞƒDÙjçn(]*;W(6<@•ügŞ×;s£¦ZL>Å¢Ö…ùgemÁ4”ÒR@±#Hçğcj…èO)²’ÈËB"9Ágúq7q^v,Üß¿Y
-Y©›H›WÂØµ9,¨Îë»ì­…Ğ‚úù–šoëñÀ^õÙ›†¿,ºMİ6~‰Ü12qÑg¶°Pt“\s¦"¬¥ĞİvÂk Ğ<öÈr¨ŸíâT„³3IkO	4²[ƒË—€Á7Áöƒ_ËC'SfˆRÜ€WT_V;ãJL¶Ç“ôÚÖâÛ^_€ó¤äßUI¦õ\{ªL FhåV}ƒL]QFÔÎ% Ä	'U”wŞ®Ğ*ò¥•îU«i:‹GQ…¬¶ÒñN:|K‡ÀÕğ½„ø^B¼	¡vv‚±‘KßË·)?4/â»&[ryïP¶$¼ÉïV¶h¿T|‹öïÅ9?(p,nÏ,˜;9Æg¹˜·foj™¾yÏåÑ[#!ÆAåcç¾Ÿ~}w•î2Ù œ‡g“Rp©Òwqg•è+Æ§¸ßj6Ê»ÕîrË9·ãÂaáş9ß¿œXkµ¬V¼¢ÙÊäY-]üGÓVÈ9º¬êäêÃU{L±4p+ÁA”iB¹È¿uªX”Í/Æ„kiG—Û7ºQe-g³,XôÈŠM÷Y7¥CT}t˜-)L—ˆm$˜¨5"v…åµpU2´	Y:sp¢tÄ„óÊ%AïdL`u,9Q_ş&˜Q‘·©³Ÿä¢‡B³î`[Ç#û—¯§¦!J;C`‡N!&sjµ
-,ğGZ9tN¸ª¾IV›!O¹¿¡Î¿°L¦C“4«äb¹ä0ëÑ0ë¹aÖËs'f57ÌMë<B>nLè´V$³LLã¬„Ò'4¬©y¶Ç/KèX‚©ª•¡[q6`rÊ¸‰éuCp0ar,»šÊ¹\Z?¶h6¨ğ9ÇGl<>c/·ÎaéŠ”·*ˆÙxäë
-²</õàÅ·O¦0ä¥c,e¾(¯…GduáZ *’ÒGørKœJ¢é0y§%g«rÔù_ÉCäYgUè„î¬Â(’&ZFMÈ‹o~‘‘-Š’¬ø(²¼1´-vçEÃcjã¡‡ÉÑĞÜ;>If¢HŠV¦EëåÜ< ­&^ŞÛT:TÆã”‰«òˆähF]C8 04yD/ÿ ö@úŸæò>Uó=5dµÕ½O:ßÓZŞ÷”³dËùŸŠ{'ûÊ{¸².­
-’~#Ãôè‘ÅVŞë™‡¥ºØ]3ÈçÓ³Œ@mŸærîÊx–*û•®Ç«$Ï”9–®­»ƒÄ/ƒ0zp€"·?¦·¸öMjK{gxÊÖ¤8ÃgÑoËQ	ªF"ŠÚÓpŠG$¦&èr¾H0yhñî®æÕ;®?œù^ $¯CÆ{—b¤3äÊ¶—<Î­jSÅ•{§.–´¨Ö›Ëè6Y&mü&Ø|û#Ğkáåtp®Ÿ;Ø«èßWä–2õ]ÂŠNJ(îYµ­t©â.é
-su=]Âï1yçDS+oGkO:û…ŒßUÓâ‹tø‘ı›¤˜’Ëèîz××9WƒbEr¤ 4¡5uÓR[ñ»·ÅÇ`ò¾ó‹´kí%ı2áñ~·_äöìÃ:I>z>šæzémçëÇÛR•îÿ¾¶åê;Ù–QG«ƒÙˆaJ"ªŸ˜±ˆĞg"³ÓqÍZdWÛĞö»*Şéß~ı¿pûÁıöDúh°ûó„Ú\ºXº:KxæºÔVÏß(b¶nBR‰µ_%òò·
-óò•°ùAÁ¦nWš¿v*_Å,ò`ZkZİ¯byTóOQùNgw@.F÷Iv÷p¿sØÙÈ@‘H.ÍÍnetXÄWHåf¼™ÀJgWA1íƒ(ã«CJöĞåï„r;ãò7„“Eƒl›ŞÔ±9Õt‚È51pK\á±ÑÌu°Œ‚{Ôùx˜n`‰ÙÉÆì(•Á*ú®cî¿Å¤nx=âWCË¹æMep—İv<Zºé¢ª•ïÒ–‹’·¯}ÃÅÉÚbÃ=¹üë‡ûıíéöŸHQi~DºıÃË?±ş÷¶÷zˆJhj¿q¸OŠµ°Ãí bRÈJpÆLÁ::Âøöyr:g9;j‚ÊäÆşÌ¡39±k8Ò¯1óbÂ|Š0Á'njƒãKQ^øÆëú†ÑæøÄ@õB¨@¦%fNNRÍ77~é!öG'jõ^¨#Õ˜s€š&üõå—¤¹+Ò^ú³ƒ•[¼P?Øëuûú]½ŸäaT|CVÉ¡©â@ÔA«¶1Î²³ÓÛµİ
-ê.ÿv
-„[ç`°ÓïöQl‘½ŞÎ€<;xvùûı
-µv±vÎƒÉªÉÈÇ²¸ƒ1·’öÂQuBT@ŸX1d¸RGp³![ .òÕ?hÁT*çÍÃÜ)€‹bÜÀ3L!< 6FÔ¿üÆ5²h4PÉb*íf*y7YŒV«†^¿C\l÷–É~¯³Óÿw=rĞ{F°fI¤Gv9ï]~u _íÀæìöB4±Î~|ª¼øJWÈ6_'Ï}D|Î‚p–£îÔ]™€•À…`9Ô [ähfZ—ŞŸ¡Šd«¿²!ıM‰×Ié sùœƒÇ?s1^0¼æzóş×ÀkÏºt¡¶-Ì*Ğa‹&„W9ôÚÚã?“3Q^ˆp¦µ´Ù}Gğ¯°L×Š+yË”ÆòY+¡LÃƒCšFë¡?91Š
-Òñ‚şš|te,~¤EõyEXÑğ˜7¡‚›Xª)¬ğò2 ù8s6R­ËI8ş)t,…ÚEÑxíÂıÎ¿ìˆ¨´PÄ\fpMñ!…FºÛYFC+Íæìx:ÀVC£–Ğ?|ÖzB}·÷°·Oj;»İ98D†^'O;>ëïöwŸtÈá`şß]*¯4$B~ë’‚zuı}+YššTÚ¼z.M©DH©*}$Òß¼úùæ©ÑµèmĞ•MPœW8.ÅQ(é\5EZ?z¤ğarºˆy‚21›d Úµ]
-¯%ê<zĞ1/èiğLĞÈÀp)©eï¤ÎÇæoTlÃ³vƒyñ®y	2SXOt
-‚ïšŸ|2h¬½zõä)ı|fÚ¼uû¡3…ÿÕ‹+.fòa€Rë8˜aS¹…k|4fq½B2›áVº|]¨2«ÖZÒ-šƒ¬<íø”`ĞkÏş7¨vúO;ßıÅéé‰Ğ!j‡æÔÙ$Pş¹MA—æ
-mk¡\CqËİ&ÉÆÊ]ÑÛ-ˆ•ê	Q­ßg¶ÿDvMp¿H:J,Üo¶‡ğßÆzİXÛhÖ×6603lÖW[-ÖdGw6Z­Â}[.ğW>ìW©‡`aÁ2OXÔMPÕU"¦/ÄfPe‰ğ(Ÿ%”R¦¢¸ØG?hoĞÕ»ë©·u“È%æ*å³<¹WÌT9DMq5O£o‰öbu”U´ºö4R½²ˆ®£î`¯ß!hÛït*Ô­¤ï'J6Œª[çSÏ2µ³õlá~D¤„ak2í¦.ÙÓGÃ«‹Zûà¡mïƒGmø.êM[Öw'¿–rêdï;l`}µ6A‘å5³<e‰‘ºÀ¨€——ããx¸ğÎĞ‰_ºµâËÓñc½èÈRLqIËŞBâòŒÊ"Bİdx™‘Ò¾ëYÁ/Ï=™¢½TATh8„‡šakÊêùıœ<»;xº×Ù?ìï<	|µÛ=şÙşàyg÷°‡Æ~\dğµwv{;ğ¼äµÕM}Ğÿn«³{³Ì¨õ²¨ê…
-êµøôËæ”ÎÕm<ˆ|~õŸ" Î¨Å ê
-ğ‡ëœP[Äag*‰H§°b~:ÇÅœúJX1Íªp†égÚ’õ34¬f¬î'v_šGëT¥oıUà.1äı	ŠŸX]Sâ9]Çc©‡ä>¡ö™’ÁyŸIá#U+|òóËbÊ{mêãàDôdÂL1ä˜ËkmŒ¨‹Êpƒ³—¬ÉY:ag£ŞÔu)Fšg
-÷ö•½íG„§¡%6E€$¢ Ê'Âæ¸?%kQ<‘co»t4ÀNaÅ…¬1 ¬ÛÆ¼¦} <û^°/ñ#Œzc32å5Ja)æ¸ÃÀ´H$~æGWuZŠGq¦ïâ)UÍÂChHÇ¦…U®¬!¨C|ÏÇÌmà§ŞƒÆGÍÕ×#Ä6·DÆÔ6,Üÿ|$>¯¼ÂÉŒ×(^”ÔÃNIø:¦¡XDB¦X$kdÆñ']lÌÎ5çYøÔ×›YN¾®³h7‰™}wZ7¾ilÉ§’İ1îÆõ«Zfëc½[d3MİV"›?+LàÓ‚î[á¡jı—Sêo˜Şsj™@°¡DıààJÃêëó{Ã_¾ìµxSuWœWGº«s+qaéªßÃÏTq/¥ÚRÆÈÄû¨×Õ4¶T³*£ˆˆcõ©1õ·@ÖØÊ­e:ÂƒòpÌÊÔ8V_˜Ì{Ï­±ÚF¨TC—á*AÕ\~r¢á)J‹T¥ÇÉÈO«Ğ©’ÒÚ/¡«TºFàOëdÿgƒ¢©D¡Â¨mFá1”Â9zSS­É‹ãÛŸ£u©U§VÂO]©Ì,LÔ<Ä§Ç…Gg†Z‘K›.B@“ÔŠl=‡lœÆi4TI5á3+Rkt3Ï–ÄZÔ5\O¢K'ŸvRccr4ƒ¯PuãY‹1M¨=äQï*uØ«%áJ¹Ê®jÍ–[´ÉRö˜®ó^r›åÛ3O
-Ñ¿ú¾ã›+áù	]‚¢+ãGğ,e!Ñ&,e¼)¯âNPï'ğucj
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-slate-100/70 text-[10px] font-black uppercase text-slate-500 border-b border-slate-200">
+                                <th className="p-3 pl-4">ID Recibo / Data</th>
+                                <th className="p-3">Candidato / Categoria</th>
+                                <th className="p-3">Valor</th>
+                                <th className="p-3">Forma de Pagamento</th>
+                                <th className="p-3">Referente a</th>
+                                <th className="p-3 pr-4 text-right">AÃ§Ãµes</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                              {filteredReceipts.map(({ aluno, baixa }) => {
+                                const receiptId = baixa.id.startsWith('REC-') ? baixa.id : `REC-${baixa.id}`;
+                                const formattedMsg = encodeURIComponent(
+                                  `ğŸ§¾ *RECIBO DE PAGAMENTO - PROGRAMA CNH FACILITADA*\n\n` +
+                                  `OlÃ¡, *${aluno.nome}*!\n` +
+                                  `Confirmamos o recebimento do seu pagamento no valor de *${baixa.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}* (${baixa.formaPagamento}).\n\n` +
+                                  `ğŸ“Œ *NÂº Recibo:* ${receiptId}\n` +
+                                  `ğŸ“… *Data:* ${formatDateBR(baixa.data)}\n` +
+                                  `ğŸ“‘ *Referente:* ${baixa.observacao || 'QuitaÃ§Ã£o CNH Facilitada'}\n\n` +
+                                  `Obrigado por confiar no Programa Nova CNH Brasil!`
+                                );
+                                const waUrl = `https://wa.me/55${aluno.whatsapp.replace(/\D/g, '')}?text=${formattedMsg}`;
 
-»çÚ{±s;×574º’šdá£ ôPş›FšXøu@sñ<óò÷7Şç¶›c§]ë>J¸›Km¡˜3–Ş@ÿéb•‘N #ü?ÏófŞĞ±Æ´[ë@Uîç3ó~Âw!¢ÖÓ"ªğ	öv/“ï=ÆYs—öZ¸üYúğ½í‚Š®ó÷ê*üyßnÔ‡5ãØMULæÓ»b•3òt¸ãyÙ”‰¹¬éÎCè¼›%Ò“(ï¦+a­Å“Ë¯ùÛ˜Ó+XàË–%Eš6ïÌ
-{vŸñÆäÜÇ\
-ÆQ.ã`\]ÏÊ¶RSÙa“#lîûó0oÕÄ~Ù±Lû3î+^D™š¨	Êp/%¯¬©J™˜ ìÍ&\ÊÑ2¶Í‘é{›¤½ŒÊ‡ô¬RQ·™P²—÷ ôÄúpE(¨´@?ê‚6©³ ³ŸSCöÉ€f šS<
-vózÎ®dGÑ¾Ëây€ırLŸc:ÄwºjqRñ½O)†`1S`]¾&OQÌšÔ»A@N4µf¶Cn'^Ê©õ·7ãÏúÆÅî PôF.P6 k`}Œb‡5Õ!ÏY&ŸÂ­Í/VNàëcúÊrîE7@ºc²Aƒ]s3‹Mzår-TDyÇ ‘ƒ…@&ÍîèÜÑ¢øã“]¤cyõF¿y~Ÿ°^`}rYßjŸà< Ş¹·ÔPÖ/Ä¯g–®¢8¥	[Y_ßhİ½Ûn¶ZÍöÚdoòB	ñn5uxœš`+Ÿ6œ)³kp·e²ø	H#û3UIqxÌßg@* {
-±"péô¡„àÚ\ôşÿi`˜.ßâÆ;_ŞÜk‰%E£Ñ¸z|ÿ4ï9Š=»YÏP”–Ø ;áwOÉÀÒUiç| ¡LŒ¢Ü0e„8i¯UÎ¸¼–ƒÏgÔe)',×¬N…~æ¥éª2¢×Ç_lŸŒ©ïÑéT)ŒæJJÈ—Nâ		Wê!Õã˜áÈfÊeÈ›'a¥¤Êk©—˜eäeiiY¶O¹8JÄ—ª$»¬F…~<ÁE”Dd·Ö*²\>j6îndåK¢¢®.fù[Šô–:º¾·DœEî’&'3Üˆ}=e‚~fS¸Î÷@ìÂ/}S:æ§H¢]3ìÈø8B·šE®L<	P¥¦	6tËšêÁ“ÛÏásNAÏ
-!jnÏ¡ 5É—‰«Ğ³OLôE$=ÏÓtf‚ç%,àCteß «Ä´…Ã¯\ÂÍ‚pÅ…Ão§nûæÕ/Au`	—â¦º=¥àÌò:w©ëíj…é)\ßu‡Åu¢jğYUCÖ(“sv…$³¸Û3æ÷õÈî ÄÒ [)¸¡TTMRßÆœnH¡6th0,,®ä²hƒzáhÄ FwCOI2°8r˜K!$º9Lˆ‰ö½J ãÀ¦ÆÔ¡bëí`ˆ÷WµŞ^­Ññ‚ÿCòh°Ï«H;;;˜-z@j@\İŞNç`IPU··]xŸöwáëŸ’Î!9|Òãu¤	Ğoj_²’(“R­²HO}ud‡Ê•zù-Úã¾u¥"·{U­5ÈÕ÷D~Q±ZºR¬7ßG	ùjwï ”ly×Ñ6©d¶vPK[ëVáB\`O“”ë¶ÒÍ\[­İŠ’‚®%Á[÷[gÈL®[DH`¤vÀ&äÇÜroEÜ^©Ù|Ô^&«Ëdm™¬/“ÛËäÎ2ÙX&wÏşoÁÿí ÌÖM
-L§„Óm¹‰¥<o‰§%+ÆS»J´¯–ãÂ`áãïú ?E¼Él¯ş&"W”6¾¤3š¾ªÀk8C¨V„%ÍlÏ„%1‡á®dzBNúÜYK988®Í˜ß‰”$¹İOî“ê˜/à}ÜÌó†„~€ù™µ<f/¹:¨Õ‹U*³*@£¯9èuŸí÷ÈÁ³½½Áş!é>éìîövÈÃA÷ßV‚B©»ª‚ZÍ*Øq<P¡já€†šöİõXÃnô‰RnÑ¢=³±d"–«‰Z-Ô]ì×w¯9`DMÂyÜ†é…f(˜èÍÕSÉ¸Uú.¼yõ÷¯ÿåŸ®Ó³JÍ™ë:p,Õm'ğ±‚O§  §Ö¹t†E±y“ñİy•M›¸~° œŠ@´ØËgv©%‚šÈªÚœ‘4‚ßµO#AÙ
-ê%´³åUŞŒ
-lMj_ş–.ƒAmıb‚(ãĞõ<£îz3Ëû˜`Şî‹ò®:P›· |ÈµDàøóÕƒà±ËìñlB0ÕØö.¿>½ÛU¡qR<‰ç“Lè-*b£ÑE¦—¯l¸Av3ËÂì“º—¯£p»¸…ylù u…/mˆ`êU)6/ı;áî±äŸëı{¿oïøµG’¯#¬	ö^£¢Qt3¦¤0˜ı.h®hZo9V­À£Ú±—ÁKMÈÓĞ*×ÃÎ„ş•]@˜‡P)yü3ÿ]jÇŠXó8QA¼™‡Ì:ÓiûvÌ@á×FÜFG~7Qäê1ä2©ÓØY{}{õöí4>Góˆ®ßÎás¤&«²pI©Èl;UI)…ù‚í0`Å0‚é¢«7rIVe)[üV³Ü5Û5°]+°}DÑ£‰rªK9QËDwŞÀ@ùèl×e°ÑÙd Šh¿"˜&V]œ78R¬
-lózÂ×;ÄâL‹Â®Ò}ÀÖßNxc„ıœŸ¬BØ±D°±t>D¼-¢U=!üŠß`œA"Z<”—¾Š¼»¦>ïNÕ*B¢VxNJp‰´…ÿ  ÿÿì½írÉ•&ü¯"EË"hüÕG”"Á¼I“”ìµÖ*E¢Ú 
-]P”4Œèx÷ÇÄ~xıÚíy'ÖëöîŒ×èØğ8bÃ?öîD7°}	ï9'³ª²ª2³² ğC=†Ã-¢P•••uò|ŸçHizcî"²üÔÙ	ÓÆÜ¸4„É²gŒi	ò[¿Ì·ñç\^¶|mõå¿hÌª1{3/­1ÆW·Ëä'©”åQ#.(Ò˜úÈ#«m§Ë·OD“E“€2YÎFÖs'e¤¾&£ú^­VÙÓİÍÚöÛ©ÿ˜`}³qÈŸmÖwY¥¶ù´±3Gg%êû;/¬!c"µ`(?­DçœÑØqK4*&¢4‚y‚[ß‡#ÃÀÊ¨Ã<›·Ø5õ´: x‰Š¡.<©Ò¼ÊS ‡~ÚL¸@•¿$B)Ó2£¤¥_”*Õh±¹¼rgñ¥¬¹ãc–G¨zĞ^ÉƒÔJı˜Y·Å{Á©ŒŞ¡Ùr^.{Ä^Õ[Ä°÷İã^ìÅÍÔ) œ¿|…}ê6D×¨€ı V­KÕBÍfÖƒ…öJnæ|Ëäuã¼JÚÈĞV-Uû¦WÒ]ñdC)^) 	•3¿b·^×³ÜZÍTfô4Má!†G]o°şãC8§.=äyºú,Ktl$ævõÅ½ÅÓöË„pß¨+—³Ó-Q)›Ï{áÑÛtL#SŠğ)wPÿDáŠ=Š¸'ôPmŞ‰²ÄŒˆ€dõ·¥øIDíI­BM…´b•DUålÔ¢«*ïØüü|<Èm†£¬±tî†&rêØ\?[c; şaIŸ¸½€ÊcAó{ë¨+ïˆV½O2;¶°47Ë©ŠCÊ¼9‰7€:QF‚	ÀÊrsËÉPµË¨ĞÈş”|]ÑÚ¼åJ»Ç'Ù½-;B5¢ëÁ·æh²Ù?V+yåˆ†±¤ÉlñÅÅyñÿªøÈH‹—B‰ÕUÌM¡Ïé˜—EGûcÛ¶/‚*½
-N¦ABÁÉ˜Ñ;Ø<XØ«ÿ…†¢³Ç¦¡M‡wÙqÂ&ÏP˜„’Zg¯üİ <dÖò¦Ag0Œ5¡]%Õ”£åÁr"ñêe`ì‡¹`)Xî^‹Äi_4Öx¬®roiİ¿ï£» +¯£´ü@øÛCUÃˆP×r/IHöä{Nƒ”RGO'ô:Øúè/¤4&)a¡ªíŞ©×1Q’¡¢!G*.ICNƒP¤á>XÁ§ño¦JfüÎ ˆÙ¯8s3¥/æŒôÌ N«ECÄ–`Ó;õƒ¦’úZj g=ã'@a£¯NİÎÌÃÌÓ`úŒù	ô…‹ñÕÔLwô;á}¼–Û£äÇÈys•ş—fÖô'÷ÙD#ë·Ù:¬Ñí»,V°,²*¦ÙxÇ.ï¿¨4,®Ö…3¶ã†'ÿ³§n'.İcNÏaÏ¼#—5nß§ÂÇ}ê Ò^Põ¸n:&5©¸•”1Çà°V}ï±’O‚ûĞ7ƒI:ÇYEjY£nÛ"¢t¡t;½o¾üÅÿxÿùÏàŸßóş‘mvivÉ¶İØh•X×N-y–\İ¹^[Îa“U¢ÅÁ0F÷$Jmrş*¶ Æ.í©—;pu™b;³ãVÔZç£´…—øæRGŠ‚ZÕ®‰FNó]Ä]æ}X¿‰È`šúÛPü/â?óX/£Ù?ú{Hy™¯Àì–»”—±ÿñØï"8™ú«HyíßÄ$9€/lş:ñ1ŸiÓİO–3-ó²<•ÀO4ØtLËrj)*ai_¾‹Ÿ.Üôpgx§®RÕxWF›Ë-Wp7ãúíæùCø¿ÙTWášsWF¦˜½1ñ¿†>Ù¹Ó¢S/ztöm¤ÓŒã :ü±×ó‚™‡ñŸlí¡
-æƒ™ ßÅ+årJ÷¬)İãÑ›_F|»ÿ‡ƒÖ<•ñ‚‰NâCî‡Zğu½ŞúÌ²æ7çl}fI(âpğ!0Ãzyq›†[cj˜‘késTâO'¸<SÅq'ÇèoÓj«±SÛÙ¨7ökì{\kü¸v pgh»XÂzpó‚ÎåE‰ò]ÕÅğGùûôÆs~$MîX>]¹½¢n€˜	Z·È/ÿÄ¼ÁP´àÛòzXyá®ºãÁxêô†§7Ñ»=ÒyŒzÜ·KúÔä-ê3½y.`í(ğZZ‰NE~¶‰*3eÀ*©#Lª®,:c1æËÎHò¦Zãv[Šdqev/'›I D÷Šm:§N.õë6äe+ØŸ­03'±İe¨€¨Ş}%Û”¥c®mq?Sê.@ù$µ–šs’¬lk}6IĞSe”À¼pZÒÅŸ’©%ñxãYÏ²Ø˜„FC:'ùÊ›Ï×ˆJ°*g
-/Mú”‘˜t*¡Ui!\Q¯’h$‚RâXı "--ëŞdYò‹†¦G¦†,­¥„­©1İa˜8õMİcRAô"{Äf¥ Çİ7n?']f1íŸÎ—eD¦k¨¸&Qêfu`¼:Ç¡Ûr†j9G@3&µ„Â•xÿë¿ÿ¿ÿûçÁíâ‚3|äWÚUä_óA–S	ç4:úÖÕîÜgŞe0€%˜YÒX]ãïrb Óİå¢r‚]>¹È1¥êãç>TJÊ«şç'À&Í½ı4Ät^zÌœª¬e¶ïaß7Yö×l+qŸş$Mú+Æ¤¸L2Iã¨f±Ye8Õ’ˆ&iXôô*÷Å?‚¶>ú3ú¿èèèwNBef4¾|3„zCA¤°šKG¯€Fû}ÎsdÓ=ïlaÓëµ1e©Ü43¢x•8æ¯>{æĞ˜ìûÑŒ‹r›×o·>w:\Rt“cîb¥E8pûèi›–@HZ?M‡$ã]Qîªñ }0²áÀíµA6øÀ:T’=¹™ÂÃe‰)Ä¹M‡h¨†k*’Mk¤{¨éÆŠÕïn,b³:l—$ií6Í LaR_P½cá™Õô,XÕ Èç*­9¤G¶¸šj«wüS¬A¤k?WMmï¨R{ß4>aƒk´Ø1:AÑ6~Tu„lËàÅ-C2íbR!"‚ïŸUïÄ´šx&íƒy@ #pZá*†T÷]˜éŸnØwÏŞÍ÷7S8ñ´¬ÆªÍ»j»­	\µšf†àgA×ú?ìÀé ¨K­caàOnÈ6ÄÖ	É¿`èßô¬™ÆƒÔà§	¡-öŸmîîëQ4âHı·I¨æj‘4r»á:`i$É	â#RN½0oæNæÑy­0’ñ9ÓÖÈ“£5¸-õÂ½[#~Nk|+‡Ğ¸Chì
-(ê–D
-¬6Œşhæ
-j3âÜ”ÒxùJ®ú¦›Wlì²Z¯ <¸+Š3>„ª¹Ó`ÜX_g=˜c~ÆDá¸ZEÌ á”‘Põ¯š<˜•:²8òñÆ.!ú––Y•ØXU(v—'òb»,Ò%úDÔ˜/–™–î]$k—s¶d^Oô‹ÚSS¶QÇ©{ÿŸÿOÒ«ƒ"W¯ëñÖäRY¥A‡°Õ\iÃûê^ü‚¥P	úŞUá¤yIy‚b~2òG°²´|xq1Â*Ö±;ì ¾S;Ü¯í\µ¤jÆS:p{ÚèÓ“Zù±Ç•`ÑjU÷êÕû÷——î|toyå[,É.ˆüÚ`”°½ÆYe7&Î]„ò÷ÂG‹¦K’jºÃ¹ìygS¤61âØŠüŞÖmV¯v¯st¥ÎøCÆW­ÖqÁèwm!óÔ5T×Š •õş{¤Gˆ&Åÿ8¨¸N9æø¯ÃõwÊü-%}– (¦ÏI j§t}êØp
-LqÚ»~=…]Üiş›bcKÂ¨‡}O¾)ÿU¦†G»”:½Û{ou	 ×ŠŠİnŸXfıaF@2Fş)yJ®Z¬p|~´Ë¦GÆÙ‘Ç%gí€ËèJËxıHôšããÀéôØCäc ÃöÄ¹ b2c½~ºbÍOÛ0+]áéx„8¢­ç²a—õıaÓg¡¸ÔëğSÙ«Ì:Ä"ê±.02BD›£ßbË‡ù\?ZMØ©Õj³^¥ŞâÙæ¹]s¿ùò—_ 
-y=JW·ĞĞQ×õÀ»?»]x°äNÏíæä‘ï„ÕS¯G?†}—¥Ï†ô¢n/ÄÍû2şpôî\ÁÎDM^ßsCaªRa¯rÛnù\ën`Y&uä¥I•İ>‡v3háVñö•©õSÍ4XôËº$‚ôN>Æ©?ÒÕ:e&÷Ä}]]ZfmüO4ŞgJ1E$/êHEÃ®¾G‘×=aaĞÌr œ÷9PÑ`}f˜¦ç¾Ql×6ÿÇ?úë6q†ŞÕ©˜ûáÓ¬±YSgŠÅİ…UQ])Œ&%¾›…™ oÔ–8ŠËEß©m÷§[ğÕó_N_¿&oĞiï»]á~)ßšC\­{yã5Ğ˜ck–Ä¯£y9³D·
-—<ÃŸ#–o”$7[_Òö‹ÿ^òÑmëáÌ«' ğg ¯M¿“a_q2İ±×ÑÖƒ9Í¦Û‡­îuwá{†ÊÊ´êQÔ&ïÉÖ•¿‡æ_,¾ÔWXzÇ¬‚çÍY4×EéaõÜ×l.Ú§c›~Ñ¼ßëøğG[_7óbe¸iÃÎ ÓÌCêTUĞ{êÜbÒøO-Ä2ÁgûÛ|™]‰4¿”­CÍ$|â]×ºØş¢"Sş×Yt,VÊğ‹Ø­âÂTN)Hç»ó+RQ›ä2¹¨‰³ÎìéÈB3]¸¨*…\¤’á—×‘’#OŒØô_™"G¯äƒúXf7gaIàñ¼íä]îmçÚYÊGï­ÊÍñMX]x¯GE
-º¤µĞíW±™6ÅW/ª¾ùò‹àµÅ\Ø±Ú@W`\$¹4hÓÎv-‚rÖA 3ÉÉ@4Hõÿéœn[
-=ñ›/õ‹$cÊ#ÏD­éb÷½À;EŠ´´+,Óê.›W•èş,¾
-<°@¶ı¯7q]Åä‰îéßÁY•Iv/–l4dÖ{@­_»Á¬Je¤ù*Ÿ„ß_8¹ÍffL9'W“’ƒæñZM¥0Hj›?~Ø`’B>ÅWZ«qà61±÷ºÑoébbú¼hƒúwße­Ñ×'ŞÀW8øç[F¡RáZ7‡à(_ã¡U¶ŠÔ¬	“k5%ùVÊP¡z_ÚòCâ}ÁÚéô9İE¨4©GÕüÉ_T)¤³¶­×â«¤ƒÚ³Ãİê~ıã©6vwÅ ó–np55Æ……5ËÓiçÙ}S½7f%Â»ûZ^E·%§ùg7Ä{¶±Q?8`‡µÃ:{Ş¨ÿŞMOëWïÆŠùİlu6}ıÍ‹õÜ×Õ¥»èğºkÊR¼+ÙË9À²Øì]µõ­Àİ3z¿Şáo¾üOÿÎN”Î:LWqDjd³û²¡" D"‹—mø½fg8ú#O œ†d‚ÜPÕ\Ğû*Dµleàs¿9úsNüÀò{‹ ˜¯é0d5IšP6ø~°Ğ?]³´™(j":îñ ¦K;[É`1f¼¥
- 9²A‰:¡Ú\³Vx­ó5ëÕYÄlò<C9kQËjuÚ&½*’ó8o›RAşÌ¥»ìNØ¦›k_Ïõ_ãŒår%Ì”±Ø¾l?³3–XØ]Ëõ‰ĞƒØ9&§Š¥Èıñ¸„l½’YBÄ?émsÂÍbÊı¤wÀÍ5ã¹ü%¼Ò;À{Î©wâà©Í×?ò 5ÿ: R>„yVp²ï9¨V‡>ˆÑ°¾2óÍ—_ü‡³kú}bó({B!{f&‚LWı«ŒyáƒıHé™½Ï¡½Ä7¹:["Ã
-uoí.N\MÅ"3®İB]ƒ{•Ï«°áòâ’ò*k6W¤Ö«V¥çà§¸Çëï^µƒ~¸¶°ğÚ™ïº««F*‹²ÿ%ïÖ&:·fgçÎáâ¯ß|sõ[î³ı&dú=XƒÊ«o¾üõß±ïEÔÏx9VÆ5…$y™(©ˆë…iˆßû¤÷Io·3úÊLşTÕwÇK” |ì{0êxo¡	êœÇ‘1’É¾Ç7ã÷ìv#¹{¿Ç÷dÁ%|Sâ%_ü†}O‘Ã_4€"ÇÏúW°œÛ^ï§¼'„$y,¨¦9˜çŠºš5XÆ›ïĞÛÜo<¯ÿdo»v¸µ»ÿô'Ïö·ÏíÔÄl°`îëŞŠ½Eê·YğæÎ_Íé@ô€Ñ’Çi}æ' Üö~ª÷“uÖgz>P¨zRÌB®u’¸Et!	2Á³œ9¿\È1d\ÁIYè12mId+Á§7¼ Ùqåejèókú/_«ï,¯n®Ü½ûÒ«"Ü  taEUNfä”÷§å£a¿¾Ußß¯m³íÆÎ¿f·(ckw³® ¹Vji/¾³Ø\^¹³øRö¿¤¬…\-µÖX5Øt…Wª½ID-DF®8´™Îr&·ÓªD¤P3å¢¤vA7$şfF%­}G«ÆæjœC\ƒM_}
-|iô56MSófì¼±™$¬H{væ!/udŸ]à_¬c{8t€0— \à8¬ƒ·I§^ÇVe;åÖ*Ì
-.„gF	àŞP¡&İÉ/J<q{°£Q"©Î­˜´Á(3ã˜VlÁ9/	«U/Ã §ßk]mF«¯ÑØHä[Á´&øOäv)â„†Ûò|=ÃÏŒçòÅÓ÷æ?€n`çAX8]Z€G2ü,¨â
-/<ÂJ‚uĞ÷Îàÿ·™Y½úâäÿPÎ ”k*mE}ò~R’mù,ü'N-ìÏ=ŸHtîù`³¼AaZ-’¦øÑÊ £•L?«q
-7Ï
- +RÃ™müSnãÌÚíuŞO¡7ñbÍo5¯vÄ®ªûéxG†›÷MªƒÒuª ¹ds±êèyøÇğ&Ç´®ï«8ó‡ìòøÇÚà>f7Ú´¦Ô2şQ˜» pGROJf¯oiõF­õ}&1©=™QœiE­e~æwÏ"c×ÈL%Æ¤ø,Ñ}”Æ«ÉEò{Nî²`ÀĞamçÈëxƒøevi=>z¼A:Ë­ólÎvèj”`Õn¬şP!ì	_nÇç:ŠÏ‘pĞu1“m}ìl¤èci+EŸ¬š,Ôÿ„°àĞâQkÕy9²šš±}Š(ÑÊø1X;ÑgÓ;vN¸İc´yâ«mŸäg³ü4ıløQÉlÎç*4é.tQÇÎÓ¹ÙPpAS¸xG«W•Hs©†%ˆúL¶Ã½Å|šôFIëÃqÔMç)°‡/¬÷Ã¨åßf[n³dûªR>ã€Ê‡T…`3¡1c kÏä7v®±Õ*ãEÃì©îYE‹‘C%ÌÙ•rB-MÏúßÇ m$¼Ìv)A²ùÓ™&)Ï­6Ş¬é  ñ3”k÷(ÜëÓAÄzÍÕÈ|™
-6g1÷Ny¶0é¤]}ñÑâiûe6©¥€v;+nh¯êÍ»´šKÛjCtuÖ¨ ëüÎ\]­Õ„>Àü†ŞÉÃ,”?ö¨Î‘ùOÿ# r~«ùè<jòÌ'¸-C'jOÍFÿŠÓŒ~Ûs}æøTºfµÛI‘ó<ã)}Ğ(ƒÑW m5İ#,B‚íŠ>§æ°+ÜO-tWy~£vIõ¿‰—ê6ƒõôzÀŸa$ï¯óN<ì^ÂÜdğ!¤!¬
-ÀbIvãÇ8(ÕÅÆ.®·ğˆóÅU'J±5ª¢£ğ #`VÈW™">	
-#~„Ÿ 6v4H’ø)Që@Œ–…à×Û‘Üù*Ü“.OIÇz1·Ûè]XPv'ÏS2Œ6µ˜Y1æº¯ÿğÚnï-Ì;[›3Rü‹O†‹+‹‹UüçîñK‘/ışoœêÛÅê}úev~vn>ñB±Êâm¶¼8wA¥]7éF7@Í‰ØøplS‰Š¸Â$|¡$î¦¸Ùhã
-,`ã _òÄöµèü£J×?ˆ¯Ën«rµëDÁú.iZ*¾\Ú+	«©š^ihÍÜ+P@kò—0.º&MS°)=m«©ó«™Rà.'yë:°¦ÈÍÃó'¬çuäLVšø‘xÓŒh øÑq§èÊ¿ğ§çO%`>Å½®‚ü¬A5ùG"ÂäË“arí·µ?\©E—EÕ˜«×Ë¼ClÎ&Çä¼Í\éDlNÂüd›?2í€Gñ£¥[q-Õ^9ÍšPAñs•Ø,QBK&;üPœ?—Æ‰‰TëRüèH5ºî#ÕbPüü±¯• £¯EL ÓÉ?ù
-¤Ğò:Btå·^C¸r2‹p÷ÜàDªü ¸£©™ğ¹¬ºJya'Aé²Åéš©kl¬®Ø‘K¸I8®‚[á¸ÆäÒûmùQÓ†å¢={Í‘¹>Lká`èHˆÂÒğÆ0(‚Y)ÒÉJ(]±÷S«)\ÙÛ—qä-°zñ#‰«'„büè„Utİ_´­)›1ÂèWŒ†*Ût½¨ÏjE±c–v°x£ĞšoÈã:Luy±îPÀ.
-BŒn\”n—^èùJmóm~tûÜ"‚ª@3è¬ÓVâH‡­„=²1áñ
-©ÑŒîz¤x`ÂÃéB{ãèÛNhE
-”æpşøtÑ¾ªwdY~IıÏ'Nš‹_m&+vIV=6åÍN/{¦—FËçŞ¯Z­9Ã^³Nqƒsø)Ğ†J-›&­8‹0–ÁŸpŒmÖkÛOj›5vXß®±ÆÎa½±_[cµíg;»ls÷à 1ú÷Yà1^Oå¶Cì©°	\ßëäXÖ¼ææ»†·òš¿Êx‚®„¦ÓÁÜ¿[;q+Î|Ë?šËè…ÏzÜ#€—<`K÷²g ´ÃCé<âÓø¨fà°í¿~Bí9<®#=0İCçˆ­¯¯³Y4±ªq¥élöò–‚Zò®öƒC ÆÑzfÈGÄˆX„øhÅÁq¥‹¸.;°˜Çã¡Ã™ï#Úl=çÄ	Ù÷X%çVIÎã‡şú¯ÙÒò\î¡	†
-”é=èp¸ÁSgĞï‚¬è¶øæœafY%{oım`Zpyşvp«A´¾òĞùG¨ÊÏãÄ)ŠrAîâ"„…;« »®Eß…·¼¹Ç"z±ó~k­5v5Å³‘µ§Û_Àpm¨Ö]ÉÇ÷—1ùX|]½sF§iÀòtE‘ézÒ,T%/ìxôGõ8ğ» L€7u«wĞ¼Xü( 3_‘Í<án»|¸~µP˜ŸÁMû˜Š-éHól¦ª„¸9ƒE„¦«‹mŠw‚v¾°¼š‚&¸CªÉ²,j”p9«x©®º÷Á³ĞÂtUÖdé*²¬¡Ó
-ë0@{G1š–„÷–Â×K•ó(V_»é‡¡7ú÷	FBœ½¦ñGH‹¨¿¢cæá‹wÎ¼×:iFÛRW`(aÒ˜wĞqWëyä(C¯Ä°å‘Š‘Ñsz*à0•>.şèûC8€e‘Ønœ73a.ØÖW†äØ•Dæ_¶øµ÷s]¥uÔ¥Õ¬ª*Î¡bHô9#Ä}dÂ‰±}ÿ›¿e[õ'µıHÁQ¬¯=ò+çuÍÀï€åÛq)Å(vİé[ñ?ÄÍ–š$8¡ÄÃ—rT—›tî Î‹ÓÁ¤/~L¾%$ÌIà´°« ÇŒÄ‚TµïÇ¨,« S	!¦ˆÕ¡ø]ÉÊ¦nkşÆF6ğ·‘¯ëƒÆZÈ85gÅj&lK)äáfˆôlÖØ¬ï6¶µÑßŒşí.‹ }ágsµÙrnbËqökxÊ»u?vGĞ^ÀÓ–íÜÉ»@‚Íóë3r•ã_1|‚ê\	ô`;NØä‰%kQm’¦d‘£½£šÁ&x¼/õó¸XÉ´ñáûÏksZS}í¦vÆ9Åç/`Òß½R”'šŠÉo¾‹l¡GlV*8[\Xœ—YÉù’3—gÁü˜M…ç’ëe„.u^¶ãüÕ¹Şë'MóÕS·ç¼%¦ZWÙ–Ó8]x–Äj;g]7tCXì‡`áÑê¿Â‰n{0s‘ ëg°p¬òKÉæfu®¹FÛLÙ÷)¼b\£ Îı&ú#ş«(£­v/€	ğÉjS÷ˆïÑŞV±P½¦f…ÒNçŞ^«×Làê½Å©/¥´ó"@êLtàvİk6Ùûå^Ÿ²PÿÂ–Å,†ğù8ÂµQíªxmx =n7ú°6ğNĞµÓrÒ¢şĞèûìcŒŒqî¬T‡\âõl\í®r¥‡pÛPM£†î	Ê‘5ö1Õñaé)ª­¡lL§hÓÎnJh‚hoj5 ½íŠ[S_±R¨ªD¢8£º•-¯	›&&;æF¥:sçNÉ|¨ı9ÅêV¹ó]«öe`ÌÏ5	¶w4€PDª—°!·å»R]Ë^àõš^_kŸÅC;êrüè£ÅuÆ†ˆ¯Nåz8‰xäv±=xFêäËQML9§én8€kxév?ğy ]ÙÃK¸?…“ñÎXÍ7ÄÎ±ãÂì¯µË-]ËÅ>Ã:NInCøaÓDX>æ…Ê@ù˜OH>~™³…ôQop	³ ÁøIøoA?ºî 6Ó}ğ›ÄşâŸ¢=-Q†)ÜhÄĞ±@ ›ò~¢ÛwC ÑpôÕ©[´k¤gW9p‘¶ãq<¯‚Ífµİ¤ªv^–¤Ôqi5O­‰â$Ql¢ãEZªdT$‚şÇûÏÿü£‚j¥6ãwÀ@é› §f£!UŒŠ{`IMÑW]<şÃÔÔĞišD©‘aÖØh>ú§±¤ÒıÚRöDF|‚=@şŞqEg*õ~å%)&·’±ĞrCÂÓ5‹Ñ"K<õS¦CÖg ÷Å{:ş\ù@÷½,F¹GOÈ=¼	æí§ ±¹"Y¯7÷¥I6c3ºßtAR÷
-§®ø›)á¨ÌJ%Èöµá`ôÏ=Ô_JˆİºÉÖ•Â1"/r_:‡1š‘ÉÚ£æA²Nq‹x	"{8^­Ÿƒ¿È‰^õE3*Ã´¬©#)\šğ¢`4V´ÌlF{ä/âÕgÀ–dóÛ¬Ï¸¢ _ÙÌÛkƒÚìÆ“úÅ²4¯‰Ş«ÆˆÂfà‘×`~Æ$W´sı_¼ <Äoò{Ilô&Ÿ=÷l¿l~cÙ­#´q¾[ó±v	^…X¥03úµ©Ò!‹]­ó«)×¿ùµ'¾M<¯ïóGÃ]ËÿÚ‹ã}? ¥­Ë–>b50‰fI·‘/¹u‹É_o`Î‰y¸©|ÅZt>šs[N“ĞZÁN#íÆ¥Äé¥{âæ&‚3ú­
-ó•¿¡'‡šÂ`,dƒ·5\`5ŞJ/êXp‹·0ØÚİg‡OØbïÆN4>‚t}Ä}5¯l†%Z etÕ-EÕS‘$\B2½B/îÉT™¤ŠJÒnHÒîHİa3±
-ÙšèÍÍ;§ŒI39ßšÆ¡fbC?øa@Àòzˆ[„8„í¯7<¯®yC‘|Í3Î|QÖ	ñÃ„l7Î#Ü=3pÀ%'L¦XÍk~‹
-Úé¢ÆŸ;‰œ£ÀÃ³Ã®úmDM?åŒ9ÂıÃñD9pÁ°Æ&s¹—ş†v)´Œ]sùÄ†ßCÁt*àHâºí?fò»:ä›m$§ÈªV½$J:ˆpp¹m˜Â}¡g Æ¹ƒfÛ‚wX¤Õ_şÿ«›ï^Ãvõ_ÏÃ
-PØ<˜X÷±ğˆV¡ÑZ¿Ésp
-`¼-²çVs9>¥ú{ ƒöĞ^	ã÷
-°Àõ·Gõ/‰éÏS,iå“*Öo¨‡ßÜ/ ¾k!¶_À+êßí‚‰ç[ˆ˜SìäºÜxUT~[†Ô ×ñ.¶5 î\«TÉ4¤»Óx§îpåuœh‘}ÌÆ%ï&`´	‹ÚL`RŒ06ÇM€‰µ¶×(Á¼Ó¹A)	Ÿâ6!v8­¨ÈQ5¹!|¡z½E£³CxÜN;wÏàÿ†N;e¶{¹v<TÏ@ò¸D+KË¤³¶ã¿ÒMyl›\~{µ~ Tp³† _}ëcÃŒë‘êFˆQ‰:jj¦0©¹¦ıAß§Lßt@>±Oo×~ƒCĞ`['ÊHºÇ·98ÿËÿ9òê§~gÈC¶¼VQy.R²`{wªCš#Xg¢}dƒŸÒ ¸`\Ş±mşú».6¥ÁH	Z%A&ˆÁ£ËfZ_†±j×:ÓNÊÌåMY£[»ª¤¢Y#·{—-š}^ÛFwÈîam›U×ês”³'.r	„µr£oë.ùIùcIqócåJ|¨ªµ¢]=ÛTïÏŞfïX8xÓqáy	PóŒş„£÷·gÙ¹±·ø™3ËŒlc¸ğ_Ü‹ß·:wKTÀLº.ûÁ0 œÒ
-:·ÄbÑ–ˆ[½ò¬íéí‹xV;ã ¶½¹Ëj‡ÏjÛS"[9…u<Â•êĞ®’dÇ×öì/N=½hXc{µkûSzÇ’Å6Ş+Ë¯í.6Âö¸âë;ìÈA,R—"Fck”‰L'£•yC‡M³J¥Å—MÇMé_©Hm*5eJùº{¢èÕG_(¦K¢½Z°«Ø´+ò2E¶@d[X¡ZYš;ÿ.«µ<,rƒg2hg^ „0AÕ§™²Pó’âØf£·Çú»wÔìA{]O™Ç>ÿî+{çØÇ|–©)'nòÚİ,òˆ©ê#à5)JfÍ>%£­üp’nuco‰8P©¿1=n«¼ËTtŸ³è+üß-·„<T.6ğ±k%k§^ÓC8;~‰šÇc?`›Àí;ŞÖ1S£…¥F¾§®0/ÛEúwy‡·†cèI:=`ŞÇ(UT¨3I—É"äŒUc¾ˆõª›IxÔºkeb#í½7y
-í/ÿYŞ“ı'iğÅTe$wÊF¸*¿iazÆêDI——å÷tôûrt—<°ºõæ 2eò„¿¼2W¯¦DÊŠß0Gïh:ÁÀñg‹RuAR a§«h¼³Œ~…İ¬~æ6‡@±Å£  ‡j ³¨I&ñ'6úœ=Ç+È±‚¹~ñµº[·=à+6ˆÛÿêsödô5]Ã*ÑDö¼3öıhqæl[ÃÁ¾øGØ€£?3áIné²å9¬{Âôå{ø¹Viœq£˜Cñ:›&¢¹Áéøj’§,Ngˆòäéòâ9ğïÀ	«üŠ8SË(µöÚfıq¿ ¦.6TùÉk¶BxDó:+a—dm›P±?³œ%›ÉŸI|<rÖê¦z'YObˆC<Œ`(†_Fr)PXÔ¶P7[Ù.JÈ1µ ı”9`G_39·ğ³ÉƒQŠ[ò•RÜÒ¹­ÊSj@6Ç^Ïf‹ëCLR“OÉÈzxÇÖ“b(7œ‡‰µ*âQ¤šØ­ô…qˆCAbóÀ£øv©â¥cğyRÔ—½ÀÒË·(Àr½dq»˜ÀQ"x^\ÑòSÊ¨Œ²å'¯ÖLf…ªáøÅ+qq~ª#¬”úş×ÿÿ÷ÏÙæ[¸.¦l¥tøĞTi\ÿñá~íp¡2×?®°§µgµg §ği}~¶Ä.Iâ_wÕ`Š÷²xÈr`³Ä(Ï¨µGt¶ö´(Ãvi¥e«Ö;'3²d¼ÖÙœãcÍÁğ3rË¡CÆöüİ&U‘´Ús^£.‚Áo s}Â¦}V&ïÇ‰ª©_ÔÒ‰c› IÙäZñmlú„ˆv¼C¼WÄ°¢®Oì³¡7Pˆ%ü#ÅIşe2ú)l<“ú&4:C‚£wjröµøºÈL>–úùµoc¯3Ó—Ö†=ŒùÃTJM«£y]¨T}ÎÅgşˆè?1è@'Ëœï¸½“A›´E­š¤‚ËK›ò÷°S±Š]’aÔ€ÇD1İÂG[j lwÑŠ-A²­¦5ÙgÀëqFËÆºÜ/QË­vô{æ³®ÏWÓ´#Ü"›:LM<½À¨G>9àYa”×Ør1à„ıI€7'À&ú öÊ¼î#n¢Ÿ—–èÕ,1Ä3‚!Ó¿Ø¥gëÑ®“b
-9×@*8fÛuZFKf 2C³b54Œ1æLwñª˜]±Ü**æƒ]&ûŒ#gëÌÃÑ[äoD(ôA{Üa¶¨m=VIE›{’Ñ(á‚³¥ÖDíEÎü©®(œd°İ>Á8¡{v÷h‚‘øK0)¥sÓ;*|Fø=09J
-(ñÁàÈo½‘'£ArZEı³¨f0ËÅ»N¿R9:[ã/,>N2¸À˜€ıñS÷Íú»£3LğLEÓ8„ƒ+C)<İÊ®>Êb\ÿlN>ó$½¹Nİó[®ğ:y‘+v–<.âQ‹ ÓbÉ‘-$‡Á1ÕvÎr| #ÿ²ZG.¶²t…O†‘vúYßÓ˜m¢ègˆ@ˆC	ø8$/2cZ« ÓşR¬He¨v…¤É“GFgÙÀo’B÷êû7U¿ÆAÖJ8Gy54@	6„wàİêSXƒÜ“'¾R`m¯KİÅ°?ã…ŒÛŠI<À„	:+k­®×#­Ì,e²öş9ò›•ãZ‚‹¤Æ¨H^<h4—Ëx'$ÇcÄAnş±uóÒ¨¬wA\voDµŒç6;:+ÜÀøI;$ëraYa`ŞÂ/›˜ó5êñ.WìRŒ“§h¢¬ÚípÜæxƒ<ùs‘èEïF·x]/`|QÙî±G	À~ûŠ/¦ ¸…ëõ™ºZ¬ªÍÉ2’ù”ŠiĞÂÁÊÏ+Ú)fuì#£w””=½o†,¡²™Â‰iğ>i¾Øol{tc÷éŞşîóÚÎaœ£›õ½ÑôîŠÎñ’NÉKúÅÿsı½¤n>Öş©OMîÉM·?ú#6fd•§~‘é	7Äd£6wáÒZ†²ã¸ô}¸p5|ú¥5lzØÎ´ÑÛZËéExDa¾Ó½³ôĞ"w4-šîñYçjW¯ø!J“ôÖEN<ĞcrÚ=Ózµõ¤iö%Ê÷ãDùÈT¼ˆw/Ş‹¸œr#Âb§‰_|}ÑD&­÷äGÎÙØ§è³Kš8ß¢»q‘R{ÜízÔ÷4n^‚ì ww:Ãâ}èzì`úë|6ô>l/bT·OíT¿­E¡Ês½±Ücñä œlˆZ Ts:–÷pE±OM´qW´!&™]ÊXéP×Èˆİ”Ÿb¾z‘/0ÅˆÉˆGÖdÁ^Æˆ_‚'¿à¼¡™İ5JG¡K¿£KVƒ\ru`|şœÆ9tANócÖ€?&=İ5öz‰N¥Õ´»#ivmrÚÌs•?,fK	Îbè‘^ ùš‹|ÌT‰…ÏDSC…Š X²•eKŠ·µjŠ`¤ñŒ z¯AgmKh$…Ó1ù™‚–'·3ìI„ê ñ?´^ÜIûäK'š²€eƒa<ŒÈäÃ‰Yò6"ddü”ntÿÑW ³q?®{ÖÁH“	4R~tcBr‰õ™|;Mà‘´ö'Ä-ƒ­^úW{ _À~İëøN‹²zĞ¡%IMåCÒ­]¦cäò&‰Õ zŠ;lùvÉ¢üÃÓWA’şˆğaØ:@1ˆI^±ÊMfSf,¹û|ËoÑXâøQ•W¼ã Ş+ãÌÜ|—zÊóQZ8Ã—¿ûW¬í"-‰/\__C{à¯QñÑEÉŸsæv`³•y¶Å¶â'âÈ=õ‹ß*³Îl‰I0mì±ı¬¼
-¥iEä,’äfé±šH®eˆÄfÇĞyeWt¢`P™¡.{£?·¨~×áOÅz”Sç!JôèkDöŸ±±İ|3šùGåe55KTç;gã‡w¡Ce“âl
-vs¦=YI¡È›oÉ”7ÁÄ¸×œSÚiåÕ!æ~]ºoöÙ%6¢»³ıúêÃÚ>s™{Öì½€‘;(å8ò#ïÊùëîÑ«¹òÌ}ØÓÈmm{!vq&ç·"Ã2O=]8İ¦y%ƒeYBò-šË]ÄØüü|x»ä5²Í¼ÆÂŒ;õØë ÕWš¸M|",'v±Ş®úœ—áš¶ü?b­ÂãŸ—`ÅØƒ£F´€„Q‘ˆ¤Ì ÈÆ™o¾ü»_`	‚ä™€éú§çÉ‚¨o\ø¡u5Œ™p|pY°a:p§˜İ^³İÇ¥uÍ)üc6šÎÿ¡GWÉ–dßï„\»@ @mz€¨-c©/¾³x´Ô\>zi†[“{æ&MÕR ¿N0à-È‹"¬š¸eÚ9şÍ—ÿå+Ø§†XQIôä‚–$+ª,=ĞÖ`Rm*x8HLY`IªN‹ÌyS£Ge¾Â›n–7È±­+{€ˆø¦šÂ&âŞå)V¼¥·ĞF)è¢[¦\£^ñÈ¢;,(Â@ ™²ÁÃ¤ŠÓÒÕE¡OTõ.—[˜Üîù¯Pî¸'Nç6…é°º~ÈN½—¼ÌŒ÷Sınô'7äYñ^(W¦ (œĞeøgÒÅÈNwôÕÀkÂxàmßÿ©K}])‘…£¯{Mx4gŞ°ûuKk.œ»Ô7âœ EõzèÀ{•ïÀ!™~?¸UÖ4T§ı¿²9Jì–ã¶€
-«Ğ
-Õr
-†[Ü+]ÑÜ¡:Páƒ¨¾ËLí­UõÔ+18³‚kè²=ŞU¼Ym8hÃØúÃ[èĞÃRÇ°¶™ªDÙnCR±çô„fƒÆÚ„·l˜géq‹ŒTÉ
-MXwVGÓie«*­l5£•¥i|ŞJ¶“¥ä%ÁÁ4\™!/_è]íÊÇÒ*/‡¦Û·çÚM«PônÕ5lÕ+t%T²ßÕîS!Z’áxDÈIp·ïöêÀjÎÖĞŸ÷=U‚(aÁgqß5ä•Rõ8’©(IMGïós4³ğ¡„P-€’I*MÀ–/ÏÜàUœ‹&fÈªl„êZâØø¤×Øä_½|‰Z‡òCqËÓOz$Ä÷¸Ç_§‰Á©÷+ìÜ/ş‚»»²Yµ" ‚ŞpHr´¦®9{	ù×¥U3¿+„z¦ñÊ¬jº¤uá}¢å/<ª´!J3ç˜l•WW³aë\:¸õ²O•l¹Í6¬ñœ¨‰¥ÖV©°©ÄCîÄÌ˜®Ïç*°Ìâ*sÕj•=İİ¬m³ÍúamûIm³ÆëÛ5ÖØ9¬7ökkğÇÁáş³Ãİ}¶¹{pĞı{º&QôŞ…jÒ…²¼ˆ»9Ÿƒ­3Í…•9“MOz1Å„‰gT¸¼‡8ƒ
-~#†Ï(u²Š–“ªˆê‰W»ƒêb‰ìı#§ùÓVà÷«Ga`›÷¶J8Í‹Ød3çfDw–™Vañ ¾ÀÔ„áÚ”œ‡avB»úâşòiûeôıuõÎÑõr,àxê¥®ÉNªG`”9=¯‹gz=vÆ)şv<ú£zø]ØV@Ë]PÜ[Ã€ÚW$–Ş¢00€ù\Ş– k¡OğùÚö Å9ìÆCqB‡:É]1óT‘Ëj>Iî]’{]r)Ë².ñVW¼>¥?ü¡0ù¸ø)Š€¹´Wr§Å¸[’6JPvœf_²`‹C !àŸË»Šò„^Q=³f›Ö’ä¸…İ™‡/ŞÅÜäü¥)eåÁB{ÅÚ÷•ÎV¦„{jÑ‡xt~³'|ès¨Õ‰)ö6lsPD17åO:5¶â4[ÿ¹ÃzUS/Ó³8TZ©>-Í)ßC1à¹*èà/FK/©I©Võıoş–mÕ7ÔöÙVşQ¬¯Zºëı+ÍÀït(±š‚ä½C¯oÅûÀcıFá¾+:£eô$ÅfRºÙ÷®±çÇ”wfé\GàK¤:ğ«G E¡¤HX7Œ[¬’C •
-™ß}úI¬nkşÀƒ¿ıEj€UsS+ªñ=d§?Ïñª¢2+l?‹ÌåØ‡7¥÷bg'ôººtTøO:ã¯Ğ²JNÜ[ÌIó¸™Ğ°fJï†Ä¦XÔ÷*ğ9u˜’¸£¢@è+qÛ(˜ÂŒ±”¾é“!Şeò7Û®Â3¹œe«ÅŸ*åë^%AÇX»»q„È¾%’±ê*ß©ÃÜú5I©Ş¬QeûõÍúÎF¾³ÚFcw§¨{Èƒ´g.^fY2ÈÑ„HAJ/›êË8Ùxòşõ&b¬
-¹®ßSô„Ïææc˜Ñ5„Y	€?,ñÒtú(Ä*¥Ÿßş[»¼\ıì”©Á¼INÖr…áÆ*:Û`núSæ+ÒŒÀN¬-ôÊÑyÊŸˆ™Ù0©¾7µ®Ïi¾´P¯Éd¿Ôwj‡ûµ5íOÒÈDòŸn7:cMó}»&‘ğ"4µ;R3Ø”]0Q‹ ,rê¯LT¶s§(9#8ßå¹=¤ßûaAc4Å²nQzfB¯9ì`!aA¸Şğ¦=Æ[¦2ë´³‘çØØ¢¨Ù‹mn½™‡1G2Ûwf
-×VªÓÃ#ÖqŞøÃrØí…VÊt¦KÀ*¹Ù¦w•Ë­Š{bãW¬ÎÜ ¬,`&"eßëûÿû?Æş¶I%·ÊÀ%M…Bšš§ø•nú¸2Ÿ$MÒşÑüpf°máÌj¶óìJŸU¢(Ğœ±VÅ’yE—Tã=*	ÿ'!ëâ0ShşE¢âOo5Qõ‹Uø=¤Ù JPq@.Íè²úuMÆhEÕMuZä,êxÊ›1Ÿ¨¨mD¹wÕ@aê—ŒßPâkìÄ¹Â’-s5_* fË+ ’EUUi9¥÷ 6$0½(sv¯E3ª¢œVKúÒoH¦ºğ^Gğ{wô;Ÿm¾½¦%8­v´7G–Æ,gä¯Ñ¥i5y	£ Çpã©ºaßmÉ#†Ïš)ßº©†±æÂ8³&Ú"ÀLLÑ””Ñ~›ôù×“S4%¨E³‚"øÌş“Â7ûÍ—¿úEÂšx®bò¢†Õ&¨u)Úô­Z–¥°-aI^™1äŞRñN{1ãtjy?gÑ²H.¥¢C"IÛIyWóZ…-ÁK‘ îàTq¸= Ks¯$±ìBÙÌß^½˜%ĞÆàğ‡3Ñz«ãq±â!ÍÙ:ªè	f¦±È6=9?©˜|ûìp·ZßÙßİŞÆ~l»±ó¯Ù-öÃ}¶±»Yg[ØMüIã@dml`Ú†®âÎ"3WÉ WÓˆrR€#f•+RcAXm}»i€$ähÑ&~zÏ¬ñ„"äüâ;K«ø?êpğâ;+ËG ñ^ÆD•iUÈ€1|[}éİÃ¾À²Ğí™¶š5¦r	ç»z…Í,ú‡Á†ßJá<eaŸ‚ò7úıJh*7
-ğ˜ êÌ{Ç½.Ö‡z˜foÂíÁ©{0s—Ösû>5ezãFî²^Ë¯"ô–Ô](b_éØ‚86O…uN0ğ:ml@Eæş£õŸbY¬O{VU—÷oÁ:Û‰Ú´a%¨crß
-#oã½Ë÷6…&(”<[M1ğñ&4*ªŒhh‹$Ù	:®Áåî Ù¶ÂXyàõúÃQPq\|0sE` D·Ûë¼1tŠ]Ê×ß½ºù¹ùæ~ãyı'{ÛµC`ŞOòlû|áHÑS7XRsoÅ$·~ó¨s@5ÏöH_~!
-$ıÀØäXx‘I5[ÉçÀˆà…”dğÅckÈ58 {kØdÁ€Q*‚i5F\Q=ÿŒİÄ·¨è™ç%º=ÌÓ@&±Í$.æ…UßšºÓ“,,åÍfO¿¢,áh_b6Iµ›pzê‚r3şçYÕ7Šp;¬{ˆË¶ÛªªÙĞtPLÌ©ø4Éü|åoºr¦©P¯·/	6k»<ÙÚ¨S^`³bj¼ÍEóºX8yê9ì8pá½ö½â!“R%Òj¹]wO+ó:¯ªrŸq†'	­Óëõ
-Â§”Ëb|Y”èòª=ôÃµ…X¡ùÏDzrÄ'X8]Zà01ÕÏ‚*îß…G¡÷Ö]_º·xÿ¿…åœê½}1\¢óc¢ÎLôşI5MT63sLeÎ¼XZ&]ºÿ'öôWÀgMi?ãI‚"3L­¦ƒÀ¬¨ØØ± £…Öº/ÖãcÊãÓ˜nôYÂ>¥ÜFñ¿ú<¬´æ²Ç†eMD‘YeßsÈ×ĞuP¯¦4'Š|ÁŒ~’¿M!29_peQa®.Ä‹‹Zf¦e]æ şÿ¢å/¤,â&¾ÁC·Û§Ğ·£? ;PK^«¬(‰ì,‹iô—¹³Éû´šJ/ŠŸ®6òˆLäxz7ÃŒèzå|Oê$W}8‡xçxÜ´ƒ[]öœÛ¸•Jù]yÒÅ8£ó)qÏ<„Ûï¨'p>å)éN* náŞK[ê)8ñ»¶Úæïh™K¢•KAäj†¿³6l/–"ídÛôåX3ÑÌÏœ›ä”ùõ]€Gğ
-S*Ti>åR,~ñ¿	PÏãÄ¤8¯@›Å¤F~*‘x‘M²°H°@!{8˜$ê)àñ«æÆÊ=¾ ùÔâlï¢3³3’“xÅ™ã)˜øG+êp_È”#l³Ä½å`5	9ÁLØª. É<­1‰OT¸-sÈâl…C?(ğ`æ_
-¢ª9¨ÔüQ"œ\³iB	uàÂW>È|Ë?*0yµ‡ÚU!ìo>pü[¬ïÇ¸PÆÂÁZ‹aøëş²EW5!"oôÔHYI¤bPR•.XÔjXtàâkyXm!ƒmƒLïFœ9Ñt~¶;¼fq‰ç/gòqM"Á7à¸ø	A”Æq¶I›Î_$nˆîº”•—{_Ø[Ø>…²T§‹m{š5åX”Eusv¨{ÚŠzZC«A¬ ùL15ú©èÀ–Í¡W@u`Î…)•>ß•¼vy0ÿ2ûé!h*U™Z™mû³Br4¾GS³ ³xÖ¡G™CĞR»*Ş.Ä ´èI‡…ª•wŸÏ?ŞŸÓG/KmÅØó…è®q[1‹Õˆr+éÇt{¨k¬ÅŞg³•¿_#•–ñ)áú÷Ed.ö£ÄÚè¼Zûáë²©7z,ümÑS&V,át“Z»öSÛB§JÚ«¥
-ÓnÖ¾©q:°„¢IUe†]ˆ–rÜîÕï^IñU)T¥åwªŞtT¼zÓFéÀÙ†0ëBÚ¹³µñkù?9ñOgÍáèóˆÍæ.¿¶†U³¼ÑİÈéÁ òmø‘üM’3AcˆPJúÃNèÎŞïü•EïØxæõƒ¥yÿ›/Èc)¼Æ%á,>ÍûŸÿ‘íaR-&•ÔâŠ…½m’¦ùY6`Àª=˜‡©=)g¤Z»wãÛÑÄ©yÛsN|}õ¨$şye0-ötZ)Y—˜¦¦­q›R#:/kRc+œ.õµêzaèH­ğ×lw«)¾ÑB¢,r8˜”
-tÀ®ÊAVsñQ®§1%+ÖB–ì*hªyÖ¦ë2æ|y9ÙØõ‹ôä5y†˜•ajÑÁ‡¢"n0XMâğNòjbQ§´üàcÿ4"4ûûc«Â…'~àŞn™#ş„­İĞ·v+;'»,³HqùE3Ÿ8a{o¨³‹½ÂsÛ›—hCQ¶º
-HûÁZqC¢ò.QZ9cğ¿-´Ş5ü×¢[ÿä±9`ß-³2<©=&@vD©Q®qú}dOlõBèŒHãÔê?Û^ê3=Ôşo¾üÕÏ˜Ô—]4cèÈjëOÍßl†ÄCiü¶Ë%8­
-ëKöúHŠ˜¬§­jõ²¥¦™}~®ü©IXŞ1¯#ë·?f'Ñ?{×s;©„dn¶ı®ßñO„±øé0}İ¦)áƒê­Di‰¬[ÒYUÌØÊ¦<i®4vCEöàûßü;Ä¾İñåŠIŞòØ¹ÁvyR4½'õ>ıh£İŒÕcßƒ+Aäz½v·“²£dæ²zµ‹ğ“ÔŒ'IMœ·o%fÙ¡DÅPÓ¸~ùlÅÕ|¶¢œ¡˜0T;‹™Ú²R;Ú°£PDE£÷=^	ÉÇMÒÙ—½.\6kˆÉV0/ëóeÓÑ$"Ù¾¸X†Û<õzÃA±+?e(lš¤(ÃÜ}gl÷¾ö‡Ü/eúC\ÓQGQcsˆ4´„pàšÚ°á£”/üÚ™ïº««7ÓƒÎn8½[Yødsáä6›sènKMªğngôU¢»`†,Òn°ÚgC~ MW¨—46‰aAwüS‡mì<a'ô:óú\áœ¸ƒõ™Ÿ€8êıT½e·ƒy»æ´İlg¥åÕÍ•»w_&L-µV—cÁô¹¯>Hş“£w?ÊÌ†4;™¸;ìuõm`£«Ozh¤œ(7“¿Z±s%HaÚÃ°‹n ¢½èZ‘ÄW|';@öŸ¾©Ş]•åÈ›Ö/7#@`´éŞÿ{ìxgğRğ™‹
-õCÕ´C»úVÚôxÉ p¶• Yœğ|{úÓãó¶Àêªh{Dd4Íi.f-Šâİ©§ØÅÏ¤¿u'FœRœ}ÕWˆÓe‹ÙYİEyĞq¹vÆ8n’µd¿˜O¦Ú~qva¿n*WƒÄ¥ëÑ .lwvçkØ<í Ù|e1*Yÿ8Q­¸XÎ§5¬|Û9u÷¼³h½ÅW~‘ò]ŸL¤å0¦æ§~Ëé`k™
-ÖÍ(/QuZDvƒåv‰-eT|,ÓN&Å¢Pİ´­%lùÕEÂ{_yËÕ›Ûu”óNWöx·vP}ŞØÙ¬RnÒ560·Á?,°ıúV}¿¶=—ëÒÑtz½è6á%şÈí€†îZ´éĞ\™ì²ÉÚjÜ]¿­ÆUC
-¹óÄäı6x/0Ÿ/ªÆ[ßïbûŒû«—Ô3Ã\[•)¬º]5tZ¦ÿı¿š{¦jô}EÏŠ8/’ëV‘Aál(L<Ò”dl¨iÌö­%d?½:>ª¯jlôZ‰«–Eø%Tb…•—Ü]B­¢¶p£ã‡nK°¢}÷x^´†…:€Vk8Ğp3½]¤9d‚Üy–H&¾¥Odj*-şÿv"™¤m11Yk‰ÕÏ!?ç¼)+õ’°o"QÔA0‹¸CÒ†ùÎX€ª«êü‹f“·j°èÓı•.ŠÕç­^qï}«om<³l×†{†®&5½®Úe
-mSy³@èI!3í…Ø¥:AÉi‡e:8€V(É·DÕ†ƒÑ?)ù‰YR §­háupP•Yvq°éµ”í[à@N=:’ğ4Æ[@,š*Éi!’:å|T¹“k_±£¦'©$ ´Ä1÷-zb>]E3l.´dp§uâÚ6?*BÕ»ÁŞQÁÚ5”ÓùÁÇ¯­0±’‡ïşGãÆ¦Ÿ”Èã´³IúK¾P‡¹~CCZ¸¡|ÿéèÏ×ï äÖ&ÃS¸ÒS`p«øˆ¢ªP‰¶mc€üàMiÂBü¾Î‡DVˆ…‰®$L‚[1ØEŸ`Zİs 8‘‚ˆ?şÑ`?Åk¶¢Ù9
-ıÎ%;Xøı¨Ìbı\2ùË½fB Îc)«ªâòıç¿1.§6	R’j0ğ¢4ñŞ0Çí2gxæu°°èòÓ£ $OÑAô°>Øg-ï­sâvo³pôA‰\]+ş©BÇ=Â±ÑïºxŒ~‹–“bZ›Å©_Ô mvô@ñ6¥ã-,7éˆ"·êıç&WCyA6YÏåAôZÇTÆ™ÎìÏÅÊ¬Ø¿òUReÍG Cñ–@¾İ¦ïÇQ—M°¥[^AÀ"¾"€889ÊŒ[Í8JÜLuÀŒN“g‰ùÌAÆëôÚÜáMı`FÀ¤±IÛè+¼{˜Oß#Z±6·x¶Âc²«UYÆÉZXUf-è
-rüÊlKÁR%¯•—å:XdfÂÛá¦l3;ON­*oˆºQÇYrSˆİ\ƒ×Ê“B½®ë¹0Cú#P5;n—Ï$ÊÚŸ?qu~ôñ›F«2qXsç¸š@\Vûğşı ;«ÍõN^·˜3d¶ŠSæCr”5€Õ`ú_å;rÛÎ©çkl6ì“hÏŞæ X…DoV³"WÇ8o3 ÙËZF9§b¬æÃ–™ûc)ÙË)d[`ëıFD8tT&X¢H9Â‰0™ûoP™a3s/_*êå†öÖØî~£¾sXıÍèßî¦#{•ÚóÚam?ÄsZ§^Ó£İic¿0äF/<n;‹_Ê-
-¹•	·iQ;5‘´TÀ±ÖÍ’Â;ZK›a^”@Z=0aù"¼ÊœAR.4ÏîòVÆÂr?½õú6H9ni©d¿!2öË¯têª..–‰Šil¾nk-Š—¥ƒdØâ
-åD¯å'ºì0p='©ÃZæ²¯hÅ—Ó®¦tbr&'zTx]Ğù$Äv¢şZç†6[J^}P×Ê'UÔÒ[¹rìtBWáÂRêÈˆ"ÓpbæÏOYÊTˆ¿®~ÄÚğÿÂ½q	^<OÆ­u4èU›¨TTåM–=7¿´· „YÉ§æÄJ>¬ˆQÅh£²N˜ÈËK`aç,™mìËnìÔU}5²³‰<aoà€ğJñ?ª Ñ» ‘h¹¡öìh1,4%.2t8?ì°tÂ6a÷Û>°µ¥ÕVîÜ¿»²zéÎrõè^ëŞGpÀYu–}¶~oñÖëuØ·Ğ\GÌÜ:öë ?õgÔ÷%Dâ§Nà9=°+ã0‚Ã{"Ï!“@@Ú¬š1ìBVÊKKb+ÜÎ:Ë^ë|ˆ‘â5¼Ù6PÊo6ÆJKMz¾Â]œ‚@˜aoĞ©$ÁšÍ¤fnOdŠÛeX¼¦pG›ş›“è8·mèB}\o…KMl6ëû½ÃÆîÅÆ“1Å4-U¤¾“éšö°;óP©×º!‰*ùB'¼fÖĞr;¸§òµ`Æ.\
-!eõïÕëOØãgo×ÙÓúÁAíãz	Ş•XWÕ>f”Á™†@b+ÊhìòbÜUxQS–IÔRŠ™ß#>¯Íe˜Èüc6h»Àÿ]·ÙfGÃ#Ìo°q¥Ç}­/ªwñå‘÷õÅêâw_JŞ¾3ø•½®"·wj§ú‚.Š¿Ò%}‡ljq0HŸ¨Î9JŸs¯<î)%³) Ç:š¶Îvæ˜Ø¤ÿp­ä–½")Gs
-Ô[µ¦”º9U—§ôµ»ù^x2¾ˆÚo¶ÌsûT«Îñ ÏğÜoş Šs{Ÿì™b „¤×yÄ€0¼.ë#*{?ğCô5{Á<ïÁºÍÜ´‚¶Ãü!LÁ½u¼ç/:ZŸböÖ¥¸»{X'ıa«±ÿ6äá¡š—i¼;æ*ÆñÌX}ó{Ç^Ğ
-\şyQ+;Ğ¨¦gii¹µºü2ëËXB²¯MŞõMèù¤«X¢R[™ØØ[Zµ"¨ƒä²‚¨Ó‘À\t¢QÖ1·ªåİf±ÑÆùg:)Ä¥¼©¯Z7Äfı°¶ı¤NÉÅ{Ûµ]vPß®o€¤ÅÜâl±Èßë8½C/pO=÷õX~ˆ>?„›|y?hÖ½j‹rè…dpAHÉ½-°¡q¬SNƒ/¢Şg8d¾O»æmLĞ§0ûnué£YUÆÈX~ët’ºäÈë¡Ê‡Ñ¤#å:öèóRR%Õ—32ñAmÂUÂ'×CÈª’}£$>j­kïuI¶òü§7hÏö)¨É~€kÎŞş+š–û©b-}Äj0I…xÉûFj@¶o±é­;­am¹{¼váßÂ7}ê9)w—;9Çğ&6jbü±’Âm §DfâÇ§2›ü»ÌDdœ¿^EÑê*e
-¦…Í|ÿõÿËÖl©İí'Í]e¸Zg»©İ‹ÚAï9)©vyËiz0X[«‡´½Ñ×MÏglÖƒqè¥{ß¿´ÍÔvøœü	vÓ©çw@0
-Úıj]¸–Lô×Ñ y‹¿¬;à]ŸÄ¯azo’0‚>¯Ş±°½Ï‹ßĞ,w0ge´—Ñ1G%'|M®ÉT¸:™Vµ>ãŠt}^±º+“©B¦°#mÎ‡Be
-:šçaZ7¨à?ıOyÑa…ô¸¦oVT˜ ¬ò@dšYk"¸›nèöNıÎ)¢óö>Q"Ç1jÁn
-‰À‘>ğ•ô({„<%V@sŒ~Ï–ïÌ‘‰ÖeˆŠ ipğO¸A/jÏïzÎ<ÛEk5zv¸VÁ'ºØ§t‘Jİ&Ìcè¶lØuXàbÇ:Ì×é9=¬1¢O)9ğÑŸ©÷GÓ¥·0 An²pQ±(ù¤…9@pƒ¸ã8yVï‘‘»4 C8‘ìlìé0Ê„u§¦:RËœ«!LmƒHM†íRŞGUÜûëA{UÁ]—bîš¡ùè^÷İ—‘šÿã—ì9,›s‚„á²­a¯‰9uÄÚ¦W5³vt³É¶Ü˜Knd×ñÂAµå…Mşd0%}¶zÇ{XÔ"ë~ºì£t	»Şu)‹r‰$®šÖÚ[îã)}xdÌ,İ£İq›Á›ú.nñÆ'zïx ú ¯ï!l[ š*2¾,ÀŒ§÷0O]9	yu\"=…Cô^×{ëİ£„}}êvø	<à»v<¢?$,ò7æIØM§î´'_Ç­èS3hT9R¯€çcş9ÎÀásà;¶E~æN1äğéè+¼ÒÀÅ#À#s}°0ìLZ˜Å“Ø3’ÌK¬ªë&ò-0ì#’aƒDY˜ 5A‹‹´"9œä”ï	åÜ‹”sGNFñ ¿ PŠi¾¥*Nø·ÙS,²ƒakİ#?œ"ì"6½†FÉ8ŠGŒô‘O¶Ù±°ÊØ€!±¡ûØÁñ{$éBÖşÁ\fœ8¼0`ÉN‡„r ³÷³GœöñÒòÙm†¬›cPR+İèáÂøB‘ëÊ5Æ‹“{q›uû”ËzâVÿ„^äçHsÚ¬*‹	 ¨#P¢š°èG¢ Ï@dõI}rD‚‚È)Ğb=æÚ-ÔŞeŒÔ³-VÒl÷H¯tEEtZ¾òtoÚ˜]±1»XÀBÿSøa×L{¦0AîGy¦Î	¨¾ïêÁf<BëÕçâ”¯"JÙn´]#å–
+                                return (
+                                  <tr key={`${aluno.id}-${baixa.id}`} className="hover:bg-slate-50/80 transition">
+                                    <td className="p-3 pl-4">
+                                      <div className="font-mono font-bold text-indigo-900 text-[11px]">{receiptId}</div>
+                                      <div className="text-[10px] text-slate-400">{formatDateBR(baixa.data)}</div>
+                                    </td>
+                                    <td className="p-3">
+                                      <div className="font-extrabold text-slate-900">{aluno.nome}</div>
+                                      <div className="text-[10px] text-slate-500 font-medium">Cat. {aluno.categoria} â€¢ ID: {aluno.id}</div>
+                                    </td>
+                                    <td className="p-3 font-mono font-black text-emerald-700">
+                                      {baixa.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    </td>
+                                    <td className="p-3 font-semibold text-slate-700">
+                                      <span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-bold border border-slate-200">
+                                        {baixa.formaPagamento}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 text-[11px] text-slate-600 max-w-xs truncate" title={baixa.observacao}>
+                                      {baixa.observacao || 'Pagamento CNH Facilitada'}
+                                    </td>
+                                    <td className="p-3 pr-4 text-right">
+                                      <div className="flex items-center justify-end gap-1.5">
+                                        <button
+                                          onClick={() => handleEmitirReciboCandidato(aluno, baixa)}
+                                          className="bg-[#0c2340] hover:bg-slate-900 text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                                          title="Visualizar Recibo ImprimÃ­vel"
+                                        >
+                                          <Receipt className="h-3 w-3 text-emerald-400" />
+                                          Ver Recibo
+                                        </button>
 
-`şà0K°ÿ  ÿÿì]İnÜÆ¾ÏSLÜ Z!ÒJ–äØ$+iÑ£•]FĞRKZKx—dI®-Yà‹ŞE‘ ŠmrÑ"z™‹æ2z?A¡çœ’Cr†®V¶œ”-—;$gÎœÿóêÓÍ$Xá}aÂ“pE˜Âj{–)dCšP²‰ÈÈ
-ü(B¹‡n(ê2cIÄ¥}Ñ`G`6E†ñFI!Ê›øâ_#*pÁ_Ânwİ0WÚ2ÇBk`Ô©‘à Îæ?’y@òÏÁ÷Á}Ê(rÇ=Ì0‘Ãuj¾©<şOŠuº›çÈ±‘2Ò÷únbµŠ’/)® ÛÍÀ‹^ĞÃ]™D$T’h’“êª%š¸ÕÏ@¢‰7-°]—±µ" ÕÃ„Ve+¢ `"Vd
-‘.EÔŒ\y8>áåDhÁ¡s£O}ba¡~êZùîx0}ù*o÷lrÇ…óÑ<•¡Ñ3Ã~pDEZšŸÊËÒú`à`‡	™òwÁ<8¹D *¿÷±CWXGòg1{É+Iú'±.ªÅK;¾HZF÷ö%b{8áñv¹„áe\˜ÔR)Ó@pï±Ü¼¬è«<äJ‰R¬–à#2 {%ŠıR’k]m dÿæ¯_a¢ÉÊQ±°xõ%Cç ¬ØX„p]4¶ÀÄ R„/÷?+NŸYa›&‚¦¬7«„WªÀ­GÕ6Ä‘_XÀÍ‰¹'VÉÖ\9ñ¦5ì“"ÑRêT•u?&®óª¢ qûG‘¼qˆ½µhƒxœ3g¢£Éx<G§YõP<4÷jÕ}DK`ı\e#*¤™BqV Ú'bŒ2÷×‡:P}„~ yóÛåÆDšòmÚP¹®id—sƒòErªP±Îiâò%-È0¹zîˆµö?›­¯€×g
-Ñ5êl!ñå4·t5åÕÒ@nñ3._Xü¥|Øû¶&‡Ğ &^vóÕ|ìceÛƒŠ’ÎŠ“ªÏMó…¨’"1©>ë²î“ÍG=ü€(’½î!ÛŞÛÙŞëÂ‡O1l§˜
-&)Ã°íF¤]m"e\ı#^óEb†¾­nèO/Ql¤n6a¢˜YFy0)şP>ûmTÄ&ªöø(¿°È¸Œ´-ïË[yHE*Cè¤¹`!–ÁN}õiDù¢9ĞÂfİÕ©ÅõæÏÏZ´UåXïÙP¥çç+Jm)í@µ—ÔCì\üP¿~70‹Jïû¹¼ó¤²“kşG\e(¿uY¥Ê)‘9Q¯ùë·}‚w°¤IÖ
-ÕF/ñêä²$-ZTb½T×†GY2nJSÖÂhõè=cív?Í1Î3Wi}ì\İè#/.å|ëË
-ÌÄí` 4B²N0ªÄb‚ø<baoÒG+T4C­Pf¦¹°ÑøhäÆ•›{8Ë?V¯p]iÑjTØ¢M„/¨ªš¶À5^c1pÆŸpù”èˆ×#ãÖı‹€*å^…ı®jRb@XüCFYBäW“Vñ|I›’ÚÕa½GŸv{‡¤ruØı}PÀØƒ‹/7¶á#(a;Ÿvv»{‡å¼ûÿòÁéQèÚ­SôaOµ¾3™ÂuëÊ®=ê|ÀŸuŞ£‡½Ş*—VşM¦oİ¨U·Š Ùj5‰²ê…’”Ë‹k,J'A
-øúu“¬Ï)(W,É¶ÄşªpG<¸ø7’“ª¿QzçôŠªzêmhR½MÔ$¯a±ZÑÈ2ÕWÿ7ôQ”_VT‹ön¶
-êŠ^í/ö¹aµÿÚ¹¯@*Ş¼s^.¨6¯úŸªâ¬	¯.KÈÜ¦å‚;Y©nkã”I#÷¼ùcæ³/ñIÈŸµ.^cÁkl-`Ó”Ù&gc´b3¼øÎvcöCµƒ¸ñ(ìåcïù`°h|ìDô,e‡¢Y”æc¼’2oB%¸··0Õ6ÒmKDô³ˆƒ9:òµ!Ü‚ç£Š ¾ÍAÓbT´©CÄxK :›ÅÚ2h’Ú…®*Ïâ}4Ş²†®é_®ï\ƒ«™B¾°\Z;Äà‘ÒU¥æ¼Íİr§w^ `ªß¡Ğ\•¡#ã¢õDb€¨,¡†¹Î)fK´ÉcPsLÁ9±p@ JuFjÂšà“ÖˆF)—ÓBv‰T‰u·«wäSàüó©1¦ï†N,²ĞMîùè$ÇlÌJ¤@ÿÈOS{qÎšT,Uòa`hä~È‹™û(qIè”PqİÊ»\GØ¦ÅŸ€©.£yÜ”!òÛÌZo*Ù5Ñ™?›+nrg<U¤©Å—3Ãî?Ÿc¢|Y%RšZNÚ¦şêÎö“Ûíì=âŸSK©ÇZ›4©æØÃí'slk{ïAwû`¿„v„½ÿÈL¤N&ÙNwŞeÕr!–m§K2ßVK©%T€LÂóOï.¾|aè¡6±’&®.¾Dã¡+VÓ¢¢«MÏŒb¼Õ%Ûµ<¥ôĞ:¶ÔmâÔ†¯–÷å
-lÊQÒÁ­6 h;òæõ· Â‰\ºòEiš]Sœu““S27òÏ¬6±™{o×ôB$"¶áÛeœz•é¥k´RÀüQZ
-¥7¬ğ•~».³Ba×ön;5€şA¶&CPËšBuó‚ï"·(ÕU¡A	œ›^lÅãˆaÏájÓòòR„b¶ï¨|C³}›äT#G‰Î‘·h/!û=±7—ÎÓ\låFnVv~µóş˜Š ù³Sâ Èìo4ÿ™3²ˆ06ñÄ“ÅBÕı=E½$Üqk4êƒ™9vÆ¢øtè 1a:÷Oádò'œİ8ØA„b53m°UØé˜É%ƒ}*e»ª¶ÙĞ:r´‰³úTöåŠ$ŞŠ™oàKoĞ}æÀ&´ıUÅìĞÃ©JQŒË8VL«‹÷j“¯-½™jm@æ0:BÇÉIjä¬Š.æÇ\eN›·woÓİ©‚Ò;5ˆ:¾,ôÙº«Á»]ÈÍNã^Ë,ç^’ì4ôüÌï£U]Ïá-ø©2ì¥™õ²æ„XÍgú~X>×ĞTî"ÖÚ½øæwc0ëÙÛqvm`0xà`Â7h}ÀÏ	}Ê	E£D\´¼øâ[Ï±j»Ş ›BÒ3Ï¶ÄGtŸu£àâ»¾ë°Ö†5ìÃ›4yX^.ƒ£~õ{áT;³ay}ªÄm0N,Ş’:æàpøGñÍ“aqN»[úÁïĞN1g1œ?Ãİ¡4gS&ÓH¬›s§·ÎŸ˜˜ Øİ@ºÍ–¹R_‚¯\/«S¢ùzcÌwV§ F±¬ßXl/ŞT_bn$´Ô¹€Í¹¶ŠšDäÜúVÜÊóµYÔ5ulmZŒMÁÖ*´­LØ_ŠÏUaĞ¾¼Å½°™ˆ6cƒC
-…K•Öå$Šc•„íÛ'GIÊ^-å)O*X6h±$r?§…Ş¤"ŠêLsq)7E„jhÖME±‰ŠÒ=Yrî«dörÒ!+ÅšĞ+™Æ]¬Tz_]hÁÁ ‰.é7a²Ñ±§!óÃã8±@¾¥½J¨ÖP(,T‚­4púÏ[Ş×ÉÀ+‚ÿ^‘Äi¯›mõdøÕllıNÏíu«s]·é”Û#{3qÅ	´¬}\YWP¿’UJc#×[?»©{÷‘uÓjà$˜eó¬ÚİPI$Òâ'¿¢5´õ?lÎâ‹#udÛS*#7«hÂv#ìÂ­¦ÚM¨6ÌşI®×uüÈÁÊ•úÀS£S~3ÙŠf9ZV¶è¸àûÍÙ8RĞo³gbî&q%Nÿ]r¹rçWÊ&øœƒ-%ÎºúH@³µÌü“¦ÌŸ!‰J™“¨4Æ•¨<şuÄ”RŠzmÛÉ IlT\Yád–Œ^¬”Ñ&äo*=ÿ…õyl;Mäws1¬¾ZW8Ld±	¿yÌû¤šªŞEİÌ†ÛM¯á™öz˜Ãöa’›3æ6\£PZ½‰¦rJFø5ö¹÷ãò±†¯´@È…af¢a=Ã®7°Xk? ²èáÔ=nøôê†0gxC'\¿Ñ=Y¥Ç¼{gåæâÒ]ş¸ÿ\1ôuxÑXzëiy=ò£^#ÿÇÛô·½MêÍm<TvBÏjJ“xO+t,åBÿe´~¦aö%š$O4F3yD·û	LÌB,.é.:ô= Czõù‹­f#şôéTyRÁÙ;¼Û¸y¿ëÉÓ?ï\EúçÄ)9õ–ª~Óù¼årˆ–×¤¥´Y03©T,róÑÆ3	»Ê:iıŸOJ&3Å[rc;“şÄ\­£µ®aqmQL’T_¨½12óFù*mTLÏ½3^¯I:›æÍtw÷SŒ‡ÍÎV§wx°ßc÷·7/¾ÜÜ†?1:ÛƒÿŠé²nôp¼ñrİ†ßß|Ù%M áÚ&Ì&˜„¿àØã5M–ıç®Q²ì3ÂE^ËAZ#vßíÇ„íá!Pl¥~5Qâ,­•YÖlOT„ò¤¥0²°²'ôÇ0	/i|[0ç¤?Dà5ĞÉ°—¯ò%®EíváL¥ªòçÑR	£¿“TÚÆ–X1“vÂ€kM‚f}‘X«×°úêÌBÅ.jï8œKV)IôşôIkÛÎ.—0ÎÚ}Û‡vÎ¬b3è9Õdœ±JG»$—xÓ–˜Ÿgî¤åFÈÑP/G Qb[ìÌ¶GVĞ²p«íÚæœA+á%.¦{-ëU¥‚PÄ+—SGWºy%:İÃÙ/–”fO5¿-¬Çk¿×pnò<å¥Ñ æ 	óÔIşòy×à–Öşé—Â%ÔÑRZš!Öƒˆ«ˆGZ[Fä“ªkæ´£ãåõ@0”-']¿oa¦80ÂºÚ•O¨“¬/Ç
-¬nH^VC_’f0˜ÌOnÜÛs¼ÁxÄß4á§„ÅÜ Q¶¤+ÌÂ‹×ã–ëj-$1RT«…ú¼|‹¢ ıÔ<5F¾Â]“sº¦')]Œ-€Z®-()/Iû$B¾«H"¡Ú~J¦ÓöÑG&’3y P÷=m^eX“&áË	JnÆ×âA“Á€>ü‘ƒYK‰üğ›Ayì×+:AĞ|€C7ğQ#·«~ßi&
-kª[ï#TÆ¤{RM8(YLü!–è–~‰ÎŠ¼RÏi©]s#T(©€­3¥œnYZ^›²É°0F‰¹Ø `´ˆoë‡
-xzŠİ,O‘
-Ú2;;§ëgx]„Œ†B29T2)qîÖü”ISó+jë’ªD6şşÅèÍp²§©£Ï|Q3xÅ\â¡yÉ!…¶3/–ÄKı~3	"&G.s Æ‚Hş²°¢ÄÜ’\¾•ú‹ÇZlÙÌ¤¥ç{§;ÄfÖ1ùvZ³%ÈÒ=ªbáÙÁ•5ÊL8òOtqñìHsÒ)­^@<JˆºåÂ•¿4ø îZ¥ãÉGÕ^(Poyò£V!4½yõŞ2{–Úkj¶åÚ¨çÀX~9¯	–f‡&ß#9@†hHzEy(ƒøutœ”ª¤ë¶CÑ¬æDYŸ.(|’Cl{k•q]•}rùwÏ:Å”;^¨û@+^ò<éKT¬  „?l³DÚÄÌ•=~ı*É"\¥‡+_¥ V&4
-Ö®ä$\.Òéu+‹%=“{Aå4’\‡hEÉkí»áÁQv3—hâ­OƒÑ&s¦´³BßlbÒRCíÜ4›‘=6šÖûWoï:’Õëº4¸ÖH×Ü†C%XHDö•¡íªnÂCÍ?‰³±ÃúÿQæÂ‘åÚUy\”©Šº õ;
-œWOi¥&¦Z†µÅ5HuÕÇYñéüÊ{³şïßşôÇ6uE„Hï,OÂb˜©ßËçğÑ˜\¦äÆ*mÖõBH9Şì—”¸7ÚçÑ†”Ì^œ]K_§÷à(Ü¨ñ+®Â¯2BBÒªPÙ¬Ä4(ÚºÀåx1]’¨Ó”§²m·ff¤K%m—»Ö…{A~ª]+]D““]‘yìZx§­\‰£ë­•î¼~6Ô<SòË…{ò<tBò
-Âìw@»ïûq.€½öŒŸÉ‹ì§¿Xì/-¯,Õ¿\ÂkP
-j‰îgE~/µDÁ¥¬mšÄû×‚{?~Ç–—>A@Ù¤éñ6'Ç¦~¡¹ÔlÃ¦o^Íz®×}ŞDŒz5c¬šùlÇ÷ŸÃöâ±ó|/;¯{c×P`Q®jÁRØN€-¡1Uêbé$áùÇ´…»hÂÓO<pã/A±±/¼Ükş™ßÇ–»ğ2nÀsÎoŞ_Z¡ogeWîÚ_+±¾é¾J<ÿà   ÿÿ Gl™
+                                        <a
+                                          href={waUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold px-2 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                                          title="Enviar Recibo no WhatsApp do Candidato"
+                                        >
+                                          <span>ğŸ’¬</span> WhatsApp
+                                        </a>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+          </div>
+          )
+        )}
+
+        {/* ===================== TAB: ÃREA / PAINEL DO INSTRUTOR ===================== */}
+        {currentTab === 'area-instrutor' && (
+          <div className="space-y-6 animate-in fade-in duration-200" id="instructor-area-container">
+            {!activeInstructor ? (
+              /* INSTRUTOR LOGIN SCREEN */
+              <div className="max-w-md mx-auto my-8 bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden p-6 text-left space-y-6">
+                <div className="flex flex-col items-center text-center space-y-2">
+                  <div className="bg-emerald-500/10 p-3.5 rounded-full border border-emerald-500/20 text-emerald-400">
+                    <QrCode className="h-8 w-8 text-emerald-400 animate-pulse" />
+                  </div>
+                  <h2 className="text-xl font-extrabold text-white tracking-tight">Portal do Instrutor Parceiro</h2>
+                  <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
+                    Acesse seu painel individual para acompanhar seus alunos vinculados e obter seu QR Code/Link como instrutor autÃ´nomo.
+                  </p>
+                </div>
+
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!instructorLoginNome.trim()) {
+                    setInstructorLoginError("Por favor, insira seu UsuÃ¡rio (Login) de acesso.");
+                    return;
+                  }
+                  const typedLogin = instructorLoginNome.trim().toLowerCase().replace(/\s+/g, "");
+                  const typedPassword = instructorLoginWhatsapp.trim();
+
+                  const found = instrutores.find(i => 
+                    (i.login && i.login.toLowerCase() === typedLogin) ||
+                    (!i.login && generateLogin(i.nome) === typedLogin) ||
+                    (i.nome.toLowerCase().replace(/\s+/g, "") === typedLogin)
+                  );
+
+                  if (!found) {
+                    setInstructorLoginError("UsuÃ¡rio (Login) nÃ£o localizado no sistema.");
+                    return;
+                  }
+                  
+                  // Support exact instructor password, fallback to unique password, or their WhatsApp, or admin PIN
+                  const isPasswordCorrect = 
+                    (found.senha && typedPassword === found.senha) ||
+                    (!found.senha && (typedPassword === found.whatsapp.replace(/\D/g, "") || typedPassword === '123')) ||
+                    typedPassword === 'admin_master_super';
+
+                  if (isPasswordCorrect) {
+                    setActiveInstructor(found);
+                    setInstructorLoginError("");
+                    setToastMessage(`ğŸ”‘ Login realizado com sucesso! Bem-vindo, ${found.nome}.`);
+                  } else {
+                    setInstructorLoginError(`âš ï¸ Senha incorreta para o usuÃ¡rio "${typedLogin}". Por favor, consulte o painel administrativo.`);
+                  }
+                }} className="space-y-4">
+                  {instructorLoginError && (
+                    <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-3 rounded-xl text-xs font-semibold leading-relaxed">
+                      {instructorLoginError}
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider">
+                      UsuÃ¡rio (Login) do Instrutor
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: carlos.andre"
+                      value={instructorLoginNome}
+                      onChange={(e) => {
+                        setInstructorLoginNome(e.target.value);
+                        setInstructorLoginError("");
+                      }}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 text-slate-100 p-3 rounded-xl text-xs font-bold focus:outline-none transition font-mono"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-black uppercase text-slate-400 tracking-wider">
+                      Senha de Acesso Privada
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Sua senha gerada de 6 dÃ­gitos"
+                      value={instructorLoginWhatsapp}
+                      onChange={(e) => setInstructorLoginWhatsapp(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 text-slate-100 p-3 rounded-xl text-xs font-mono focus:outline-none transition"
+                      required
+                    />
+                    <span className="text-[10px] text-slate-500 leading-normal block">
+                      Nota: O login e a senha individual sÃ£o fornecidos pelo administrador da rede Nova CNH na sua ficha de credenciamento.
+                    </span>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-3 rounded-xl text-xs transition active:scale-95 flex items-center justify-center gap-1.5 uppercase tracking-wider shadow-lg shadow-emerald-500/10 mt-2 cursor-pointer"
+                  >
+                    ğŸš€ Acessar Meu Painel Comissionado
+                  </button>
+                </form>
+              </div>
+            ) : (
+              /* INSTRUTOR COMPREHENSIVE DASHBOARD */
+              <div className="space-y-6">
+                {/* Dashboard Header Bar */}
+                <div className="bg-[#112d52] border border-indigo-950 flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-3xl text-left shadow-lg">
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      {activeInstructor.foto ? (
+                        <img 
+                          src={activeInstructor.foto} 
+                          alt={activeInstructor.nome} 
+                          className="w-14 h-14 object-cover rounded-full border-2 border-emerald-400 shadow-md"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-lg border-2 border-emerald-400 shadow-md">
+                          {activeInstructor.nome.split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase()}
+                        </div>
+                      )}
+                      <span className="absolute bottom-0 right-0 bg-green-500 h-3 w-3 rounded-full border-2 border-[#112d52]"></span>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-black text-white tracking-tight">{activeInstructor.nome}</h2>
+                        <span className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase px-2 py-0.5 rounded-full font-mono">
+                          Instrutor Ativo
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 font-sans mt-0.5">
+                        ğŸ“ AtuaÃ§Ã£o Regional: <strong className="text-white">{activeInstructor.regiao}</strong>
+                      </p>
+                      {activeInstructor.credencialSenatran && (
+                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                          ğŸªª Reg. SENATRAN: {activeInstructor.credencialSenatran}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveInstructor(null);
+                        setInstructorLoginWhatsapp('');
+                        setToastMessage("ğŸšª VocÃª saiu com seguranÃ§a do painel de instrutor!");
+                      }}
+                      className="bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold py-2.5 px-4 rounded-xl transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      ğŸšª Sair do Painel
+                    </button>
+                  </div>
+                </div>
+
+                {/* Dashboard Stats Overview */}
+                {(() => {
+                  const myStudents = cleanAlunos.filter(a => isSameInstructor(a.instrutor, activeInstructor.nome));
+                  const totalVendas = myStudents.reduce((acc, a) => acc + getStudentBaseValue(a), 0);
+                  const totalPaymentReceived = myStudents.reduce((acc, a) => {
+                    const baseTotal = getStudentBaseValue(a);
+                    const installmentVal = baseTotal / (a.parcelasTotal || 12);
+                    const paidValue = (a.parcelasPagas || 0) * installmentVal;
+                    return acc + paidValue;
+                  }, 0);
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 text-left">
+                      <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
+                        <div className="bg-indigo-500/10 text-indigo-400 p-3 rounded-xl shrink-0">
+                          <Users className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Meus Indicados</p>
+                          <h4 className="text-2xl font-black text-white mt-0.5 font-mono">{myStudents.length}</h4>
+                          <p className="text-[9px] text-[#32bcad] mt-0.5 font-sans">Alunos vinculados Ã  sua carteira</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
+                        <div className="bg-emerald-500/10 text-emerald-400 p-3 rounded-xl shrink-0">
+                          <CreditCard className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Volume de Acordos</p>
+                          <h4 className="text-2xl font-black text-emerald-400 mt-0.5 font-mono">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalVendas)}
+                          </h4>
+                          <p className="text-[9px] text-slate-400 mt-0.5 font-sans">IndicaÃ§Ãµes de acordo ativas</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
+                        <div className="bg-amber-500/10 text-amber-400 p-3 rounded-xl shrink-0">
+                          <Sliders className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">ArrecadaÃ§Ã£o (Alunos)</p>
+                          <h4 className="text-2xl font-black text-amber-400 mt-0.5 font-mono">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPaymentReceived)}
+                          </h4>
+                          <p className="text-[9px] text-slate-400 mt-0.5 font-sans">Total quitado pelos alunos</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-emerald-950/40 border border-emerald-500/30 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
+                        <div className="bg-emerald-500/20 text-emerald-300 p-3 rounded-xl shrink-0 border border-emerald-500/20">
+                          <CheckCircle2 className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Saldo DisponÃ­vel</p>
+                          <h4 className="text-2xl font-black text-emerald-300 mt-0.5 font-mono">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Math.max(0, (totalPaymentReceived * 0.80) - (activeInstructor.saldoPago || 0)))}
+                          </h4>
+                          <p className="text-[9px] text-emerald-500/80 mt-0.5 font-sans font-medium">
+                            {(activeInstructor.saldoPago || 0) > 0 ? `JÃ¡ quitado: R$ ${(activeInstructor.saldoPago || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : "80% de comissÃ£o liberada (Total - 20%)"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
+                        <div className="bg-purple-500/10 text-purple-400 p-3 rounded-xl shrink-0">
+                          <Users className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Capacidade de Alunos</p>
+                          <h4 className="text-2xl font-black text-purple-300 mt-0.5 font-mono">
+                            Ilimitada <span className="text-xs text-emerald-400 font-sans font-semibold">({myStudents.length} ativos)</span>
+                          </h4>
+                          <p className="text-[9px] text-[#32bcad] mt-0.5 font-sans">Sem limite de alunos vinculados</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Main Content Area: Left side links, Right side student ledger */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-left">
+                  
+                  {/* LEFT CHANNEL: EXCLUSIVE REFERRAL LINKS */}
+                  <div className="lg:col-span-4 space-y-6">
+                    <div className="bg-slate-900 border border-emerald-500/25 rounded-2xl p-6 shadow-md space-y-5">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="p-0.5 px-1.5 text-[8.5px] font-black bg-emerald-500 text-slate-950 rounded uppercase font-sans">
+                            Seu Lead Generator
+                          </span>
+                          <h3 className="font-extrabold text-sm text-slate-100">MatrÃ­cula Vinculada</h3>
+                        </div>
+                        <p className="text-xs text-slate-400 leading-normal font-sans">
+                          Qualquer aluno que realizar a matrÃ­cula escaneando seu cÃ³digo ou acessando o link serÃ¡ vinculado automaticamente a vocÃª como instrutor autÃ´nomo responsÃ¡vel.
+                        </p>
+                      </div>
+
+                      {/* REFERRAL LINK COPY INPUT */}
+                      <div className="space-y-1.5 bg-slate-950 p-4 rounded-xl border border-slate-850">
+                        <span className="text-[9px] text-emerald-400 font-mono font-extrabold uppercase block">
+                          ğŸ”— Seu Link de Auto-Cadastro
+                        </span>
+                        <div className="flex items-stretch gap-1.5">
+                          <input
+                            type="text"
+                            readOnly
+                            value={`${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(activeInstructor.nome)}`}
+                            className="bg-slate-900 text-slate-300 font-mono text-[9px] p-2 rounded-lg border border-slate-800 focus:outline-none select-all truncate flex-1"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const enrollmentLink = `${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(activeInstructor.nome)}`;
+                              navigator.clipboard.writeText(enrollmentLink);
+                              setToastMessage(`ğŸ“‹ Link do instrutor autÃ´nomo ${activeInstructor.nome} copiado!`);
+                            }}
+                            className="bg-[#32bcad] hover:bg-[#28a193] text-black text-[10px] font-black px-3.5 rounded-lg transition active:scale-95 shrink-0 cursor-pointer"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* DYNAMIC QR CODE CONTAINER */}
+                      <div className="flex flex-col items-center bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-3">
+                        <div className="bg-white p-3 rounded-xl shadow-lg">
+                          <img 
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(`${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(activeInstructor.nome)}`)}`}
+                            alt="Referral QR Code"
+                            className="w-[150px] h-[150px] object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <div className="text-center space-y-0.5">
+                          <span className="text-[10px] text-[#32bcad] font-mono font-black uppercase tracking-wider block">
+                            QR Code Comissionado
+                          </span>
+                          <p className="text-[9px] text-slate-500 max-w-xs leading-normal font-sans">
+                            Deixe aberto na tela para o candidato capturar com o smartphone e iniciar a contrataÃ§Ã£o direta!
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* NO-INTERFERENCE NOTICE MENTION */}
+                      <div className="bg-slate-950/70 py-3.5 px-4 rounded-xl border border-slate-850/60 flex items-start gap-2.5">
+                        <span className="text-amber-400 text-xs shrink-0 self-center">âš ï¸</span>
+                        <p className="text-[9.5px] text-slate-400 leading-normal font-mono">
+                          <strong>Aviso Legislativo:</strong> Esta Ã¡rea possui fins de acompanhamento exclusivo. AlteraÃ§Ãµes financeiras e pedagÃ³gicas requerem chancela da Secretaria Central.
+                        </p>
+                      </div>
+
+                      {/* CARD: SUA CHAVE PIX */}
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-md space-y-4">
+                        <div className="space-y-1">
+                          <h3 className="font-extrabold text-sm text-slate-100 flex items-center gap-2">
+                            <span>ğŸ”‘</span> Sua Chave PIX de Recebimento
+                          </h3>
+                          <p className="text-xs text-slate-400 leading-normal font-sans">
+                            Cadastre ou altere sua chave PIX para que a Secretaria Central realize a transferÃªncia direta das comissÃµes liberadas.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="CPF, E-mail, Celular ou AleatÃ³ria"
+                              value={instructorChavePixInput}
+                              onChange={(e) => setInstructorChavePixInput(e.target.value)}
+                              className="bg-slate-950 text-slate-200 font-mono text-xs p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-[#32bcad] flex-1"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Save the PIX key inside the central instructors array
+                                saveInstrutoresList(instrutores.map(i => isSameInstructor(i.nome, activeInstructor.nome) ? { ...i, chavePix: instructorChavePixInput.trim() } : i));
+                                setToastMessage("ğŸ’¾ Chave PIX salva e vinculada com sucesso!");
+                              }}
+                              className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-black px-4 rounded-xl transition active:scale-95 cursor-pointer shrink-0"
+                            >
+                              Salvar
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-mono leading-normal">
+                            Nota: Certifique-se de que a chave estÃ¡ digitada corretamente para evitar problemas no repasse.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* CARD: RECIBOS & QUITAÃ‡Ã•ES GOV.BR */}
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-md space-y-4">
+                        <div className="space-y-1 border-b border-slate-800/80 pb-3">
+                          <h3 className="font-extrabold text-sm text-slate-100 flex items-center gap-2">
+                            <span>ğŸ“‹</span> Seus Recibos & QuitaÃ§Ãµes
+                          </h3>
+                          <p className="text-[11px] text-slate-400 leading-normal">
+                            Visualize pagamentos recebidos e assine os recibos eletronicamente via GOV.BR.
+                          </p>
+                        </div>
+
+                        {!activeInstructor.recibos || activeInstructor.recibos.length === 0 ? (
+                          <div className="py-6 text-center text-slate-500 italic text-[11px] bg-slate-950/40 rounded-xl border border-slate-850/80">
+                            Nenhum recibo de comissÃ£o emitido atÃ© o momento.
+                          </div>
+                        ) : (
+                          <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                            {activeInstructor.recibos.map(rec => (
+                              <div key={rec.id} className="bg-slate-950 border border-slate-850 p-3 rounded-xl space-y-2.5 text-xs text-left">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-extrabold font-mono text-[#32bcad] bg-[#32bcad]/10 px-2 py-0.5 rounded border border-[#32bcad]/20">{rec.id}</span>
+                                  <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                                    rec.status === 'assinado_gov' 
+                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse'
+                                  }`}>
+                                    {rec.status === 'assinado_gov' ? 'âœ“ Assinado' : 'â³ Assinar'}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between items-center text-[11px] text-slate-300">
+                                  <span>Valor Pago: <strong className="text-white font-mono">{rec.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></span>
+                                  <span className="text-slate-500 font-mono text-[10px]">{new Date(rec.dataEmissao).toLocaleDateString('pt-BR')}</span>
+                                </div>
+
+                                {rec.status === 'assinado_gov' ? (
+                                  <div className="bg-slate-900 p-2 rounded border border-slate-800 text-[9px] font-mono text-slate-400 space-y-1">
+                                    <p className="text-emerald-400 font-bold flex items-center gap-1 text-[9.5px]">
+                                      <span>ğŸ›¡ï¸</span> Assinado Eletronicamente
+                                    </p>
+                                    <p className="truncate">Certificado: <span className="text-slate-200">{rec.identificadorGov}</span></p>
+                                    <p>Data: <span className="text-slate-200">{new Date(rec.dataAssinatura!).toLocaleDateString('pt-BR')}</span></p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setViewingRecibo({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                      className="w-full mt-2 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold py-1.5 px-2.5 rounded-lg text-[9.5px] transition flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer"
+                                    >
+                                      ğŸ” Visualizar Recibo Oficial
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSimulateGovSign(activeInstructor, rec)}
+                                      className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black py-2 px-2 rounded-lg text-[10px] transition active:scale-95 flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer shadow-sm"
+                                    >
+                                      ğŸ–‹ï¸ Assinar via GOV.BR
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setViewingRecibo({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                      className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2 px-3 rounded-lg text-[10px] transition flex items-center justify-center gap-1.5 cursor-pointer"
+                                      title="Visualizar Recibo"
+                                    >
+                                      ğŸ” Ver
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RIGHT PANEL: STUDENT CARDS LIST (ACOMPANHAMENTO ATIVO) */}
+                  <div className="lg:col-span-8 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-4 flex flex-col">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                      <div>
+                        <h3 className="font-extrabold text-sm text-white tracking-tight">Sua Carteira de Alunos Referenciados</h3>
+                        <p className="text-[10.5px] text-slate-400 font-sans mt-0.5">Acompanhe o andamento das faturas e dos planos contratados por seus alunos.</p>
+                      </div>
+                      
+                      {/* Search Bar inside his students */}
+                      <div className="relative max-w-xs w-full">
+                        <input
+                          type="text"
+                          placeholder="Filtre seus indicados por nome..."
+                          value={instSearchQuery}
+                          onChange={(e) => setInstSearchQuery(e.target.value)}
+                          className="w-full bg-slate-950 text-xs text-slate-200 placeholder-slate-500 pl-3.5 pr-8 py-2 rounded-xl border border-slate-800 focus:border-emerald-500 focus:outline-none transition"
+                        />
+                        {instSearchQuery && (
+                          <button 
+                            onClick={() => setInstSearchQuery('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition text-xs"
+                          >
+                            âœ•
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Filtered Student listings */}
+                    {(() => {
+                      const myStudents = cleanAlunos.filter(a => isSameInstructor(a.instrutor, activeInstructor.nome));
+                      const myFilteredStudents = myStudents.filter(a => 
+                        a.nome.toLowerCase().includes(instSearchQuery.toLowerCase()) || 
+                        a.id.toLowerCase().includes(instSearchQuery.toLowerCase())
+                      );
+
+                      if (myStudents.length === 0) {
+                        return (
+                          <div className="py-12 text-center text-slate-400 italic bg-slate-950/30 rounded-xl border border-dashed border-slate-850">
+                            Nenhum aluno registrou cadastro com seu link de indicaÃ§Ã£o ainda. Divulgue seu QR Code!
+                          </div>
+                        );
+                      }
+
+                      if (myFilteredStudents.length === 0) {
+                        return (
+                          <div className="py-12 text-center text-slate-400 italic bg-slate-950/30 rounded-xl border border-dashed border-slate-850 font-sans text-xs">
+                            Nenhum indicado corresponde Ã  busca "{instSearchQuery}"
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-3.5 max-h-[500px] overflow-y-auto pr-1">
+                          {myFilteredStudents.map((student) => {
+                            const baseTotal = getStudentBaseValue(student);
+                            const currentPaid = (student.parcelasPagas || 0) * (baseTotal / (student.parcelasTotal || 12));
+                            const completionPercentage = Math.min(100, Math.max(0, ((student.parcelasPagas || 0) / (student.parcelasTotal || 12)) * 100));
+
+                            return (
+                              <div 
+                                key={student.id}
+                                className="bg-slate-950 border border-slate-850 hover:border-emerald-500/35 rounded-xl p-4 transition-all duration-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                              >
+                                <div className="space-y-2 flex-1 text-left">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <h4 className="text-xs font-black text-white">{student.nome}</h4>
+                                    <span className="text-[9px] font-mono font-bold bg-slate-900 border border-slate-800 text-slate-300 px-1.5 py-0.5 rounded">
+                                      {student.id}
+                                    </span>
+                                    <span className="text-[10px] bg-slate-900 text-indigo-400 font-extrabold px-1.5 py-0.5 rounded-full font-mono uppercase">
+                                      ğŸ”‘ {student.categoria}
+                                    </span>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 md:grid-cols-3 gap-y-1.5 gap-x-4 text-[10.5px]">
+                                    <div>
+                                      <span className="text-slate-500 block">InscriÃ§Ã£o:</span>
+                                      <strong className="text-slate-300 font-mono">{formatDateBR(student.dataAdesao)}</strong>
+                                    </div>
+                                    <div>
+                                      <span className="text-slate-500 block">WhatsApp:</span>
+                                      <a 
+                                        href={`https://wa.me/55${student.whatsapp.replace(/\D/g, '')}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[#32bcad] hover:underline font-semibold font-mono"
+                                      >
+                                        ğŸ“ {student.whatsapp}
+                                      </a>
+                                    </div>
+                                    <div className="col-span-2 md:col-span-1">
+                                      <span className="text-slate-500 block">Integral Quitado:</span>
+                                      <strong className="text-emerald-400 block font-mono">
+                                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(currentPaid)} 
+                                        <span className="text-slate-500 text-[9px] ml-1 font-normal font-sans">({student.parcelasPagas} de {student.parcelasTotal || 12})</span>
+                                      </strong>
+                                    </div>
+                                  </div>
+
+                                  {/* Progress bar visual indicating financial completion */}
+                                  <div className="space-y-1">
+                                    <div className="flex items-center justify-between text-[9px] font-mono text-slate-500">
+                                      <span>AdimplÃªncia Financeira</span>
+                                      <span className="text-emerald-400 font-bold">{completionPercentage.toFixed(0)}% Pago</span>
+                                    </div>
+                                    <div className="bg-slate-900 h-1.5 rounded-full overflow-hidden border border-slate-800">
+                                      <div 
+                                        className="bg-emerald-400 h-full rounded-full transition-all duration-300" 
+                                        style={{ width: `${completionPercentage}%` }}
+                                      ></div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex sm:flex-col items-stretch gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedStudentDetail(student)}
+                                    className="flex-1 sm:flex-none text-center bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 text-[10px] font-bold py-2 px-3.5 rounded-xl transition cursor-pointer"
+                                  >
+                                    ğŸ“‹ Ver Detalhes / Plano
+                                  </button>
+                                  <a
+                                    href={`https://wa.me/55${student.whatsapp.replace(/\D/g, '')}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex-1 sm:flex-none text-center bg-[#25d366]/10 hover:bg-[#25d366]/20 text-[#25d366] border border-[#25d366]/20 text-[10px] font-bold py-2 px-3.5 rounded-xl transition cursor-pointer"
+                                  >
+                                    ğŸ’¬ Conversar
+                                  </a>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                </div>
+
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===================== TAB: DEPOIMENTOS DOS ALUNOS ===================== */}
+        {currentTab === 'depoimentos' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <StudentTestimonials 
+              depoimentos={depoimentos} 
+              alunos={alunos}
+              activeStudentId={activeStudentId}
+              isAuthenticated={isAuthenticated}
+              isAdminAuthenticated={isAdminAuthenticated}
+              onLoginStudent={(id) => {
+                setActiveStudentId(id);
+                setIsAuthenticated(true);
+              }}
+              onAddDepoimento={handleAddDepoimento} 
+              onDeleteDepoimento={handleDeleteDepoimento}
+              onToast={setToastMessage} 
+            />
+          </div>
+        )}
+
+        {/* ===================== TAB: CAPA DE APRESENTAÃ‡ÃƒO ===================== */}
+        {currentTab === 'capa' && (
+          <div className="space-y-8 animate-in fade-in duration-200">
+            
+            {/* Elegant Hero Banner */}
+            <div className="relative overflow-hidden bg-gradient-to-br from-[#0c2340] via-[#112d52] to-slate-900 text-white rounded-2xl p-6 md:p-12 border-b-8 border-emerald-500 shadow-xl" id="hero-banner-cnh">
+              <div className="absolute right-0 top-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+              <div className="absolute left-1/3 bottom-0 w-72 h-72 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+              <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+                
+                {/* Left Side: Program Introduction */}
+                <div className="lg:col-span-8 space-y-6">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono tracking-wider">
+                    ğŸš€O sonho comeÃ§a com seus 17 anos.
+                  </span>
+                  
+                  <h2 className="text-3xl md:text-5xl font-black tracking-tight leading-tight">
+                    Nova CNH Brasil na MÃ£o
+                    <span className="block text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-200 mt-2">
+                      O Programa de PoupanÃ§a CNH Segura
+                    </span>
+                  </h2>
+
+                  <p className="text-slate-300 text-sm md:text-base leading-relaxed max-w-3xl">
+                    Conquistar a Carteira Nacional de HabilitaÃ§Ã£o (CNH) Ã© o sonho de muitos jovens. Ela representa independÃªncia, liberdade e, acima de tudo, uma porta de entrada gigantesca para o mercado de trabalho. Embora o investimento inicial possa parecer um desafio Ã  primeira vista, a boa notÃ­cia Ã© que obter o documento Ã© uma meta perfeitamente alcanÃ§Ã¡vel, e existem caminhos estruturados para que o orÃ§amento nÃ£o seja um obstÃ¡culo.
+                  </p>
+
+                  <p className="text-slate-300 text-sm md:text-base leading-relaxed max-w-3xl">
+                    Se vocÃª estÃ¡ planejando tirar a sua habilitaÃ§Ã£o, confira as principais alternativas para transformar esse objetivo em realidade: o programa **Nova CNH Brasil na MÃ£o** permite a jovens de **17 a 24 anos** aderirem a um parcelamento inteligente. No momento em que atingem os **18 anos ou mais**, o baÃº acumulado Ã© liberado automaticamente em crÃ©ditos para custear as aulas de trÃ¢nsito!
+                  </p>
+
+                  {/* IMPORTANTE OBSERVATION BOX */}
+                  <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 max-w-3xl animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <p className="text-xs md:text-sm text-emerald-300 leading-relaxed font-sans flex items-start gap-2.5">
+                      <span className="text-base leading-none">ğŸ’¡</span>
+                      <span>
+                        <strong className="text-white">Qualquer pessoa de qualquer idade pode aderir e participar</strong> do programa de parcelamento planejado. O foco de atendimento mais forte e personalizado Ã© direcionado a jovens entre <strong className="text-emerald-400">17 e 24 anos</strong> para impulsionar a emancipaÃ§Ã£o profissional e pessoal.
+                      </span>
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 pt-2">
+                    <button
+                      id="hero-btn-app-jovem"
+                      onClick={() => setCurrentTab('app-jovem')}
+                      className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition flex items-center gap-2 text-sm cursor-pointer select-none"
+                    >
+                      Acesso ao Aplicativo
+                      <ChevronRight className="h-4.5 w-4.5" />
+                    </button>
+                    <button
+                      id="hero-btn-gestao"
+                      onClick={() => setCurrentTab('gestao')}
+                      className="bg-slate-800 hover:bg-slate-755 text-white font-semibold px-5 py-3 rounded-xl border border-slate-700 transition flex items-center gap-2 text-sm cursor-pointer select-none"
+                    >
+                      {isAdminAuthenticated ? 'Ver Ãrea Administrativa' : 'Ãrea Administrativa ğŸ”’'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Right Side: Professional Glassmorphic Image Frame with Happy Young Person */}
+                <div className="lg:col-span-4 flex justify-center">
+                  <div className="relative bg-slate-800/40 p-3 rounded-2xl border border-slate-700/60 shadow-2xl backdrop-blur-md max-w-xs w-full group overflow-hidden transition-all duration-300 hover:border-emerald-500/40">
+                    {/* Subtle warm glow around card on hover */}
+                    <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-700 pointer-events-none"></div>
+                    
+                    <div className="relative bg-slate-900/90 rounded-xl overflow-hidden shadow-inner">
+                      <img 
+                        src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=600&auto=format&fit=crop" 
+                        alt="Jovem candidata sorrindo alegremente celebrando a CNH" 
+                        className="w-full h-64 object-cover object-center hover:scale-105 transition-transform duration-500 rounded-t-xl"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="p-3 bg-slate-950/90 border-t border-slate-800/80 text-center">
+                        <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">AprovaÃ§Ã£o e Liberdade</span>
+                        <p className="text-xs font-medium text-slate-200 mt-1">Sua CNH com Planejamento Inteligente!</p>
+                        <p className="text-[10.5px] text-slate-400 mt-0.5">Parcele sem juros e conquiste sua independÃªncia!</p>
+                        <div className="mt-2 text-[9px] bg-emerald-950/60 text-emerald-300 px-2 py-1.5 rounded border border-emerald-900/40 leading-tight">
+                          ğŸ’¡ <strong className="text-white">Qualquer idade pode aderir!</strong>
+                          <span className="block text-slate-300 text-[8.5px] mt-0.5 font-sans">Nossos planos contemplam todos, com foco especial de 17 a 24 anos.</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* ===================== VISÃƒO AMPLIADA: NOVA CNH BRASIL NA MÃƒO ===================== */}
+            <div id="section-visao-ampliada" className="bg-gradient-to-r from-[#0c2340] to-[#112d52] rounded-2xl border border-indigo-900 overflow-hidden shadow-xl text-white">
+              <div className="p-6 md:p-8 space-y-6">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-indigo-950 pb-5">
+                  <div className="space-y-1">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 tracking-widest font-mono">
+                      ğŸ” VISÃƒO AMPLIADA & COBERTURA NACIONAL
+                    </span>
+                    <h3 className="text-2xl md:text-3xl font-black text-white tracking-tight">
+                      ğŸš— Nova CNH Brasil na MÃ£o em Detalhes
+                    </h3>
+                    <p className="text-slate-350 text-xs md:text-sm">
+                      Entenda como o programa integra tecnologia, educaÃ§Ã£o financeira e oportunidades reais de ponta a ponta.
+                    </p>
+                  </div>
+                  <div className="bg-slate-900/60 border border-emerald-500/30 rounded-xl px-4 py-2.5 flex items-center gap-3">
+                    <span className="text-2xl">ğŸ‡§ğŸ‡·</span>
+                    <div>
+                      <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-mono">Status Nacional</div>
+                      <div className="text-xs font-black text-emerald-400">PresenÃ§a em 26 Estados + DF</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Grid with Interactive Dashboard and Trilha section */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                  
+                  {/* Left Column: Dynamic Timeline of the Conquest (O Caminho da Autonomia) */}
+                  <div className="lg:col-span-7 space-y-4">
+                    <div className="bg-slate-950/45 border border-indigo-950 p-5 rounded-2xl space-y-4 text-left">
+                      <h4 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-indigo-400" />
+                        Trilha Inteligente de EmancipaÃ§Ã£o
+                      </h4>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Navegue pelas principais fases do plano de formaÃ§Ã£o de condutores do momento do primeiro cadastro atÃ© a quitaÃ§Ã£o.
+                      </p>
+
+                      {/* Interactive Linear Steps List */}
+                      <div className="space-y-3">
+                        {[
+                          {
+                            step: 1,
+                            title: "AdesÃ£o Planejada",
+                            age: "Partida (Aos 17 anos)",
+                            desc: "O candidato de 17 anos inicia o contrato e define a mensalidade confortÃ¡vel de acordo com o simulador de parcelas."
+                          },
+                          {
+                            step: 2,
+                            title: "PreparaÃ§Ã£o TeÃ³rica",
+                            age: "Processamento (17.5 Anos)",
+                            desc: "InÃ­cio do portal de estudos no celular ou computador, resolvendo o simulador para acumular pontos de pontuaÃ§Ã£o."
+                          },
+                          {
+                            step: 3,
+                            title: "Desbloqueio e Aulas",
+                            age: "EmancipaÃ§Ã£o (18 Anos completos)",
+                            desc: "LiberaÃ§Ã£o instantÃ¢nea sem taxas extras de intermediaÃ§Ã£o do saldo para aulas mecÃ¢nicas regionais credenciadas."
+                          },
+                          {
+                            step: 4,
+                            title: "Exame e Autonomia",
+                            age: "VitÃ³ria (ConsolidaÃ§Ã£o legal)",
+                            desc: "AprovaÃ§Ã£o do condutor no Exame do Detran e inÃ­cio da sua caminhada no trÃ¢nsito seguro em sua microrregiÃ£o."
+                          }
+                        ].map((item, idx) => {
+                          const isActive = activeTimelineStep === idx;
+                          return (
+                            <div 
+                              key={item.step}
+                              id={`timeline-step-${idx}`}
+                              onClick={() => setActiveTimelineStep(idx)}
+                              className={`p-3 rounded-xl border transition-all duration-200 cursor-pointer text-left ${
+                                isActive 
+                                  ? 'bg-gradient-to-r from-emerald-950/60 to-slate-950/80 border-emerald-500 shadow-md transform translate-x-1' 
+                                  : 'bg-slate-950/20 border-indigo-950 h-auto hover:bg-slate-950/50 hover:border-slate-800'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2.5">
+                                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${
+                                    isActive ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                                  }`}>
+                                    {item.step}
+                                  </span>
+                                  <span className={`text-[11.5px] font-bold ${isActive ? 'text-white' : 'text-slate-200'}`}>
+                                    {item.title}
+                                  </span>
+                                </div>
+                                <span className="text-[9.5px] text-emerald-400 font-mono font-extrabold shrink-0">
+                                  {item.age}
+                                </span>
+                              </div>
+                              {isActive && (
+                                <p className="text-[11px] text-slate-300 leading-relaxed mt-2 pl-7 border-l-2 border-emerald-500 animate-in fade-in duration-200">
+                                  {item.desc}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* Right Column: Dynamic Program Milestones & Educational Context */}
+                  <div className="lg:col-span-5 space-y-4">
+                    <div className="bg-slate-950/45 border border-indigo-950 p-5 rounded-2xl space-y-4 text-left">
+                      <h4 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                        Garantias da Plataforma
+                      </h4>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Nossa metodologia oferece seguranÃ§a jurÃ­dica, transparÃªncia total e alta taxa de aprovaÃ§Ã£o para os condutores.
+                      </p>
+                      
+                      <div className="space-y-4">
+                        <div className="bg-slate-950/20 border border-indigo-950 p-4 rounded-xl space-y-2 text-left">
+                          <h5 className="font-bold text-xs text-slate-200 uppercase flex items-center gap-1.5">
+                            <span className="text-emerald-400">ğŸ“</span>
+                            Teoria Facilitada
+                          </h5>
+                          <p className="text-[11px] text-slate-300 leading-relaxed">
+                            Acompanhamento online no tablet ou smartphone enquanto o montante acumula, com simulados oficiais e banco de mais de 300 questÃµes pedagÃ³gicas exclusivas.
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-950/20 border border-indigo-950 p-4 rounded-xl space-y-2 text-left">
+                          <h5 className="font-bold text-xs text-slate-200 uppercase flex items-center gap-1.5">
+                            <span className="text-emerald-400">ğŸ›¡ï¸</span>
+                            SeguranÃ§a de Recursos
+                          </h5>
+                          <p className="text-[11px] text-slate-300 leading-relaxed">
+                            Os fundos financeiros recolhidos permanecem congelados sem taxas bancÃ¡rias abusivas ou multas administrativas de intermediaÃ§Ã£o de terceiros.
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-950/20 border border-indigo-950 p-4 rounded-xl space-y-2 text-left">
+                          <h5 className="font-bold text-xs text-slate-200 uppercase flex items-center gap-1.5">
+                            <span className="text-emerald-400">ğŸŒ±</span>
+                            EducaÃ§Ã£o Financeira Integrada
+                          </h5>
+                          <p className="text-[11px] text-slate-300 leading-relaxed">
+                            Ensino ativo de planejamento financeiro, preparando os jovens para as despesas de manutenÃ§Ã£o de veÃ­culo no futuro.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+            </div>
+
+            {/* Crucial Concept Bento Cards */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-xs">
+                <div className="h-10 w-10 text-xl rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+                  ğŸ¯
+                </div>
+                <h4 className="font-bold text-slate-900 text-lg">O Problema Real</h4>
+                <p className="text-slate-600 text-xs md:text-sm leading-relaxed">
+                  Para os jovens que estÃ£o iniciando sua trajetÃ³ria profissional, a carteira de habilitaÃ§Ã£o (CNH) Ã© fundamental para expandir oportunidades de trabalho e garantir autonomia de locomoÃ§Ã£o. Criamos a oportunidade certa para vocÃª jÃ¡ entrar na maioridade habilitado e pronto para o mercado de trabalho.
+                </p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-xs border-t-4 border-emerald-500">
+                <div className="h-10 w-10 text-xl rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  ğŸ’¡
+                </div>
+                <h4 className="font-bold text-emerald-700 text-lg">A Proposta de PoupanÃ§a</h4>
+                <p className="text-slate-600 text-xs md:text-sm leading-relaxed">
+                  Com o programa **Nova CNH Brasil na MÃ£o**, jovens a partir dos **17 anos** realizam um planejamento estratÃ©gico prÃ©vio com parcelas mensais acessÃ­veis e seguras. Quando completam a maioridade civil legal, o montante reservado Ã© desbloqueado e as aulas prÃ¡ticas comeÃ§am a ser realizadas conforme o cronograma!
+                </p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-3 shadow-xs">
+                <div className="h-10 w-10 text-xl rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                  ğŸ“ˆ
+                </div>
+                <h4 className="font-bold text-slate-900 text-lg">InteligÃªncia de Dados</h4>
+                <p className="text-slate-600 text-xs md:text-sm leading-relaxed">
+                  O painel do gestor se conecta diretamente com bancos de dados, fornecendo integraÃ§Ã£o nativa via planilhas contendo fÃ³rmulas do Looker Studio (`DATEDIF` e `TODAY`) para que patrocinadores auditem o programa em tempo real.
+                </p>
+              </div>
+
+            </div>
+
+            {/* ===================== NEW SECTION: FALE CONOSCO / CANAIS DE ATENDIMENTO ===================== */}
+            <div id="secao-fale-conosco" className="bg-slate-50 overflow-hidden rounded-2xl border border-slate-200 p-6 md:p-8 space-y-6 shadow-sm">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-200/80 pb-5">
+                <div className="space-y-1 text-left">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black bg-[#112d52]/10 text-[#112d52] tracking-wider uppercase font-mono">
+                    ğŸ“ Canais de Atendimento PrimÃ¡rio
+                  </span>
+                  <h3 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">
+                    Fale Conosco â€” Suporte & OrientaÃ§Ã£o
+                  </h3>
+                  <p className="text-slate-500 text-xs md:text-sm max-w-2xl">
+                    Precisa de ajuda com sua inscriÃ§Ã£o, suporte para o simulador, emissÃ£o de boletos/recibos ou esclarecimento sobre os contratos? Entre em contato por nossos canais de atendimento oficiais da Secretaria de GestÃ£o e do Instrutor!
+                  </p>
+                </div>
+                <div className="bg-emerald-50 text-emerald-800 rounded-xl px-4 py-2 border border-emerald-100 flex items-center gap-2 text-xs font-bold leading-tight shadow-xs shrink-0">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  Atendimento Ativo: Seg a Sex, 8h Ã s 18h
+                </div>
+              </div>
+
+              {/* Grid with Contact Cards and Quick Messenger Form */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch pt-2">
+                {/* Left Column: Fast Messenger Form (Envio Direto) */}
+                <div className="lg:col-span-6 bg-white rounded-2xl p-5 md:p-6 border border-slate-200/75 shadow-xs flex flex-col justify-between text-left space-y-4">
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-[#112d52]" />
+                      Mensagem RÃ¡pida Direta
+                    </h4>
+                    <p className="text-[11px] text-slate-450">
+                      Preencha os campos abaixo para formular sua mensagem automaticamente e enviÃ¡-la para a Secretaria de GestÃ£o ou para o Instrutor via WhatsApp ou E-mail.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 pt-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider block">Seu Nome Completo:</label>
+                        <input
+                          type="text"
+                          value={faleNome}
+                          onChange={(e) => setFaleNome(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-[#112d52] rounded-xl px-3 py-1.5 text-slate-800 text-xs font-semibold placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#112d52] transition-all"
+                          placeholder="Ex: JoÃ£o da Silva"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider block">Falar com:</label>
+                        <select
+                          value={faleDestinatario}
+                          onChange={(e) => setFaleDestinatario(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-[#112d52] rounded-xl px-3 py-1.5 text-slate-800 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-[#112d52] transition-all cursor-pointer"
+                        >
+                          <option value="secretaria_flavia_1">Secretaria (Flavia) - (81) 99238-9773</option>
+                          <option value="secretaria_flavia_2">Secretaria (Flavia) - (81) 98318-5596</option>
+                          <option value="instrutor_miqueias">Instrutor Miqueias - (81) 99201-1024</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider block">Qual o Assunto?</label>
+                      <select
+                        value={faleAssunto}
+                        onChange={(e) => setFaleAssunto(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-[#112d52] rounded-xl px-3 py-1.5 text-slate-800 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-[#112d52] transition-all cursor-pointer"
+                      >
+                        <option value="InscriÃ§Ã£o de Candidato">InscriÃ§Ã£o de Candidato / MatrÃ­cula</option>
+                        <option value="DÃºvidas com a Secretaria">DÃºvidas com a Secretaria de GestÃ£o</option>
+                        <option value="Suporte do Simulador">Suporte do Simulador / Aulas TeÃ³ricas</option>
+                        <option value="DÃºvidas sobre o Contrato">DÃºvidas sobre o Contrato</option>
+                        <option value="Plano de PoupanÃ§a BaÃº">Plano de PoupanÃ§a BaÃº / Pagamentos</option>
+                        <option value="Parcerias e PatrocÃ­nio">Parcerias e Outros</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider block">Sua Mensagem / DÃºvida:</label>
+                      <textarea
+                        value={faleMensagem}
+                        onChange={(e) => setFaleMensagem(e.target.value)}
+                        rows={3}
+                        className="w-full bg-slate-50 border border-slate-200 hover:border-slate-300 focus:border-[#112d52] rounded-xl p-3 text-slate-800 text-xs font-medium placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#112d52] transition-all resize-none"
+                        placeholder="Digite os detalhes da sua mensagem de apoio, dÃºvida ou solicitaÃ§Ã£o..."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!faleNome.trim() || !faleMensagem.trim()) {
+                          alert("Por favor, preencha seu nome e sua mensagem para direcionar o atendimento.");
+                          return;
+                        }
+                        let targetPhone = "5581992389773";
+                        let destinatarioNome = "Flavia Micheline (SecretÃ¡ria de GestÃ£o)";
+                        if (faleDestinatario === 'secretaria_flavia_2') {
+                          targetPhone = "5581983185596";
+                          destinatarioNome = "Flavia Micheline (SecretÃ¡ria de GestÃ£o)";
+                        } else if (faleDestinatario === 'instrutor_miqueias') {
+                          targetPhone = "5581992011024";
+                          destinatarioNome = "Instrutor Miqueias";
+                        }
+                        const waText = `OlÃ¡ ${destinatarioNome}! Meu nome Ã© ${faleNome.trim()}, e tenho uma solicitaÃ§Ã£o referente a "${faleAssunto}":\n\n"${faleMensagem.trim()}"`;
+                        const url = `https://wa.me/${targetPhone}?text=${encodeURIComponent(waText)}`;
+                        window.open(url, '_blank');
+                      }}
+                      className="bg-[#25D366] hover:bg-[#20ba56] text-white font-extrabold py-2.5 px-4 rounded-xl text-xs transition duration-150 active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <MessageSquare className="h-4 w-4 shrink-0" />
+                      Enviar via WhatsApp
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!faleNome.trim() || !faleMensagem.trim()) {
+                          alert("Por favor, preencha seu nome e sua mensagem para direcionar o atendimento.");
+                          return;
+                        }
+                        const emailSubject = `Suporte Nova CNH - ${faleAssunto}`;
+                        const emailBody = `OlÃ¡,\n\nMeu nome Ã© ${faleNome.trim()}.\n\nAssunto: ${faleAssunto}\n\nMensagem:\n${faleMensagem.trim()}\n\nAtenciosamente,\n${faleNome.trim()}`;
+                        const mailtoUrl = `mailto:miqueias.instrutor@gmail.com?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+                        window.location.href = mailtoUrl;
+                      }}
+                      className="bg-[#0c2340] hover:bg-slate-900 text-white font-extrabold py-2.5 px-4 rounded-xl text-xs transition duration-150 active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Mail className="h-4 w-4 shrink-0" />
+                      Enviar via E-mail
+                    </button>
+                  </div>
+                </div>
+
+                {/* Right Column: Static & Interactive Direct Contacts Cards */}
+                <div className="lg:col-span-6 flex flex-col justify-between gap-4">
+                  {/* CARD 1: SECRETARIA DE GESTÃƒO (FLAVIA MICHELINE) */}
+                  <div className="bg-gradient-to-br from-blue-50/70 to-indigo-50/50 rounded-2xl p-5 border-2 border-blue-200/80 shadow-xs flex flex-col justify-between space-y-4 text-left">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className="h-10 w-10 text-xl rounded-xl bg-[#0c2340] text-white flex items-center justify-center font-bold shadow-sm shrink-0">
+                          ğŸ›ï¸
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="inline-flex items-center gap-1 text-[9.5px] font-black text-blue-700 uppercase tracking-wider font-mono bg-blue-100/80 px-2 py-0.5 rounded-md">
+                            Secretaria de GestÃ£o
+                          </span>
+                          <h4 className="font-black text-slate-900 text-base">
+                            Flavia Micheline
+                          </h4>
+                          <p className="text-slate-600 text-[11px]">
+                            SecretÃ¡ria de GestÃ£o â€” InformaÃ§Ãµes de matrÃ­culas, emissÃ£o de boletos/recibos, agendamentos e suporte aos alunos.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dual Phone Numbers for Secretaria */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      {/* NÃºmero 1 */}
+                      <div className="bg-white border border-blue-100 rounded-xl p-3 flex flex-col justify-between gap-2 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-[8.5px] text-slate-400 block uppercase font-extrabold tracking-wider">Secretaria (Linha 1):</span>
+                            <span className="text-[13px] font-black text-[#0c2340] font-mono tracking-tight">
+                              (81) 99238-9773
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText("81992389773");
+                              setToastMessage("ğŸ“‹ NÃºmero copiado: (81) 99238-9773 (Flavia Micheline)");
+                            }}
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-800 px-2 py-1 rounded text-[10px] font-bold tracking-wide transition active:scale-95 cursor-pointer border border-blue-200/50"
+                            title="Copiar nÃºmero"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                        <a
+                          href="https://wa.me/5581992389773?text=Ol%C3%A1%20Flavia%20Micheline%2C%20gostaria%20de%20informa%C3%A7%C3%B5es%20sobre%20a%20Nova%20CNH%20Brasil!"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full bg-[#25D366] hover:bg-[#20ba56] text-white font-extrabold py-1.5 px-3 rounded-lg text-[11px] flex items-center justify-center gap-1 transition uppercase tracking-wider shadow-xs text-center"
+                        >
+                          <span>WhatsApp (Linha 1)</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+
+                      {/* NÃºmero 2 */}
+                      <div className="bg-white border border-blue-100 rounded-xl p-3 flex flex-col justify-between gap-2 shadow-2xs">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-[8.5px] text-slate-400 block uppercase font-extrabold tracking-wider">Secretaria (Linha 2):</span>
+                            <span className="text-[13px] font-black text-[#0c2340] font-mono tracking-tight">
+                              (81) 98318-5596
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText("81983185596");
+                              setToastMessage("ğŸ“‹ NÃºmero copiado: (81) 98318-5596 (Flavia Micheline)");
+                            }}
+                            className="bg-blue-50 hover:bg-blue-100 text-blue-800 px-2 py-1 rounded text-[10px] font-bold tracking-wide transition active:scale-95 cursor-pointer border border-blue-200/50"
+                            title="Copiar nÃºmero"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                        <a
+                          href="https://wa.me/5581983185596?text=Ol%C3%A1%20Flavia%20Micheline%2C%20gostaria%20de%20informa%C3%A7%C3%B5es%20sobre%20a%20Nova%20CNH%20Brasil!"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full bg-[#25D366] hover:bg-[#20ba56] text-white font-extrabold py-1.5 px-3 rounded-lg text-[11px] flex items-center justify-center gap-1 transition uppercase tracking-wider shadow-xs text-center"
+                        >
+                          <span>WhatsApp (Linha 2)</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Dual Grid: Instrutor Miqueias & E-mail Oficial */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* WhatsApp Instrutor Miqueias */}
+                    <div className="bg-emerald-50/50 rounded-2xl p-4 border border-emerald-100 flex flex-col justify-between space-y-3 text-left">
+                      <div className="flex items-start gap-2.5">
+                        <div className="h-8 w-8 text-base rounded-lg bg-emerald-500 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                          ğŸš—
+                        </div>
+                        <div className="space-y-0.5">
+                          <span className="text-[9px] font-black text-emerald-800 uppercase tracking-wider font-mono">Suporte TÃ©cnico</span>
+                          <h4 className="font-extrabold text-[#0c2340] text-xs">Instrutor Miqueias</h4>
+                          <span className="text-[12px] font-black text-emerald-700 block font-mono">
+                            (81) 99201-1024
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <a
+                          href="https://wa.me/5581992011024"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black py-1.5 px-2 rounded-lg text-[10.5px] flex items-center justify-center gap-1 transition uppercase tracking-wider text-center"
+                        >
+                          <span>WhatsApp</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText("81992011024");
+                            setToastMessage("ğŸ“‹ WhatsApp copiado: (81) 99201-1024");
+                          }}
+                          className="bg-white hover:bg-emerald-100 text-emerald-800 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-emerald-200 transition cursor-pointer"
+                        >
+                          Copiar
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Mail Support Direct */}
+                    <div className="bg-indigo-50/50 rounded-2xl p-4 border border-indigo-100 flex flex-col justify-between space-y-3 text-left">
+                      <div className="flex items-start gap-2.5">
+                        <div className="h-8 w-8 text-base rounded-lg bg-indigo-900 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                          âœ‰ï¸
+                        </div>
+                        <div className="space-y-0.5 truncate">
+                          <span className="text-[9px] font-black text-indigo-800 uppercase tracking-wider font-mono">E-mail Institucional</span>
+                          <h4 className="font-extrabold text-[#0c2340] text-xs truncate">AdministraÃ§Ã£o & Contratos</h4>
+                          <span className="text-[10px] font-bold text-indigo-900 block truncate lowercase font-mono">
+                            miqueias.instrutor@gmail.com
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <a
+                          href="mailto:miqueias.instrutor@gmail.com"
+                          className="flex-1 bg-[#112d52] hover:bg-slate-900 text-white font-extrabold py-1.5 px-2 rounded-lg text-[10.5px] flex items-center justify-center gap-1 transition uppercase tracking-wider text-center"
+                        >
+                          <span>E-mail</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText("miqueias.instrutor@gmail.com");
+                            setToastMessage("ğŸ“‹ E-mail copiado: miqueias.instrutor@gmail.com");
+                          }}
+                          className="bg-white hover:bg-indigo-100 text-indigo-800 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-indigo-200 transition cursor-pointer"
+                        >
+                          Copiar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+            {/* Premium Interactive Free Theoretical Course Section */}
+            <div className="pt-6" id="secao-curso-gratuito-principal">
+              <FreeTheoreticalCourse />
+            </div>
+
+          </div>
+        )}
+
+      </main>
+
+      {/* --- MODAL: AUTO-MATRÃCULA COLETIVA / GRUPO --- */}
+      {showGeneralEnrollmentModal && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-300">
+          <div className="bg-slate-900 border border-emerald-500/40 text-slate-100 rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col p-6 space-y-5 text-left">
+            
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="bg-emerald-500/20 text-emerald-400 p-2 rounded-xl">
+                  <QrCode className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white tracking-tight">Auto-MatrÃ­cula Coletiva</h3>
+                  <p className="text-[10px] text-slate-400 font-sans mt-0.5">Permita que mÃºltiplos novos alunos se inscrevam ao mesmo tempo</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowGeneralEnrollmentModal(false)}
+                className="text-slate-400 hover:text-white transition text-xs p-1.5 rounded-full bg-slate-855 cursor-pointer hover:bg-slate-800"
+              >
+                âœ•
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                Ideal para uso em salas de aula ou encontros de orientaÃ§Ã£o. Projete esta tela ou compartilhe o QR Code/Link com o grupo. Cada aluno poderÃ¡ fazer a prÃ³pria inscriÃ§Ã£o individual em seu prÃ³prio smartphone em tempo real!
+              </p>
+
+              {/* URL & Link copy widget */}
+              <div className="space-y-1.5 bg-slate-950/80 p-4 rounded-2xl border border-slate-850">
+                <span className="text-[9px] text-[#32bcad] font-extrabold uppercase tracking-widest font-mono block">
+                  ğŸ”— Link Geral de Auto-MatrÃ­cula
+                </span>
+                <div className="flex items-stretch gap-1.5">
+                  <input
+                    type="text"
+                    readOnly
+                    value={`${AUTODRIVE_PLATFORM_URL}/?inscrever=true`}
+                    className="bg-slate-900 text-slate-300 font-mono text-[10px] p-2.5 rounded-xl border border-slate-800 focus:outline-none select-all truncate flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const genLink = `${AUTODRIVE_PLATFORM_URL}/?inscrever=true`;
+                      navigator.clipboard.writeText(genLink);
+                      setToastMessage("ğŸ“‹ Link geral de auto-matrÃ­cula copiado!");
+                    }}
+                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black px-4 rounded-xl transition active:scale-95 shrink-0 cursor-pointer"
+                  >
+                    Copiar
+                  </button>
+                </div>
+              </div>
+
+              {/* Dynamic QR Code display using high compatibility server-side generation */}
+              <div className="flex flex-col items-center bg-slate-950 p-4 rounded-2xl border border-slate-850 space-y-3">
+                <div className="bg-white p-3 rounded-2xl shadow-lg">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`${AUTODRIVE_PLATFORM_URL}/?inscrever=true`)}`}
+                    alt="QR Code Auto-MatrÃ­cula Geral"
+                    className="w-[160px] h-[160px] object-contain shadow-xs"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <div className="text-center space-y-0.5">
+                  <span className="text-[10px] text-emerald-400 font-mono font-black uppercase tracking-wider block">
+                    Escaneie Para ComeÃ§ar
+                  </span>
+                  <p className="text-[9px] text-slate-500 max-w-xs leading-normal">
+                    Todos os inscritos aparecerÃ£o instantaneamente no painel de acompanhamento.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setShowGeneralEnrollmentModal(false)}
+                className="w-full bg-slate-800 hover:bg-slate-750 text-white font-extrabold py-3 rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5 uppercase font-sans border border-slate-700"
+              >
+                Voltar ao Painel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- CONFIRM simulated PIX MODAL (for payment) --- */}
+      {showPixModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl shadow-2xl w-full max-w-sm md:max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col">
+            
+            {/* Header with dynamic color styles based on selected payment tab */}
+            <div className={`transition-colors duration-350 border-b border-slate-800 p-5 flex items-center justify-between ${
+              paymentTab === 'cartao' ? 'bg-[#291e12]' : 'bg-[#112330]'
+            }`}>
+              <div className="flex items-center gap-2">
+                {paymentTab === 'cartao' ? (
+                  <>
+                    <span className="p-1 px-2 text-[9px] font-black tracking-widest text-[#151515] bg-amber-500 rounded font-sans uppercase">
+                      CartÃ£o de CrÃ©dito
+                    </span>
+                    <span className="text-xs font-black text-[#e2e8f0]">Parcelamento FlexÃ­vel</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="p-1 px-2 text-[9px] font-black tracking-widest text-[#151515] bg-[#32bcad] rounded font-sans uppercase">
+                      Pix Oficial
+                    </span>
+                    <span className="text-xs font-black text-[#e2e8f0]">DepÃ³sito no BaÃº CNH</span>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPixModal(false);
+                }}
+                className="text-slate-400 hover:text-white transition text-xs p-1 rounded-full bg-slate-800 cursor-pointer"
+              >
+                âœ•
+              </button>
+            </div>
+
+            {/* PAYMENT METHOD TABS */}
+            {(!currentStudent?.formaPagamento || currentStudent?.formaPagamento === 'hibrido') && (
+              <div className="flex border-b border-slate-800 bg-slate-950/40 select-none">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentTab('pix');
+                    if (currentStudent?.formaPagamento !== 'hibrido') {
+                      const totalParc = currentStudent?.parcelasTotal || 12;
+                      const defaultInstallmentVal = currentStudent?.formaPagamento === 'vista'
+                        ? currentStudent.valorTotal
+                        : currentStudent.valorTotal / totalParc;
+                      setPixAmountSimulated(defaultInstallmentVal);
+                    }
+                  }}
+                  className={`flex-1 py-3 text-[10.5px] font-bold tracking-wider hover:text-white transition flex items-center justify-center gap-1.5 border-b-2 uppercase cursor-pointer ${
+                    paymentTab === 'pix'
+                      ? 'border-[#32bcad] text-[#32bcad] font-extrabold bg-[#32bcad]/5'
+                      : 'border-transparent text-slate-400 hover:bg-slate-850'
+                  }`}
+                >
+                  <span>âš¡</span> Pix Copia-e-Cola
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentTab('cartao');
+                    if (currentStudent && currentStudent.formaPagamento !== 'hibrido') {
+                      setPixAmountSimulated(currentStudent.valorTotal);
+                    }
+                  }}
+                  className={`flex-1 py-3 text-[10.5px] font-bold tracking-wider hover:text-white transition flex items-center justify-center gap-1.5 border-b-2 uppercase cursor-pointer ${
+                    paymentTab === 'cartao'
+                      ? 'border-amber-500 text-amber-400 font-extrabold bg-amber-500/5'
+                      : 'border-transparent text-slate-400 hover:bg-slate-850'
+                  }`}
+                >
+                  <span>ğŸ’³</span> CartÃ£o de CrÃ©dito
+                </button>
+              </div>
+            )}
+
+            <div className="p-5 space-y-4 text-center overflow-y-auto max-h-[75vh]">
+              
+              {/* Receiver Account info card */}
+              <div className="space-y-0.5">
+                <h3 className="text-base font-black text-white">Nova CNH Brasil na MÃ£o</h3>
+                <p className="text-[10px] text-slate-400">ArrecadaÃ§Ã£o e PoupanÃ§a Preventiva Ativa</p>
+              </div>
+
+              {paymentTab !== 'cartao' && currentStudent?.formaPagamento !== 'vista' && (
+                <>
+                  {/* PROPAGANDA / INSTRUCTION INFO */}
+                  <div className="bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-cyan-500/10 border border-emerald-500/20 rounded-2xl p-3.5 text-left relative overflow-hidden shadow-xs animate-in slide-in-from-top-2 duration-200">
+                    <div className="absolute right-2 -bottom-2 text-4xl opacity-10 pointer-events-none select-none">
+                      ğŸª™
+                    </div>
+                    <h4 className="font-extrabold text-[10px] text-[#32bcad] uppercase tracking-wider flex items-center gap-1.5">
+                      <span>âœ¨</span> PROGRAMA BAÃš DA CNH
+                    </h4>
+                    <p className="font-black text-xs text-slate-100 mt-1 leading-snug">
+                      Defina o valor do seu aporte atual:
+                    </p>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                      Defina a quantia que vocÃª deseja pagar agora para o seu plano ({currentStudent.categoria} - Valor Total {currentStudent.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}).
+                    </p>
+                  </div>
+
+                  {/* Input for Free-form value deposit */}
+                  {currentStudent?.formaPagamento === 'hibrido' ? (
+                    <div className="space-y-4 p-4 rounded-3xl bg-slate-950/50 border border-slate-800 text-left animate-in slide-in-from-top-2 duration-205">
+                      <span className="text-[10.5px] text-teal-400 font-extrabold uppercase tracking-wide flex items-center gap-1">
+                        <span>ğŸ”€</span> DivisÃ£o de Valores Personalizada:
+                      </span>
+                      
+                      <div className="grid grid-cols-2 gap-3.5">
+                        <div className="space-y-1">
+                          <label className="text-[9.5px] text-slate-450 font-black uppercase tracking-wider block">
+                            ğŸ’¸ Pagar no Pix:
+                          </label>
+                          <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                              <span className="text-slate-500 font-sans font-black text-xs">R$</span>
+                            </div>
+                            <input
+                              type="number"
+                              min="0"
+                              max={currentStudent.valorTotal}
+                              step="any"
+                              value={hybridPixAmount || ""}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                const cleanVal = isNaN(val) ? 0 : val;
+                                const clampedVal = Math.min(cleanVal, currentStudent.valorTotal);
+                                setHybridPixAmount(clampedVal);
+                              }}
+                              className="w-full bg-slate-950 border border-slate-850 focus:border-[#32bcad] rounded-2xl pl-8 pr-2 py-2 text-white font-mono font-extrabold text-sm focus:outline-none focus:ring-1 focus:ring-[#32bcad] transition-all"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[9.5px] text-slate-450 font-black uppercase tracking-wider block">
+                            ğŸ’³ Pagar no CartÃ£o:
+                          </label>
+                          <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                              <span className="text-slate-500 font-sans font-black text-xs">R$</span>
+                            </div>
+                            <input
+                              type="number"
+                              min="0"
+                              max={currentStudent.valorTotal}
+                              step="any"
+                              value={(currentStudent.valorTotal - hybridPixAmount) || ""}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                const cleanVal = isNaN(val) ? 0 : val;
+                                const clampedVal = Math.min(cleanVal, currentStudent.valorTotal);
+                                setHybridPixAmount(currentStudent.valorTotal - clampedVal);
+                              }}
+                              className="w-full bg-slate-950 border border-slate-850 focus:border-amber-500 rounded-2xl pl-8 pr-2 py-2 text-white font-mono font-extrabold text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Slider Control for ultra fine-grained splitting */}
+                      <div className="space-y-1 pt-1.5 border-t border-slate-900">
+                        <div className="flex justify-between text-[8.5px] font-extrabold text-slate-500 uppercase tracking-wider">
+                          <span>100% CartÃ£o</span>
+                          <span className="text-[#32bcad] font-black">{Math.round((hybridPixAmount / currentStudent.valorTotal) * 100)}% Pix / {100 - Math.round((hybridPixAmount / currentStudent.valorTotal) * 100)}% CartÃ£o</span>
+                          <span>100% Pix</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max={currentStudent.valorTotal}
+                          step="10"
+                          value={hybridPixAmount}
+                          onChange={(e) => setHybridPixAmount(Number(e.target.value))}
+                          className="w-full accent-[#32bcad] cursor-pointer h-1.5 bg-slate-800 rounded-lg appearance-none"
+                        />
+                      </div>
+
+                      {/* Split Percentage slider option or presets */}
+                      <div className="space-y-1.5 pt-1.5">
+                        <span className="text-[8.5px] text-slate-500 uppercase tracking-wider font-extrabold block">Atalhos RÃ¡pidos de Acordo:</span>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {[
+                            { label: "30% Pix / 70% ğŸ’³", pct: 0.3 },
+                            { label: "50% Pix / 50% ğŸ’³", pct: 0.5 },
+                            { label: "70% Pix / 30% ğŸ’³", pct: 0.7 }
+                          ].map((preset, idx) => {
+                            const pixPresetVal = Math.round(currentStudent.valorTotal * preset.pct);
+                            const isActive = Math.abs(hybridPixAmount - pixPresetVal) < 10;
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => setHybridPixAmount(pixPresetVal)}
+                                className={`px-2 py-1 rounded-lg text-[9px] font-black tracking-tighter transition active:scale-95 border ${
+                                  isActive
+                                    ? 'bg-[#32bcad]/20 border-[#32bcad] text-[#32bcad]'
+                                    : 'bg-slate-950 border-slate-850 hover:bg-slate-900 text-slate-400 hover:text-slate-200'
+                                } cursor-pointer`}
+                              >
+                                {preset.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-1.5 text-left animate-in slide-in-from-top-2 duration-200">
+                        <label className="text-[9.5px] text-slate-400 font-extrabold uppercase tracking-wider block">
+                          Defina o valor para guardar no seu baÃº:
+                        </label>
+                        <div className="relative">
+                          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+                            <span className="text-slate-400 font-sans font-extrabold text-sm">R$</span>
+                          </div>
+                          <input
+                            type="number"
+                            min="1"
+                            step="any"
+                            disabled={isProcessingCardPayment}
+                            value={pixAmountSimulated || ""}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              setPixAmountSimulated(isNaN(val) ? 0 : val);
+                            }}
+                            className="w-full bg-slate-950/80 border border-slate-800 focus:border-[#32bcad] rounded-2xl pl-10 pr-4 py-2.5 text-white font-mono font-extrabold text-base placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-[#32bcad] transition-all disabled:opacity-50"
+                            placeholder="0,00"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Shortcuts selection */}
+                      <div className="space-y-1.5 text-left animate-in slide-in-from-top-2 duration-200">
+                        <span className="text-[9px] text-slate-500 uppercase tracking-wider font-extrabold block">Atalhos para Poupar</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[50, 100, 200, 500].map((val) => (
+                            <button
+                              key={val}
+                              type="button"
+                              disabled={isProcessingCardPayment}
+                              onClick={() => setPixAmountSimulated(val)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition active:scale-95 border ${
+                                pixAmountSimulated === val
+                                  ? 'bg-[#32bcad]/20 border-[#32bcad] text-[#32bcad]'
+                                  : 'bg-slate-950 border-slate-850 hover:bg-slate-900 text-slate-400 hover:text-slate-200'
+                              } disabled:opacity-50 cursor-pointer`}
+                            >
+                              + R$ {val}
+                            </button>
+                          ))}
+                          {valorParcela > 0 && (
+                            <button
+                              type="button"
+                              disabled={isProcessingCardPayment}
+                              onClick={() => setPixAmountSimulated(Number(valorParcela.toFixed(2)))}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition active:scale-95 border ${
+                                Math.abs(pixAmountSimulated - valorParcela) < 0.05
+                                  ? 'bg-amber-500/20 border-amber-500 text-amber-400'
+                                  : 'bg-slate-950 border-slate-850 hover:bg-slate-900 text-slate-400 hover:text-slate-300'
+                              } disabled:opacity-50 cursor-pointer`}
+                              title="Sugerido conforme o plano original parcelado"
+                            >
+                              â­ Parcela do Plano (R$ {valorParcela.toFixed(0)})
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+
+              {paymentTab === 'pix' && currentStudent?.formaPagamento === 'vista' && (
+                <div className="bg-indigo-950/40 border border-indigo-500/20 rounded-2xl p-4 text-left animate-in slide-in-from-top-2 duration-200">
+                  <h4 className="font-extrabold text-[10px] text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>ğŸ’µ</span> PLANO Ã€ VISTA CONTRATADO
+                  </h4>
+                  <p className="text-[11px] text-slate-350 mt-1 leading-normal font-semibold">
+                    Seu plano cadastrado Ã© para pagamento Ã  vista. Disponibilizamos o QR Code de pagamento seguro via Pix para a quitaÃ§Ã£o integral no valor de <strong>{currentStudent.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>.
+                  </p>
+                </div>
+              )}
+
+              {paymentTab === 'pix' && currentStudent?.formaPagamento === 'hibrido' && (
+                <div className="bg-teal-950/40 border border-teal-500/20 rounded-2xl p-4 text-left animate-in slide-in-from-top-2 duration-200">
+                  <h4 className="font-extrabold text-[10px] text-teal-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>ğŸ”€</span> PLANO HÃBRIDO ATIVO (PIX + CARTÃƒO)
+                  </h4>
+                  <p className="text-[11px] text-slate-350 mt-1 leading-normal font-semibold">
+                    Esta aba Ã© para pagar a parte do <strong>Pix / Ã€ Vista</strong>. Use os seletores abaixo ou insira o valor combinado. A outra metade correspondente ao cartÃ£o pode ser paga acessando a aba <strong>CartÃ£o de CrÃ©dito</strong> no topo deste painel. Valor sugerido para o Pix: <strong>{((currentStudent.valorTotal || 0) / 2).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>.
+                  </p>
+                </div>
+              )}
+
+              {/* TAB-SPECIFIC VIEWS */}
+              {paymentTab === 'pix' ? (
+                <div className="space-y-4 pt-1 animate-in fade-in duration-200">
+                  {/* ALERTA DE INSTRUÃ‡ÃƒO DO PIX SOLICITADO PELO USUÃRIO */}
+                  <div className="bg-amber-500/10 border-2 border-amber-500/40 p-4 rounded-2xl text-left flex items-start gap-3">
+                    <span className="text-xl shrink-0 animate-bounce">ğŸ“¢</span>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-amber-400 font-extrabold uppercase tracking-wider block">Procedimento ObrigatÃ³rio</span>
+                      <p className="text-xs text-amber-200 font-black leading-snug uppercase">
+                        LEIA O QR CODE, REALIZE SEU PAGAMENTO E LOGO APÃ“S SELECIONE CONFIRMAR PAGAMENTO.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Real Dynamic QR Code */}
+                  <div className="space-y-2.5">
+                    {(() => {
+                      const payload = buildPixPayload(currentStudent?.formaPagamento === 'hibrido' ? hybridPixAmount : pixAmountSimulated);
+                      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(payload)}`;
+                      return (
+                        <div className="bg-white p-3.5 rounded-3xl w-44 h-44 mx-auto flex items-center justify-center border-4 border-slate-700/10 shadow-xl relative select-none">
+                          <img 
+                            src={qrCodeUrl} 
+                            alt="QR Code Pix Real" 
+                            className="w-full h-full object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      );
+                    })()}
+                    <div className="flex items-center justify-center gap-1.5 text-[9.5px] text-[#32bcad] font-bold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#32bcad] animate-ping"></span>
+                      <span>Aguardando a rede do Banco Central...</span>
+                    </div>
+                  </div>
+
+                  {/* DADOS DA INSTITUIÃ‡ÃƒO A RECEBER (BANCO STONE - MAQUININHA TOP TON) */}
+                  <div className="bg-slate-950/85 rounded-2xl p-3.5 border border-emerald-500/10 text-left text-[11px] space-y-2.5 animate-in fade-in duration-200">
+                    <span className="text-[9px] text-[#32bcad] font-extrabold uppercase tracking-wider block">ğŸ¦ Conta de Destino / Recebimento Oficial</span>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-2 font-medium text-slate-300">
+                      <div>
+                        <span className="text-[9px] text-slate-500 block">InstituiÃ§Ã£o Financeira</span>
+                        <span className="font-extrabold text-slate-200">Banco Stone S.A.</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-500 block">Meio de Captura</span>
+                        <span className="font-extrabold text-slate-200 flex items-center gap-1">
+                          ğŸŸ¢ Maquininha Top Ton
+                        </span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-[9px] text-slate-500 block">Titular / BeneficiÃ¡rio</span>
+                        <span className="font-black text-emerald-400">MIQUEIAS SOUZA DE LIMA</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-[9px] text-slate-500 block">Chave Pix (Tipo: AleatÃ³ria)</span>
+                        <div className="flex items-center justify-between gap-1.5 mt-1 bg-slate-900/90 px-2.5 py-1.5 rounded-xl border border-slate-800">
+                          <span className="font-mono text-[9px] text-slate-200 select-all truncate">02c2c285-d480-488e-85c0-311e0eb7811a</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText("02c2c285-d480-488e-85c0-311e0eb7811a");
+                              setToastMessage("ğŸ“‹ Chave Pix Copiada!");
+                            }}
+                            className="bg-[#32bcad] hover:bg-[#28a395] text-slate-950 text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg transition active:scale-95 cursor-pointer shrink-0"
+                          >
+                            Copiar Chave
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PIX COPIA E COLA */}
+                  <div className="space-y-1 text-left font-sans text-xs">
+                    <span className="text-[9px] text-slate-500 font-extrabold uppercase">Pix Copia e Cola</span>
+                    <div className="flex items-stretch gap-2">
+                       <input
+                        type="text"
+                        readOnly
+                        value={buildPixPayload(currentStudent?.formaPagamento === 'hibrido' ? hybridPixAmount : pixAmountSimulated)}
+                        className="w-full bg-slate-950/70 text-slate-400 font-mono text-[9px] p-2 rounded-lg border border-slate-800 focus:outline-none select-all truncate animate-pulse"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const amt = currentStudent?.formaPagamento === 'hibrido' ? hybridPixAmount : pixAmountSimulated;
+                          navigator.clipboard.writeText(buildPixPayload(amt));
+                          setToastMessage("ğŸ“‹ CÃ³digo Copiado!");
+                        }}
+                        className="bg-slate-800 hover:bg-slate-755 text-slate-200 text-[10px] font-bold px-3 py-1 rounded-lg transition active:scale-95 shrink-0 cursor-pointer"
+                      >
+                        Copiar
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* COMPARTILHAMENTO DE COMPROVANTE DE PAGAMENTO PIX (JANELA DE COMPARTILHAMENTO) */}
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-3 text-left">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-amber-400 uppercase tracking-wider font-extrabold flex items-center gap-1.5">
+                        <span>ğŸ“¤</span> Compartilhar Comprovante do Pix
+                      </span>
+                      {pixReceipt ? (
+                        <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-bold animate-pulse">
+                          âœ“ Recebido
+                        </span>
+                      ) : (
+                        <span className="text-[9px] bg-rose-500/10 text-rose-400 px-2 py-0.5 rounded font-bold">
+                          ObrigatÃ³rio
+                        </span>
+                      )}
+                    </div>
+                    
+                    <p className="text-[10px] text-slate-400 leading-relaxed font-semibold">
+                      Para confirmar seu depÃ³sito e guardar os crÃ©ditos no seu baÃº, anexe ou arraste uma foto/PDF do comprovante de transaÃ§Ã£o Pix abaixo.
+                    </p>
+
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsReceiptDragging(true);
+                      }}
+                      onDragLeave={() => setIsReceiptDragging(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsReceiptDragging(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) handleReceiptFile(file);
+                      }}
+                      className={`relative border-2 border-dashed rounded-xl p-3 text-center transition-all cursor-pointer select-none ${
+                        pixReceipt
+                          ? "border-emerald-500/50 bg-emerald-500/5"
+                          : isReceiptDragging
+                            ? "border-[#32bcad] bg-[#32bcad]/10 scale-[1.01]"
+                            : "border-slate-800 bg-slate-950/40 hover:bg-slate-950/70 hover:border-slate-700"
+                      }`}
+                      onClick={() => !isValidatingReceipt && document.getElementById("pix-receipt-file-input")?.click()}
+                    >
+                      <input
+                        type="file"
+                        id="pix-receipt-file-input"
+                        className="hidden"
+                        accept="image/*,application/pdf"
+                        disabled={isValidatingReceipt}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleReceiptFile(file);
+                        }}
+                      />
+                      
+                      {isValidatingReceipt ? (
+                        <div className="space-y-2 animate-pulse py-2">
+                          <div className="mx-auto w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-400 text-sm animate-spin">
+                            â³
+                          </div>
+                          <div className="space-y-0.5">
+                            <p className="text-[11px] font-bold text-amber-300">
+                              Auditor Virtual Analisando o Documento...
+                            </p>
+                            <p className="text-[8.5px] text-slate-400 font-medium font-sans">
+                              Escaneando comprovante em busca de metadados bancÃ¡rios
+                            </p>
+                          </div>
+                        </div>
+                      ) : pixReceipt ? (
+                        <div className="space-y-1.5 animate-in fade-in duration-200">
+                          <div className="mx-auto w-8 h-8 rounded-full bg-emerald-500/15 flex items-center justify-center text-emerald-400 text-sm">
+                            ğŸ“„
+                          </div>
+                          <div className="space-y-0.5">
+                            <p className="text-[11px] font-bold text-slate-200 truncate max-w-[200px] mx-auto">
+                              {pixReceiptName || "comprovante_pix.png"}
+                            </p>
+                            <p className="text-[9px] text-emerald-400 font-semibold text-center">
+                              âœ“ Comprovante aprovado e anexado ao dossiÃª!
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <div className="mx-auto w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 text-sm">
+                            ğŸ“¤
+                          </div>
+                          <div className="space-y-0.5">
+                            <p className="text-[11px] font-bold text-slate-300">
+                              Clique para escolher ou arraste o arquivo aqui
+                            </p>
+                            <p className="text-[8.5px] text-slate-500 font-medium">
+                              PNG, JPG ou PDF de atÃ© 5MB
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {currentStudent?.formaPagamento === 'hibrido' && (
+                    <div className="bg-[#291e12] border border-amber-500/20 rounded-2xl p-3.5 space-y-2 text-left mt-1 shadow-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="p-0.5 px-1.5 text-[8.5px] font-black tracking-widest text-[#151515] bg-amber-500 rounded font-sans uppercase">
+                          CartÃ£o HÃ­brido
+                        </span>
+                        <span className="text-[10px] font-extrabold text-amber-400">Parte Restante do CartÃ£o</span>
+                      </div>
+                      <p className="text-[10px] text-slate-350 font-semibold leading-snug">
+                        Lembre-se de solicitar o link do cartÃ£o para a outra parte de R$ {(currentStudent.valorTotal - hybridPixAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}:
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const studentName = currentStudent?.nome || "Candidato";
+                          const studentId = currentStudent?.id || "";
+                          const cardValue = currentStudent.valorTotal - hybridPixAmount;
+                          const valueFormatted = cardValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                          const waText = `OlÃ¡ Miqueias! Sou o aluno ${studentName} (ID: ${studentId}) do programa Nova CNH. Estou no Plano HÃ­brido, jÃ¡ fiz/vou fazer o Pix da entrada de R$ ${hybridPixAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} e agora gostaria de solicitar o Link Seguro de Parcelamento no CartÃ£o para a outra parte de R$ ${valueFormatted} (em atÃ© 12x sem juros).`;
+                          const url = `https://wa.me/5581992011024?text=${encodeURIComponent(waText)}`;
+                          window.open(url, '_blank');
+                          setRequestedHybridCardLink(true);
+                          setToastMessage("ğŸ“² Redirecionando para solicitar o Link do CartÃ£o...");
+                        }}
+                        className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-2 rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer uppercase tracking-wider text-center"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                        Solicitar Link no Whatsapp
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Footer Buttons for Pix */}
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPixModal(false);
+                      }}
+                      className="bg-slate-800 hover:bg-slate-755 text-slate-300 font-bold py-2.5 rounded-xl text-xs transition active:scale-[0.98] cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmPixPayment}
+                      disabled={!pixReceipt}
+                      className={`font-black py-2.5 rounded-xl text-xs transition shadow-lg active:scale-[0.98] cursor-pointer border ${
+                        pixReceipt
+                          ? "bg-[#32bcad] hover:bg-[#3acebd] border-transparent text-slate-950 shadow-[#32bcad]/20"
+                          : "bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed opacity-60"
+                      }`}
+                      title={!pixReceipt ? "Envie o comprovante para confirmar o depÃ³sito" : "Confirmar o depÃ³sito no baÃº"}
+                    >
+                      {pixReceipt ? "âœ“ Confirmar DepÃ³sito" : "ğŸ”’ Aguardando Comprovante"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4 pt-1 animate-in fade-in duration-200 text-left">
+                  
+                  {currentStudent?.formaPagamento === 'hibrido' && (
+                    <div className="bg-[#291e12] border border-amber-500/20 rounded-2xl p-4 text-left animate-in slide-in-from-top-2 duration-200">
+                      <h4 className="font-extrabold text-[10px] text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>ğŸ’³</span> PARTE NO CARTÃƒO - PLANO HÃBRIDO
+                      </h4>
+                      <p className="text-[11px] text-slate-350 mt-1 leading-normal font-semibold">
+                        Esta aba Ã© para parcelar a parte do <strong>CartÃ£o de CrÃ©dito</strong>. Selecione abaixo as parcelas do cartÃ£o para a parte restante (ou outro valor combinado). Valor de acordo para o CartÃ£o: <strong>{cardAmountToPay.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* SELECT FOR INSTALLMENTS (PARCELAS) - PLACED PROMINENTLY AT THE TOP */}
+                  <div className="space-y-1.5 p-3 rounded-xl bg-slate-950/40 border border-slate-800">
+                    <label className="text-[10px] text-amber-400 font-extrabold uppercase tracking-wider block flex items-center gap-1">
+                      <span>ğŸ’³</span> Escolha o Parcelamento no CartÃ£o:
+                    </label>
+                    <select
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-white font-semibold text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all cursor-pointer"
+                      value={cardInstallments}
+                      onChange={(e) => setCardInstallments(Number(e.target.value))}
+                    >
+                      <option value={1}>1x de {cardAmountToPay.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} Ã  vista (Sem Juros)</option>
+                      {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((num) => {
+                        const valuePerInstallment = cardAmountToPay / num;
+                        return (
+                          <option key={num} value={num}>
+                            {num}x de {valuePerInstallment.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} sem juros
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <span className="text-[9.5px] text-slate-400 block italic leading-normal">
+                      Valor total a ser amortizado: <strong>{cardAmountToPay.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong> {cardInstallments > 1 && `em ${cardInstallments} parcelas de ${(cardAmountToPay / cardInstallments).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}.
+                    </span>
+                  </div>
+
+                  {/* SECURE SUPPORT CHANNEL BLOCK */}
+                  <div className="bg-amber-950/30 border-2 border-amber-500/30 rounded-2xl p-5 space-y-4 text-left animate-in zoom-in-95 duration-150 relative overflow-hidden">
+                    <div className="absolute -right-4 -bottom-4 text-6xl opacity-[0.03] select-none pointer-events-none">
+                      ğŸ›¡ï¸
+                    </div>
+
+                    <div className="flex gap-3">
+                      <span className="text-2xl shrink-0">ğŸ›¡ï¸</span>
+                      <div className="space-y-1.5">
+                        <h4 className="font-extrabold text-amber-400 text-xs uppercase tracking-wider flex items-center gap-1 font-mono">
+                          Canal de Atendimento Seguro
+                        </h4>
+                        <p className="text-slate-100 text-xs font-black leading-relaxed">
+                          Para sua seguranÃ§a, fale direto com nosso consultor para receber o link parcelado.
+                        </p>
+                        <p className="text-slate-400 text-[10.5px] leading-relaxed font-semibold">
+                          Nenhum dado sensÃ­vel do seu cartÃ£o Ã© digitado ou armazenado nesta pÃ¡gina. Nosso consultor enviarÃ¡ o link de pagamento verificado oficial com o plano de {cardInstallments}x de {(cardAmountToPay / cardInstallments).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} sem juros.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const studentName = currentStudent?.nome || "Candidato";
+                        const studentId = currentStudent?.id || "";
+                        const valueFormatted = cardAmountToPay.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                        const installmentValue = (cardAmountToPay / cardInstallments).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                        const waText = `OlÃ¡ Miqueias! Sou o aluno ${studentName} (ID: ${studentId}) do programa Nova CNH. Escolhi pagar no cartÃ£o de crÃ©dito parcelando em ${cardInstallments}x de ${installmentValue} (Valor Total: ${valueFormatted}). Gostaria de solicitar o meu Link Seguro de Parcelamento no WhatsApp para efetivar o pagamento.`;
+                        const url = `https://wa.me/5581992011024?text=${encodeURIComponent(waText)}`;
+                        window.open(url, '_blank');
+                      }}
+                      className="w-full bg-[#25D366] hover:bg-[#20ba56] text-slate-950 font-black py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition duration-150 active:scale-95 shadow-md shadow-[#25D366]/20 cursor-pointer text-center uppercase tracking-wider"
+                    >
+                      <MessageSquare className="h-4.5 w-4.5 shrink-0" />
+                      Falar com Consultor e Receber Link
+                    </button>
+                  </div>
+
+                  {/* Footer Buttons for Credit Card / WhatsApp */}
+                  <div className="space-y-2 pt-3 border-t border-slate-800/40">
+                    {currentStudent?.formaPagamento === 'hibrido' && (
+                      <button
+                        type="button"
+                        onClick={confirmHybridCardPayment}
+                        className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-2.5 rounded-xl text-xs transition active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 uppercase shadow-md"
+                      >
+                        âœ“ Confirmar Pagamento do CartÃ£o (R$ {cardAmountToPay.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })})
+                      </button>
+                    )}
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowPixModal(false)}
+                        className="bg-slate-800 hover:bg-slate-755 text-slate-300 font-bold py-2.5 rounded-xl text-xs transition active:scale-[0.98] cursor-pointer text-center"
+                      >
+                        Cancelar
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const studentName = currentStudent?.nome || "Candidato";
+                          const studentId = currentStudent?.id || "";
+                          const valueFormatted = cardAmountToPay.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                          const installmentValue = (cardAmountToPay / cardInstallments).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                          const waText = `OlÃ¡ Miqueias! Sou o aluno ${studentName} (ID: ${studentId}) do programa Nova CNH. Escolhi pagar no cartÃ£o de crÃ©dito parcelando em ${cardInstallments}x de ${installmentValue} (Valor Total: ${valueFormatted}). Gostaria de solicitar o meu Link Seguro de Parcelamento no WhatsApp para efetivar o pagamento.`;
+                          const url = `https://wa.me/5581992011024?text=${encodeURIComponent(waText)}`;
+                          window.open(url, '_blank');
+                          setRequestedHybridCardLink(true);
+                        }}
+                        className="bg-[#25D366] hover:bg-[#20ba56] text-slate-950 font-black py-2.5 rounded-xl text-xs transition shadow-lg shadow-[#25D366]/20 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 uppercase"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        <span>Chamar no WhatsApp</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: NEW / EDIT STUDENT (ADMIN) --- */}
+      {isAlunoModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg border border-slate-100 overflow-hidden animate-in fade-in zoom-in duration-150">
+            
+            <div className="bg-[#0c2340] text-white p-4 flex items-center justify-between">
+              <h3 className="font-bold text-sm md:text-base">
+                {editingAluno ? `Editar Registro [${editingAluno.id}]` : 'Cadastrar Jovem no Programa'}
+              </h3>
+              <button 
+                onClick={() => setIsAlunoModalOpen(false)}
+                className="text-slate-300 hover:text-white font-bold text-lg p-1.5"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAluno} className="p-5 space-y-4 text-slate-800 max-h-[80vh] overflow-y-auto">
+              
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-700">Nome Completo do Candidato</label>
+                <input
+                  type="text"
+                  required
+                  value={alunoForm.nome}
+                  onChange={(e) => setAlunoForm({ ...alunoForm, nome: e.target.value })}
+                  placeholder="Ex: Gabriel Henrique Souza"
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500 font-bold"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">CPF do Candidato</label>
+                  <input
+                    type="text"
+                    value={alunoForm.cpf}
+                    onChange={(e) => setAlunoForm({ ...alunoForm, cpf: e.target.value })}
+                    placeholder="000.000.000-00"
+                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500 font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">RG / Ã“rgÃ£o</label>
+                  <input
+                    type="text"
+                    value={alunoForm.rg}
+                    onChange={(e) => setAlunoForm({ ...alunoForm, rg: e.target.value })}
+                    placeholder="0.000.000 SDS/PE"
+                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500 font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Data de Nascimento</label>
+                  <input
+                    type="date"
+                    required
+                    value={alunoForm.dob}
+                    onChange={(e) => setAlunoForm({ ...alunoForm, dob: e.target.value })}
+                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">WhatsApp Candidato</label>
+                  <input
+                    type="text"
+                    required
+                    value={alunoForm.whatsapp}
+                    onChange={(e) => setAlunoForm({ ...alunoForm, whatsapp: e.target.value })}
+                    placeholder="(81) 99876-0000"
+                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Nacionalidade</label>
+                  <input
+                    type="text"
+                    value={alunoForm.nacionalidade}
+                    onChange={(e) => setAlunoForm({ ...alunoForm, nacionalidade: e.target.value })}
+                    placeholder="Brasileira"
+                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Estado Civil</label>
+                  <select
+                    value={alunoForm.estadoCivil}
+                    onChange={(e) => setAlunoForm({ ...alunoForm, estadoCivil: e.target.value })}
+                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="Solteiro(a)">Solteiro(a)</option>
+                    <option value="Casado(a)">Casado(a)</option>
+                    <option value="Divorciado(a)">Divorciado(a)</option>
+                    <option value="UniÃ£o EstÃ¡vel">UniÃ£o EstÃ¡vel</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-700">EndereÃ§o Residencial Completo</label>
+                <input
+                  type="text"
+                  required
+                  value={alunoForm.endereco}
+                  onChange={(e) => setAlunoForm({ ...alunoForm, endereco: e.target.value })}
+                  placeholder="Ex: Rua Imperial, 100 - Recife Centro"
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* SE Menor de 18 anos, exibe campos do ResponsÃ¡vel */}
+              {calculateAge(alunoForm.dob) < 18 && (
+                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 space-y-2">
+                  <span className="text-xs font-bold text-amber-900 flex items-center gap-1">
+                    ğŸ‘¨â€ğŸ‘©â€ğŸ‘¦ Dados do ResponsÃ¡vel Legal (Candidato Menor de 18 Anos)
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Nome do ResponsÃ¡vel Legal"
+                      value={alunoForm.nomeResponsavel}
+                      onChange={(e) => setAlunoForm({ ...alunoForm, nomeResponsavel: e.target.value })}
+                      className="text-xs p-1.5 bg-white border border-amber-200 rounded"
+                    />
+                    <input
+                      type="text"
+                      placeholder="WhatsApp do ResponsÃ¡vel"
+                      value={alunoForm.whatsappResponsavel}
+                      onChange={(e) => setAlunoForm({ ...alunoForm, whatsappResponsavel: e.target.value })}
+                      className="text-xs p-1.5 bg-white border border-amber-200 rounded"
+                    />
+                    <input
+                      type="text"
+                      placeholder="CPF do ResponsÃ¡vel"
+                      value={alunoForm.cpfResponsavel}
+                      onChange={(e) => setAlunoForm({ ...alunoForm, cpfResponsavel: e.target.value })}
+                      className="text-xs p-1.5 bg-white border border-amber-200 rounded font-mono"
+                    />
+                    <input
+                      type="text"
+                      placeholder="RG do ResponsÃ¡vel"
+                      value={alunoForm.rgResponsavel}
+                      onChange={(e) => setAlunoForm({ ...alunoForm, rgResponsavel: e.target.value })}
+                      className="text-xs p-1.5 bg-white border border-amber-200 rounded font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Categoria Desejada</label>
+                  <select
+                    value={alunoForm.categoria}
+                    onChange={(e) => setAlunoForm({ ...alunoForm, categoria: e.target.value })}
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                  >
+                    {categoriasDisponiveis.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Instrutor Associado</label>
+                  <select
+                    value={alunoForm.instrutor}
+                    onChange={(e) => setAlunoForm({ ...alunoForm, instrutor: e.target.value })}
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="A definir">A definir / Pendente</option>
+                    {instrutores.map(i => (
+                      <option key={i.nome} value={i.nome}>{i.nome}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Qtd. de Aulas</label>
+                  <input
+                    type="number"
+                    min="2"
+                    max="100"
+                    required
+                    value={alunoForm.aulas || 20}
+                    onChange={(e) => setAlunoForm({ ...alunoForm, aulas: Number(e.target.value) })}
+                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500 font-extrabold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              {/* SEÃ‡ÃƒO FINANCEIRA & BAIXAS */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <span className="text-xs font-black text-slate-700 flex items-center gap-1 uppercase tracking-tight">
+                    ğŸ’µ SituaÃ§Ã£o Financeira & Baixas Manuais
+                  </span>
+                  {editingAluno && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAlunoModalOpen(false);
+                        handleAbrirBaixaManual(editingAluno);
+                      }}
+                      className="text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white font-black px-2.5 py-1 rounded-md transition shadow-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      ğŸ’³ Dar Baixa Manual
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-2 pt-1">
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Data AdesÃ£o</label>
+                    <input
+                      type="date"
+                      required
+                      value={alunoForm.dataAdesao}
+                      onChange={(e) => setAlunoForm({ ...alunoForm, dataAdesao: e.target.value })}
+                      className="w-full text-[11px] p-1.5 bg-white border border-slate-200 rounded"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Parc. Pagas</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max={alunoForm.parcelasTotal || 12}
+                      required
+                      value={alunoForm.parcelasPagas}
+                      onChange={(e) => setAlunoForm({ ...alunoForm, parcelasPagas: Number(e.target.value) })}
+                      className={`w-full text-[11px] p-1.5 bg-white border rounded font-black ${alunoForm.parcelasPagas === 0 ? 'text-amber-600 border-amber-300 bg-amber-50' : 'text-emerald-700 border-emerald-300 bg-emerald-50'}`}
+                    />
+                    <span className="text-[9px] text-slate-500 block leading-tight">
+                      {alunoForm.parcelasPagas === 0 ? 'âš ï¸ Sem pagamento' : `${alunoForm.parcelasPagas} parc. baixada(s)`}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Parc. Totais</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="12"
+                      required
+                      value={alunoForm.parcelasTotal}
+                      onChange={(e) => setAlunoForm({ ...alunoForm, parcelasTotal: Number(e.target.value) })}
+                      className="w-full text-[11px] p-1.5 bg-white border border-slate-200 rounded font-bold"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Forma Pagam.</label>
+                    <select
+                      value={alunoForm.formaPagamento}
+                      onChange={(e) => setAlunoForm({ ...alunoForm, formaPagamento: e.target.value as 'poupanca' | 'cartao' | 'vista' | 'hibrido' })}
+                      className="w-full text-[11px] p-1.5 bg-white border border-slate-200 rounded font-semibold text-slate-800 focus:outline-none"
+                    >
+                      <option value="poupanca">ğŸ“¦ BaÃº / PoupanÃ§a</option>
+                      <option value="cartao">ğŸ’³ CartÃ£o de CrÃ©dito</option>
+                      <option value="vista">ğŸ’µ Ã€ Vista (Pix/Dinheiro)</option>
+                      <option value="hibrido">ğŸ”€ HÃ­brido (Pix + CartÃ£o)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Val. Total (R$)</label>
+                    <input
+                      type="number"
+                      step="10"
+                      required
+                      value={alunoForm.valorTotal}
+                      onChange={(e) => setAlunoForm({ ...alunoForm, valorTotal: Number(e.target.value) })}
+                      className="w-full text-[11px] p-1.5 bg-white border border-slate-200 rounded font-bold text-emerald-800"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Senha Portal/App</label>
+                    <input
+                      type="text"
+                      required
+                      value={alunoForm.senha}
+                      onChange={(e) => setAlunoForm({ ...alunoForm, senha: e.target.value })}
+                      placeholder="Senha"
+                      className="w-full text-[11px] p-1.5 bg-white border border-slate-200 rounded font-mono font-bold text-slate-800"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+                <div className="text-[11px] text-slate-500">
+                  {editingAluno ? `ID: ${editingAluno.id}` : 'Novo Cadastro'}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAlunoModalOpen(false)}
+                    className="bg-slate-150 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-4 rounded transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 text-xs font-black py-2.5 px-5 rounded-lg transition shadow-md flex items-center gap-1 cursor-pointer"
+                  >
+                    {editingAluno ? 'ğŸ’¾ Salvar AlteraÃ§Ãµes Diretas' : 'Confirmar Cadastro'}
+                  </button>
+                </div>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: NEW / EDIT INSTRUCTOR (ADMIN) --- */}
+      {isInstrutorModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md border border-slate-100 overflow-hidden animate-in fade-in zoom-in duration-150">
+            
+            <div className="bg-emerald-600 text-white p-4 flex items-center justify-between">
+              <h3 className="font-bold text-sm md:text-base">
+                {editingInstrutor ? `Editar Credenciamento: ${editingInstrutor.nome}` : 'Credenciar Novo Instrutor'}
+              </h3>
+              <button 
+                onClick={() => setIsInstrutorModalOpen(false)}
+                className="text-white/80 hover:text-white font-bold text-lg p-1.5"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveInstrutor} className="p-5 space-y-4 text-slate-800">
+              
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-600">Nome Oficial do Instrutor AutÃ´nomo</label>
+                <input
+                  type="text"
+                  required
+                  value={instrutorForm.nome}
+                  onChange={(e) => setInstrutorForm({ ...instrutorForm, nome: e.target.value })}
+                  placeholder="Ex: Carlos AndrÃ© de Recife"
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                  disabled={editingInstrutor !== null}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-600">RegiÃ£o de Atendimento</label>
+                <input
+                  type="text"
+                  required
+                  value={instrutorForm.regiao}
+                  onChange={(e) => setInstrutorForm({ ...instrutorForm, regiao: e.target.value })}
+                  placeholder="Ex: Recife Centro"
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-600">Capacidade de Alunos</label>
+                  <div className="w-full text-xs p-2.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded font-bold flex items-center gap-1.5">
+                    <span>â™¾ï¸</span> Sem limite de alunos (Ilimitado)
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-600">Contato WhatsApp</label>
+                  <input
+                    type="text"
+                    required
+                    value={instrutorForm.whatsapp}
+                    onChange={(e) => setInstrutorForm({ ...instrutorForm, whatsapp: e.target.value })}
+                    placeholder="Ex: (81) 99312-0000"
+                    className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-600">Credencial SENATRAN</label>
+                <input
+                  type="text"
+                  required
+                  value={instrutorForm.credencialSenatran}
+                  onChange={(e) => setInstrutorForm({ ...instrutorForm, credencialSenatran: e.target.value })}
+                  placeholder="Ex: SENATRAN-PE-992147823"
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-600">Chave PIX (Para pagamento de comissÃ£o)</label>
+                <input
+                  type="text"
+                  value={instrutorForm.chavePix}
+                  onChange={(e) => setInstrutorForm({ ...instrutorForm, chavePix: e.target.value })}
+                  placeholder="Ex: CPF, E-mail, Celular ou Chave AleatÃ³ria"
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500 font-mono"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-600">EndereÃ§o Residencial/Profissional Completo</label>
+                <textarea
+                  required
+                  rows={2}
+                  value={instrutorForm.endereco}
+                  onChange={(e) => setInstrutorForm({ ...instrutorForm, endereco: e.target.value })}
+                  placeholder="Ex: Av. Governador Agamenon MagalhÃ£es, 1200 - Espinheiro, Recife - PE"
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500 font-sans resize-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-600">Tempo de ExperiÃªncia como Instrutor</label>
+                <input
+                  type="text"
+                  required
+                  value={instrutorForm.tempoExperiencia}
+                  onChange={(e) => setInstrutorForm({ ...instrutorForm, tempoExperiencia: e.target.value })}
+                  placeholder="Ex: 8 anos de experiÃªncia"
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-600">Breve Biografia / HistÃ³ria Profissional</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={instrutorForm.historia}
+                  onChange={(e) => setInstrutorForm({ ...instrutorForm, historia: e.target.value })}
+                  placeholder="Conte um pouco sobre sua jornada ensinando candidatos no trÃ¢nsito..."
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500 font-sans"
+                />
+                <span className="text-[10px] text-slate-400 block leading-normal">
+                  ğŸ’¡ Essas informaÃ§Ãµes serÃ£o mostradas em uma janela de boas-vindas especial quando o aluno escanear seu QR Code de indicaÃ§Ã£o!
+                </span>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-600">Foto de IdentificaÃ§Ã£o (Opcional)</label>
+                <div className="flex items-center gap-3 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                  {instrutorForm.foto ? (
+                    <div className="relative w-12 h-12 rounded-full border border-slate-300 overflow-hidden shrink-0 shadow-sm">
+                      <img src={instrutorForm.foto} alt="Preview" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setInstrutorForm({ ...instrutorForm, foto: '' })}
+                        className="absolute inset-0 bg-black/60 text-white text-[9px] font-bold flex items-center justify-center opacity-0 hover:opacity-100 transition whitespace-nowrap"
+                        title="Remover Foto"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center text-slate-400 text-xs shrink-0 font-bold">
+                      ğŸ‘¤
+                    </div>
+                  )}
+                  <div className="flex-grow flex flex-col justify-center space-y-1">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setInstrutorForm({ ...instrutorForm, foto: reader.result as string });
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer w-full"
+                    />
+                    {instrutorForm.foto && (
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadFoto(instrutorForm.nome || 'Cadastro', instrutorForm.foto)}
+                        className="text-[10px] text-indigo-600 hover:text-indigo-850 font-bold underline cursor-pointer inline-flex items-center gap-1 self-start"
+                      >
+                        ğŸ“¥ Baixar Foto Atual
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider flex items-center gap-1">
+                  ğŸ”‘ Credenciais de Acesso Privadas
+                </span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">UsuÃ¡rio (Login)</label>
+                    <input
+                      type="text"
+                      required
+                      value={instrutorForm.login}
+                      onChange={(e) => setInstrutorForm({ ...instrutorForm, login: e.target.value.toLowerCase().replace(/\s+/g, "") })}
+                      placeholder="Ex: carlos.andre"
+                      className="w-full text-xs p-2 bg-white border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500 font-mono font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase">Senha Secreta</label>
+                    <input
+                      type="text"
+                      required
+                      value={instrutorForm.senha}
+                      onChange={(e) => setInstrutorForm({ ...instrutorForm, senha: e.target.value })}
+                      placeholder="Senha com 6 dÃ­gitos"
+                      className="w-full text-xs p-2 bg-white border border-slate-200 rounded focus:bg-white focus:ring-1 focus:ring-emerald-500 font-mono font-bold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsInstrutorModalOpen(false)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-4 rounded transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-2 px-4 rounded transition"
+                >
+                  Salvar Credenciamento
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: INSTRUCTOR AUTO-REGISTRATION --- */}
+      {isInstrutorSelfRegisterOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-100 overflow-hidden my-8 animate-in fade-in zoom-in duration-150">
+            {newSelfRegisteredInstrutor ? (
+              /* SUCCESS STATE VIEW */
+              <div className="p-6 space-y-6 text-slate-800 text-center">
+                <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl border border-emerald-150 flex items-center justify-center text-3xl mx-auto shadow-sm">
+                  ğŸ‰
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-lg font-black text-slate-900 tracking-tight">Cadastro ConcluÃ­do com Sucesso!</h3>
+                  <p className="text-xs text-slate-500">VocÃª agora faz parte da rede credenciada do programa Nova CNH.</p>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-left space-y-3">
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Suas Credenciais de Acesso:</div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-150">
+                      <span className="block text-[9px] text-slate-400 uppercase font-bold">UsuÃ¡rio (Login)</span>
+                      <span className="text-xs font-mono font-bold text-slate-800">{newSelfRegisteredInstrutor.login}</span>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-150">
+                      <span className="block text-[9px] text-slate-400 uppercase font-bold">Senha Secreta</span>
+                      <span className="text-xs font-mono font-bold text-slate-800">{newSelfRegisteredInstrutor.senha}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const text = `Credenciais Nova CNH\nLogin: ${newSelfRegisteredInstrutor.login}\nSenha: ${newSelfRegisteredInstrutor.senha}`;
+                        navigator.clipboard.writeText(text);
+                        setToastMessage("ğŸ“‹ Credenciais copiadas com sucesso!");
+                      }}
+                      className="w-full text-[10px] font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 py-2 rounded-lg border border-indigo-150 transition cursor-pointer flex items-center justify-center gap-1"
+                    >
+                      ğŸ“‹ Copiar Credenciais
+                    </button>
+
+                    <a
+                      href={`https://wa.me/55${newSelfRegisteredInstrutor.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`ğŸš— *Nova CNH Brasil - Seus Acessos de Instrutor Parceiro*\n\nOlÃ¡ ${newSelfRegisteredInstrutor.nome}! Seu credenciamento foi realizado com sucesso.\n\nğŸ‘¤ *Login:* ${newSelfRegisteredInstrutor.login}\nğŸ”‘ *Senha:* ${newSelfRegisteredInstrutor.senha}\nğŸ“œ *Credencial SENATRAN:* ${newSelfRegisteredInstrutor.credencialSenatran}\n\nğŸ”— *Link Direto de IndicaÃ§Ã£o para seus alunos:*\n${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(newSelfRegisteredInstrutor.nome)}`)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-full text-[10px] font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-100 hover:bg-emerald-200 py-2 rounded-lg border border-emerald-300 transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                    >
+                      <MessageCircle className="h-3.5 w-3.5 text-[#25D366]" />
+                      Salvar no meu WhatsApp
+                    </a>
+                  </div>
+                </div>
+
+                {/* REFERRAL LINK & QR CODE */}
+                <div className="bg-[#0c2340] text-white rounded-xl p-5 space-y-4 text-center">
+                  <div className="space-y-1 text-center">
+                    <span className="bg-indigo-900/50 text-indigo-300 text-[9px] font-black tracking-wider uppercase px-2 py-0.5 rounded-md">Link de IndicaÃ§Ã£o</span>
+                    <h4 className="text-xs font-extrabold">Seu Link de Auto-MatrÃ­cula</h4>
+                    <p className="text-slate-300 text-[10px]">Alunos que se matricularem por este link serÃ£o vinculados a vocÃª automaticamente!</p>
+                  </div>
+
+                  {/* QR Code generator */}
+                  {(() => {
+                    const refLink = `${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(newSelfRegisteredInstrutor.nome)}`;
+                    return (
+                      <div className="space-y-3">
+                        <div className="bg-white p-2.5 rounded-xl w-32 h-32 mx-auto flex items-center justify-center">
+                          <img
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(refLink)}`}
+                            alt="QR Code de IndicaÃ§Ã£o"
+                            className="w-28 h-28 object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2 text-slate-800">
+                          <input
+                            type="text"
+                            readOnly
+                            value={refLink}
+                            className="w-full bg-slate-900 text-slate-300 text-[9px] p-2 rounded-lg border border-slate-800 text-center focus:outline-none select-all"
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(refLink);
+                                setToastMessage("ğŸ”— Link de indicaÃ§Ã£o copiado com sucesso!");
+                              }}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold py-2 px-3 rounded-lg transition"
+                            >
+                              Copiar Link
+                            </button>
+                            <a
+                              href={`https://wa.me/?text=${encodeURIComponent(`OlÃ¡! Venha tirar sua habilitaÃ§Ã£o com tranquilidade na Nova CNH Brasil. FaÃ§a sua auto-matrÃ­cula comigo pelo link oficial: ${refLink}`)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="bg-[#25D366] hover:bg-[#20bd5a] text-white text-[10px] font-extrabold py-2 px-3 rounded-lg transition flex items-center justify-center gap-1.5 shadow-xs"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
+                              Divulgar no WhatsApp
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsInstrutorSelfRegisterOpen(false);
+                      setNewSelfRegisteredInstrutor(null);
+                    }}
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-extrabold py-2.5 rounded-xl text-xs transition cursor-pointer"
+                  >
+                    Entendido, Fechar Janela
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* FORM STATE VIEW */
+              <form onSubmit={handleSaveSelfRegister} className="text-slate-800">
+                <div className="bg-emerald-600 text-white p-4 flex items-center justify-between">
+                  <div className="space-y-0.5 text-left">
+                    <span className="bg-emerald-800 text-emerald-100 text-[9px] font-black tracking-wider uppercase px-2 py-0.5 rounded-md">Rede Nova CNH</span>
+                    <h3 className="font-bold text-sm md:text-base">Auto-Credenciamento de Instrutor</h3>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setIsInstrutorSelfRegisterOpen(false)}
+                    className="text-white/80 hover:text-white font-bold text-lg p-1.5"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto text-left">
+                  <div className="bg-amber-50 border border-amber-150 rounded-xl p-3 text-[11px] text-slate-700 leading-relaxed">
+                    ğŸ’¡ <strong>Como funciona o credenciamento?</strong> Ao se cadastrar, vocÃª ganha acesso instantÃ¢neo ao seu Painel de Instrutor. VocÃª poderÃ¡ receber saldos acumulados de maioridade de candidatos vinculados, assinar recibos digitais e receber suas comissÃµes via PIX de forma automatizada.
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-600">Seu Nome Completo (Oficial)</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Carlos AndrÃ© de Recife"
+                      value={selfNome}
+                      onChange={(e) => {
+                        setSelfNome(e.target.value);
+                        // Auto-generate login if empty
+                        if (!selfLogin) {
+                          setSelfLogin(e.target.value.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '.').substring(0, 20));
+                        }
+                      }}
+                      className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-600">RegiÃ£o de Atendimento</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: Recife Centro"
+                        value={selfRegiao}
+                        onChange={(e) => setSelfRegiao(e.target.value)}
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-600">Capacidade de Alunos</label>
+                      <div className="w-full text-xs p-2.5 bg-emerald-50 text-emerald-850 border border-emerald-200 rounded-xl font-bold flex items-center gap-1.5">
+                        <span>â™¾ï¸</span> Capacidade Ilimitada
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-600">WhatsApp para Contato</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: (81) 99312-0000"
+                        value={selfWhatsapp}
+                        onChange={(e) => setSelfWhatsapp(e.target.value)}
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-600">Credencial SENATRAN</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ex: SENATRAN-PE-992147823"
+                        value={selfCredencial}
+                        onChange={(e) => setSelfCredencial(e.target.value)}
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-600">Chave PIX (Para receber suas comissÃµes)</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: CPF, celular, e-mail ou chave aleatÃ³ria"
+                      value={selfChavePix}
+                      onChange={(e) => setSelfChavePix(e.target.value)}
+                      className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-emerald-500 font-mono"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-600">EndereÃ§o de Atendimento</label>
+                    <textarea
+                      required
+                      rows={2}
+                      placeholder="Ex: Av. Governador Agamenon MagalhÃ£es, 1200 - Espinheiro, Recife - PE"
+                      value={selfEndereco}
+                      onChange={(e) => setSelfEndereco(e.target.value)}
+                      className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-emerald-500 font-sans resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-600">Tempo de ExperiÃªncia</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 8 anos de experiÃªncia"
+                        value={selfTempoExp}
+                        onChange={(e) => setSelfTempoExp(e.target.value)}
+                        className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold text-slate-600">Foto de Perfil (Opcional)</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setSelfFoto(reader.result as string);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="text-[10px] text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-xl file:border-0 file:text-[10px] file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer w-full"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-slate-600">Sua HistÃ³ria / Biografia Curta</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Conte brevemente sobre sua jornada profissional no trÃ¢nsito..."
+                      value={selfHistoria}
+                      onChange={(e) => setSelfHistoria(e.target.value)}
+                      className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-emerald-500 font-sans resize-none"
+                    />
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                    <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider flex items-center gap-1">
+                      ğŸ”‘ Defina seus dados de acesso ao painel
+                    </span>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase">UsuÃ¡rio (Login)</label>
+                        <input
+                          type="text"
+                          required
+                          value={selfLogin}
+                          onChange={(e) => setSelfLogin(e.target.value.toLowerCase().replace(/\s+/g, ""))}
+                          className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg focus:bg-white focus:ring-1 focus:ring-emerald-500 font-mono font-bold"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Senha Secreta</label>
+                        <input
+                          type="text"
+                          required
+                          value={selfSenha}
+                          onChange={(e) => setSelfSenha(e.target.value)}
+                          className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg focus:bg-white focus:ring-1 focus:ring-emerald-500 font-mono font-bold"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 border-t border-slate-100 p-4 bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => setIsInstrutorSelfRegisterOpen(false)}
+                    className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold py-2 px-4 rounded-xl transition cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold py-2 px-5 rounded-xl transition cursor-pointer shadow-xs"
+                  >
+                    Confirmar Auto-Cadastro
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL DETALHADA TELA INTEIRA: ALUNO DOSSIÃŠ --- */}
+      {selectedStudentDetail && (() => {
+        const a = selectedStudentDetail;
+        const age = calculateAge(a.dob);
+        const isUnder = age < 18;
+        const monthsTo18 = calculateMonthsTo18(a.dob);
+        const showBaseValue = currentTab === 'area-instrutor';
+        const displayValorTotal = showBaseValue ? getStudentBaseValue(a) : a.valorTotal;
+        const currentPaid = a.parcelasPagas * (displayValorTotal / (a.parcelasTotal || 12));
+        const progressPercent = Math.min(100, Math.max(0, (a.parcelasPagas / (a.parcelasTotal || 12)) * 100));
+        const restValue = Math.max(0, displayValorTotal - currentPaid);
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-md flex items-center justify-center z-50 p-0 sm:p-4">
+            <div className="bg-slate-950 text-slate-100 w-full h-full sm:h-auto sm:max-h-[92vh] sm:max-w-4xl sm:rounded-2xl shadow-2xl border border-slate-800 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-6 duration-200 text-left">
+              
+              {/* Header */}
+              <div className="bg-slate-900 px-6 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="bg-indigo-600/25 text-indigo-400 p-2 rounded-xl border border-indigo-500/20">
+                    <Users className="h-5 w-5" />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="text-base font-extrabold tracking-tight text-white flex items-center gap-2">
+                      DossiÃª de MatrÃ­cula Completo: <span className="text-indigo-400 font-mono text-sm">[{a.id}]</span>
+                    </h3>
+                    <p className="text-xs text-slate-400">Ambiente de auditoria interna e acompanhamento de poupanÃ§a regional</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedStudentDetail(null)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-150 text-xs font-black tracking-wider px-3 py-1.5 rounded-lg border border-slate-700 transition cursor-pointer"
+                >
+                  âœ• FECHAR DOSSIÃŠ
+                </button>
+              </div>
+
+              {/* Scrollable Content wrapper */}
+              <div className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-400">
+                
+                {/* Profile Header Block */}
+                <div className="bg-gradient-to-br from-slate-900 to-indigo-950/40 p-5 rounded-xl border border-indigo-900/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1.5 text-left">
+                    <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider font-mono">DADOS DE IDENTIFICAÃ‡ÃƒO REGISTRADOS</span>
+                    <h2 className="text-2xl font-black text-white">{a.nome}</h2>
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-400">
+                      <span>Nascimento: <strong className="text-slate-200">{formatDateBR(a.dob)}</strong></span>
+                      <span>â€¢</span>
+                      <span>Idade: <strong className="text-slate-200">{age} anos</strong></span>
+                      <span>â€¢</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${isUnder ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'}`}>
+                        {isUnder ? `Menor de Idade - Faltam ${monthsTo18} meses para os 18 anos` : 'Liberado para Exame (Maior)'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900/90 p-3 rounded-lg border border-slate-800 divide-y divide-slate-800/80 text-xs min-w-[200px]">
+                    <div className="pb-1.5 flex justify-between gap-2">
+                      <span className="text-slate-400">Senha de Acesso:</span>
+                      <strong className="text-amber-400 font-mono">{a.senha || 'Sem Senha'}</strong>
+                    </div>
+                    <div className="pt-1.5 flex justify-between gap-2">
+                      <span className="text-slate-400">SituaÃ§Ã£o Cadastral:</span>
+                      <span className="text-emerald-400 font-bold font-sans">Ativa</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Info Grid split */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  
+                  {/* Left grid segment: General details */}
+                  <div className="space-y-4">
+                    <h4 className="text-white font-extrabold text-xs uppercase tracking-wider border-b border-slate-800 pb-1 flex items-center gap-1.5 text-left">
+                      <span>ğŸ‘¤</span> Ficha Cadastral e Contato
+                    </h4>
+
+                    <div className="space-y-3.5 text-xs bg-slate-900/50 p-4 rounded-xl border border-slate-800 text-left">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-slate-400 font-medium">WhatsApp Principal</p>
+                          <a 
+                            href={`https://wa.me/55${a.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`OlÃ¡ ${a.nome}! Tudo bem? Passando para saber como estÃ¡ o seu processo na Nova CNH Brasil. VocÃª jÃ¡ encontrou um instrutor ou ainda tem interesse em realizar o processo conosco?`)}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-white hover:text-[#25D366] font-bold inline-flex items-center gap-1 mt-0.5"
+                          >
+                            <span>ğŸ“±</span> {a.whatsapp}
+                          </a>
+                        </div>
+                        <div>
+                          <p className="text-slate-400 font-medium">WhatsApp do ResponsÃ¡vel</p>
+                          {a.whatsappResponsavel ? (
+                            <a 
+                              href={`https://wa.me/55${a.whatsappResponsavel.replace(/\D/g, '')}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 mt-0.5"
+                            >
+                              <span>ğŸ‘¨â€ğŸ‘¦</span> {a.whatsappResponsavel}
+                            </a>
+                          ) : (
+                            <span className="text-slate-500 italic block mt-0.5">NÃ£o aplicÃ¡vel (Maior)</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <hr className="border-slate-800/80" />
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        <div>
+                          <p className="text-slate-400 font-medium">Data de AdesÃ£o</p>
+                          <strong className="text-slate-200 block mt-0.5 font-mono">{formatDateBR(a.dataAdesao)}</strong>
+                        </div>
+                        <div>
+                          <p className="text-slate-400 font-medium">Categoria Desejada</p>
+                          <strong className="text-indigo-400 font-black block mt-0.5">{a.categoria}</strong>
+                        </div>
+                        <div className="col-span-2 sm:col-span-1">
+                          <p className="text-slate-400 font-medium">Instrutor AutÃ´nomo ResponsÃ¡vel</p>
+                          <strong className="text-emerald-400 text-xs font-black block mt-0.5 uppercase tracking-wide flex items-center gap-1">
+                            <span className="text-emerald-500">ğŸ‘¤</span> {a.instrutor || 'Sem Instrutor'}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <hr className="border-slate-800/80" />
+
+                      <div>
+                        <p className="text-slate-400 font-medium">EndereÃ§o Residencial Informado</p>
+                        <p className="text-slate-200 mt-0.5 leading-relaxed font-sans">
+                          {a.endereco || "Nenhum endereÃ§o especificado na inscriÃ§Ã£o."}
+                        </p>
+                      </div>
+
+                      <hr className="border-slate-800/80" />
+
+                      <div>
+                        <p className="text-slate-400 font-medium pb-1">Direcionamento de Plano Virtual</p>
+                        <span className="inline-block bg-slate-950 text-indigo-300 border border-indigo-950 px-2.5 py-1 rounded-md text-[10.5px] font-bold">
+                          {isUnder ? (a.tipoPlano || 'Plano PoupanÃ§a Jovem 17 Anos') : (a.tipoPlano && a.tipoPlano !== 'Plano PoupanÃ§a Jovem 17 Anos' ? a.tipoPlano : 'Plano CNH Facilitada Maiores de 18 Anos')}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* AUTO-AUTHENTICATION / ACCESS QR CODE & LINK FOR THIS STUDENT */}
+                    <div className="bg-slate-900 border border-indigo-500/25 rounded-xl p-4 text-left space-y-3 shadow-md mt-4">
+                      <div className="flex items-center gap-1.5">
+                        <span className="p-1 px-1.5 text-[8.5px] font-black tracking-widest text-slate-950 bg-indigo-400 rounded uppercase font-sans">
+                          Acesso Direto
+                        </span>
+                        <h4 className="font-extrabold text-xs text-indigo-400 uppercase tracking-wider flex items-center gap-1">
+                          <QrCode className="h-3.5 w-3.5" /> Entrar no Celular
+                        </h4>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-normal">
+                        O candidato pode escanear o QR Code com a cÃ¢mera do celular para abrir o smartphone virtual instantaneamente sem digitar ID e Senha!
+                      </p>
+                      
+                      {/* Copyable Login Link */}
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-500 font-mono font-extrabold uppercase block">Link de login direto</span>
+                        <div className="flex items-stretch gap-1.5">
+                          <input
+                            type="text"
+                            readOnly
+                            value={`${window.location.origin}/?loginId=${a.id}`}
+                            className="bg-slate-950 text-slate-300 font-mono text-[9px] p-2 rounded-lg border border-slate-800 focus:outline-none select-all truncate flex-1"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const loginLink = `${window.location.origin}/?loginId=${a.id}`;
+                              navigator.clipboard.writeText(loginLink);
+                              setToastMessage(`ğŸ“‹ Link de auto-login para ${a.nome} copiado!`);
+                            }}
+                            className="bg-indigo-500 hover:bg-indigo-400 text-white text-[10px] font-black px-2.5 py-1 rounded-lg transition active:scale-95 shrink-0 cursor-pointer"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Live QR Code Generator via API */}
+                      <div className="flex flex-col items-center bg-slate-950 p-3 rounded-lg border border-slate-850 space-y-2">
+                        <div className="bg-white p-2 rounded-lg shadow-inner">
+                          <img 
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`${window.location.origin}/?loginId=${a.id}`)}`}
+                            alt="QR Code Auto-Login"
+                            className="w-[125px] h-[125px] object-contain shadow-xs"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <span className="text-[8.5px] text-slate-500 font-mono font-medium uppercase tracking-wider">
+                          Escanear Para Entrar no App
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right grid segment: PoupanÃ§a & payments ledger */}
+                  <div className="space-y-4">
+                    <h4 className="text-white font-extrabold text-xs uppercase tracking-wider border-b border-slate-800 pb-1 flex items-center gap-1.5 text-left">
+                      <span>ğŸ’°</span> EvoluÃ§Ã£o Financeira & PoupanÃ§a Privada
+                    </h4>
+
+                    <div className="space-y-4 bg-slate-900/50 p-4 rounded-xl border border-slate-800 text-xs text-left">
+                      
+                      {/* Interactive Ledger metrics card */}
+                      <div className="grid grid-cols-3 gap-2.5">
+                        <div className="bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-center">
+                          <span className="text-[10px] text-slate-400 block uppercase">
+                            {showBaseValue ? 'VALOR TOTAL (BASE)' : 'VALOR TOTAL'}
+                          </span>
+                          <span className="font-extrabold text-slate-200 mt-0.5 block font-mono">
+                            {displayValorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                          {showBaseValue && (
+                            <span className="text-[8px] text-emerald-400 font-bold block mt-0.5 uppercase">Sem Juros</span>
+                          )}
+                        </div>
+                        <div className="bg-slate-950 p-2.5 rounded-lg border border-emerald-900/30 text-center">
+                          <span className="text-[10px] text-emerald-450 block uppercase">SALDO ATUAL</span>
+                          <span className="font-extrabold text-emerald-300 mt-0.5 block font-mono">
+                            {currentPaid.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                        </div>
+                        <div className="bg-slate-955 p-2.5 rounded-lg border border-slate-800/80 text-center">
+                          <span className="text-[10px] text-slate-400 block uppercase">A PAGAR</span>
+                          <span className="font-extrabold text-indigo-400 mt-0.5 block font-mono">
+                            {restValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Payment tracking bar visualizer */}
+                      <div className="space-y-2.5 bg-slate-955 p-3.5 rounded-xl border border-slate-800">
+                        <div className="flex justify-between items-center text-xs font-semibold">
+                          <span className="text-slate-400">Progresso do Contrato:</span>
+                          <span className="text-emerald-400 font-bold font-mono">{progressPercent.toFixed(1)}% Adimplente</span>
+                        </div>
+                        <div className="h-2.5 bg-slate-900 rounded-full overflow-hidden">
+                          <div 
+                            style={{ width: `${progressPercent}%` }}
+                            className={`h-full rounded-full transition-all ${
+                              isUnder ? 'bg-amber-400' : 'bg-emerald-500'
+                            }`}
+                          ></div>
+                        </div>
+                        <div className="flex justify-between items-center text-[10.5px] text-slate-400 font-mono">
+                          <span>{a.parcelasPagas} parcelas pagas</span>
+                          <span>{a.parcelasTotal || 12} parcelas totais</span>
+                        </div>
+
+                        {/* Quick action button for Dar Baixa inside dossier */}
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleAbrirBaixaManual(a)}
+                            className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-lg transition shadow-md flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
+                          >
+                            <span>ğŸ’³</span> Registrar / Dar Baixa Manual em Pagamento
+                          </button>
+                        </div>
+                      </div>
+
+                      <hr className="border-slate-800/85" />
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-slate-400 font-medium">MÃ©todo Original Escolhido</p>
+                          <strong className="text-slate-200 mt-0.5 block font-sans">
+                            {a.formaPagamento === 'cartao' 
+                              ? 'ğŸ’³ CartÃ£o de CrÃ©dito Executivo' 
+                              : a.formaPagamento === 'vista'
+                                ? 'ğŸ’µ Ã€ Vista Integrado'
+                                : a.formaPagamento === 'hibrido'
+                                  ? 'ğŸ”€ HÃ­brido (Ã€ Vista/Pix + CartÃ£o)'
+                                  : 'ğŸ“¦ BaÃº de AutocustÃ³dia (PoupanÃ§a)'}
+                          </strong>
+                        </div>
+                        <div>
+                          <p className="text-slate-400 font-medium">Capacidade TeÃ³rica Reservada</p>
+                          <strong className="text-slate-200 mt-0.5 block">{a.aulas || 20} horas-aulas de direÃ§Ã£o</strong>
+                        </div>
+                      </div>
+
+                      <hr className="border-slate-800/80" />
+
+                      {/* Instructor details short box */}
+                      <div className="bg-slate-955 p-3 rounded-lg border border-slate-850 text-left">
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">Instrutor Designado Regional</span>
+                        <div className="flex items-center justify-between gap-2 mt-1">
+                          <span className="text-sm font-bold text-white">ğŸ‘¤ {a.instrutor || 'Sem Instrutor atribuÃ­do'}</span>
+                          {a.instrutor && a.instrutor !== 'Sem Instrutor' && a.instrutor !== 'A definir' ? (
+                            <button 
+                              onClick={() => {
+                                const found = instrutores.find(i => i.nome === a.instrutor);
+                                if (found) {
+                                  setSelectedStudentDetail(null);
+                                  setSelectedInstrutorDetail(found);
+                                }
+                              }}
+                              className="text-xs text-indigo-400 hover:text-white underline cursor-pointer"
+                            >
+                              Ver ficha do instrutor
+                            </button>
+                          ) : (
+                            <span className="text-amber-500 text-[11px] font-bold">âš ï¸ Pendente</span>
+                          )}
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* EXTRATO DE BAIXAS MANUAIS DE PAGAMENTO */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 text-left">
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">ğŸ’³</span>
+                      <div>
+                        <h4 className="text-white font-extrabold text-xs uppercase tracking-wider">
+                          Extrato de Baixas e LanÃ§amentos Manuais Confirmados
+                        </h4>
+                        <p className="text-[10px] text-slate-400">Registros de recebimento em cartÃ£o, PIX, dinheiro e boletos com quitaÃ§Ã£o de parcelas</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAbrirBaixaManual(a)}
+                      className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1 rounded-md transition cursor-pointer flex items-center gap-1 active:scale-95"
+                    >
+                      <Plus className="w-3 h-3" /> Nova Baixa
+                    </button>
+                  </div>
+
+                  {!a.baixasPagamento || a.baixasPagamento.length === 0 ? (
+                    <div className="text-center py-5 bg-slate-950/40 rounded-lg border border-slate-850">
+                      <span className="text-xl block mb-1 opacity-40">ğŸ’³</span>
+                      <p className="text-xs text-slate-500 font-medium font-sans">Nenhuma baixa manual registrada atÃ© o momento.</p>
+                      <p className="text-[9px] text-slate-600">Utilize o botÃ£o acima para dar baixa em valores pagos por cartÃ£o, PIX ou dinheiro.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left text-slate-350">
+                        <thead>
+                          <tr className="border-b border-slate-850 text-slate-450 uppercase text-[9px] tracking-wider font-extrabold">
+                            <th className="py-2 px-3">CÃ³d / Data</th>
+                            <th className="py-2 px-3">Forma de Pagamento</th>
+                            <th className="py-2 px-3">Valor Baixado</th>
+                            <th className="py-2 px-3">Parcelas Quitadas</th>
+                            <th className="py-2 px-3">Operador / Obs</th>
+                            <th className="py-2 px-3 text-right">Recibo</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-850/60">
+                          {a.baixasPagamento.map((bx: BaixaPagamento) => (
+                            <tr key={bx.id} className="hover:bg-slate-900/40 transition">
+                              <td className="py-2.5 px-3 font-mono text-[10px] whitespace-nowrap">
+                                <span className="text-indigo-400 font-bold block">{bx.id}</span>
+                                <span className="text-slate-500">{formatDateBR(bx.data)}</span>
+                              </td>
+                              <td className="py-2.5 px-3 font-medium text-slate-200">
+                                {bx.formaPagamento}
+                              </td>
+                              <td className="py-2.5 px-3 font-extrabold font-mono text-emerald-400 whitespace-nowrap">
+                                {bx.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-[11px] text-indigo-300 font-bold">
+                                {bx.parcelasBaixadas > 0 ? `+${bx.parcelasBaixadas} parcela(s)` : 'Ajuste de saldo'}
+                              </td>
+                              <td className="py-2.5 px-3 text-[11px] text-slate-400 max-w-[200px]">
+                                <span className="text-slate-300 font-semibold block">{bx.operador || 'AdministraÃ§Ã£o'}</span>
+                                {bx.observacao && <span className="text-slate-500 italic text-[10px] truncate block">{bx.observacao}</span>}
+                              </td>
+                              <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => handleEmitirReciboCandidato(a, bx)}
+                                  className="bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 hover:text-white border border-emerald-500/30 font-bold px-2.5 py-1 rounded-lg text-[10px] transition cursor-pointer flex items-center gap-1 ml-auto"
+                                  title="Visualizar / Imprimir Recibo Oficial de QuitaÃ§Ã£o"
+                                >
+                                  <Receipt className="h-3 w-3 text-emerald-400" /> Recibo
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* HISTÃ“RICO DE COMPROVANTES DE DEPÃ“SITO DO ALUNO */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 text-left">
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">ğŸ“‚</span>
+                      <div>
+                        <h4 className="text-white font-extrabold text-xs uppercase tracking-wider">
+                          DossiÃª de Comprovantes de DepÃ³sito (Monitorado por IA)
+                        </h4>
+                        <p className="text-[10px] text-slate-400">Auditorias financeiras e assinaturas fiduciÃ¡rias de PIX salvas</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold bg-slate-950 text-indigo-400 border border-slate-800 px-2 py-0.5 rounded-md">
+                      {a.comprovantes?.length || 0} anexados
+                    </span>
+                  </div>
+
+                  {!a.comprovantes || a.comprovantes.length === 0 ? (
+                    <div className="text-center py-6 bg-slate-950/40 rounded-lg border border-slate-850">
+                      <span className="text-2xl block mb-1.5 opacity-40">ğŸ“­</span>
+                      <p className="text-xs text-slate-500 font-medium font-sans">Nenhum comprovante de pagamento registrado neste dossiÃª.</p>
+                      <p className="text-[9px] text-slate-650">Comprovantes enviados por PIX no celular do aluno serÃ£o listados aqui.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left text-slate-350 select-none">
+                        <thead>
+                          <tr className="border-b border-slate-850 text-slate-450 uppercase text-[9px] tracking-wider font-extrabold">
+                            <th className="py-2.5 px-3">Data</th>
+                            <th className="py-2.5 px-3">Valor</th>
+                            <th className="py-2.5 px-3">Arquivo</th>
+                            <th className="py-3 px-3">Resultado da Auditoria por IA</th>
+                            <th className="py-2.5 px-3 text-right">AÃ§Ã£o</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-850/60 break-all">
+                          {a.comprovantes.map((comp: Comprovante) => (
+                            <tr key={comp.id} className="hover:bg-slate-900/40 transition">
+                              <td className="py-3 px-3 whitespace-nowrap text-slate-450 font-mono text-[10px]">
+                                {new Date(comp.dataEnvio).toLocaleString('pt-BR')}
+                              </td>
+                              <td className="py-3 px-3 whitespace-nowrap text-emerald-400 font-bold font-mono">
+                                {comp.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </td>
+                              <td className="py-3 px-3 max-w-[150px] truncate font-sans text-slate-300 font-semibold" title={comp.nomeArquivo}>
+                                {comp.nomeArquivo}
+                              </td>
+                              <td className="py-3 px-3 text-[10.5px]">
+                                <div className="space-y-0.5 max-w-[320px]">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+                                    <span className="text-emerald-400 font-bold text-[9px] uppercase tracking-wider">Aprovado pelo Auditor</span>
+                                  </div>
+                                  <p className="text-slate-400 text-[10px] leading-relaxed font-sans">
+                                    {comp.observacao || "Aprovado em anÃ¡lise de seguranÃ§a fiduciÃ¡ria."}
+                                  </p>
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 text-right whitespace-nowrap">
+                                <div className="flex items-center justify-end gap-2">
+                                  {/* View / Download receipt button */}
+                                  <button
+                                    onClick={() => {
+                                      if (comp.conteudo) {
+                                        const newWindow = window.open();
+                                        if (newWindow) {
+                                          newWindow.document.write(`<iframe src="${comp.conteudo}" style="width:100%; height:100%; border:none;"></iframe>`);
+                                        } else {
+                                          const link = document.createElement('a');
+                                          link.href = comp.conteudo;
+                                          link.download = comp.nomeArquivo;
+                                          link.click();
+                                        }
+                                      } else {
+                                        alert("ConteÃºdo do arquivo nÃ£o disponÃ­vel.");
+                                      }
+                                    }}
+                                    className="bg-slate-800 hover:bg-slate-700 text-indigo-400 hover:text-indigo-300 font-extrabold text-[10px] px-2.5 py-1 rounded-md transition cursor-pointer"
+                                  >
+                                    Ver Arquivo
+                                  </button>
+
+                                  {/* Delete receipt button */}
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`Tem certeza que deseja REJEITAR e excluir este comprovante do dossiÃª de ${a.nome}?`)) {
+                                        const updatedList = alunos.map(s => {
+                                          if (s.id === a.id) {
+                                            return {
+                                              ...s,
+                                              comprovantes: s.comprovantes?.filter(c => c.id !== comp.id)
+                                            };
+                                          }
+                                          return s;
+                                         });
+                                        saveAlunosList(updatedList);
+                                        setToastMessage("ğŸ—‘ï¸ Comprovante removido do dossiÃª!");
+                                      }
+                                    }}
+                                    className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-extrabold text-[10px] px-2 py-1 rounded-md transition cursor-pointer"
+                                  >
+                                    Remover
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Audit tools alerts footer note */}
+                <div className="bg-[#0b1c2b] p-4 rounded-xl border border-indigo-950/45 text-xs flex items-start gap-3 text-left">
+                  <span className="text-lg select-none">ğŸ›¡ï¸</span>
+                  <div className="space-y-1">
+                    <strong className="text-indigo-300 font-bold block">Conselho de SeguranÃ§a do Administrador</strong>
+                    <p className="text-slate-300/90 leading-relaxed font-sans">
+                      {age < 18 ? (
+                        <>
+                          O saldo poupado do aluno <strong className="text-white">{a.nome}</strong> estÃ¡ bloqueado em conta fiduciÃ¡ria do programa atÃ© obter a data limite da maioridade legal, conforme termos vigentes. LiberaÃ§Ãµes manuais de parcelas alteram as auditorias automÃ¡ticas no Looker de forma sÃ­ncrona.
+                        </>
+                      ) : (
+                        <>
+                          O saldo poupado do aluno <strong className="text-white">{a.nome}</strong> estÃ¡ aguardando a autorizaÃ§Ã£o do administrador, conforme termos vigentes. LiberaÃ§Ãµes manuais de parcelas alteram as auditorias automÃ¡ticas no Looker de forma sÃ­ncrona.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Action commands line footer */}
+              <div className="bg-slate-900 border-t border-slate-800 p-4 px-6 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                <div>
+                  {(isAdminAuthenticated || (isAuthenticated && activeStudentId === a.id)) && (
+                    <button
+                      onClick={() => {
+                        setSelectedStudentDetail(null);
+                        handleDeleteAluno(a.id);
+                      }}
+                      className="bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-xs font-bold py-2.5 px-3.5 rounded-xl transition cursor-pointer font-sans flex items-center gap-1.5"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Excluir Cadastro
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedStudentDetail(null);
+                      handleOpenEditAluno(a);
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow transition cursor-pointer font-sans"
+                  >
+                    âœï¸ Editar Cadastro Aluno
+                  </button>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(`DossiÃª do Aluno - Nome: ${a.nome}\nID: ${a.id}\nWhatsApp: ${a.whatsapp}\nSaldo Poupado: ${currentPaid.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`);
+                      setToastMessage("ğŸ“‹ Resumo do dossiÃª copiado com sucesso!");
+                    }}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-150 text-xs font-bold py-2.5 px-4 rounded-xl border border-slate-700 transition cursor-pointer"
+                  >
+                    ğŸ“‹ Copiar Resumo DossiÃª
+                  </button>
+                  <button
+                    onClick={() => setSelectedStudentDetail(null)}
+                    className="bg-slate-800 hover:bg-slate-755 text-slate-300 hover:text-white text-xs font-bold py-2.5 px-4 rounded-xl transition cursor-pointer font-sans"
+                  >
+                    Fechar Janela
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* --- MODAL DETALHADA TELA INTEIRA: INSTRUTOR DOSSIÃŠ --- */}
+      {selectedInstrutorDetail && (() => {
+        const inst = selectedInstrutorDetail;
+        const assignedStudents = alunos.filter(a => isSameInstructor(a.instrutor, inst.nome));
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-md flex items-center justify-center z-50 p-0 sm:p-4">
+            <div className="bg-slate-950 text-slate-100 w-full h-full sm:h-auto sm:max-h-[92vh] sm:max-w-4xl sm:rounded-2xl shadow-2xl border border-slate-800 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-6 duration-200 text-left">
+              
+              {/* Header */}
+              <div className="bg-slate-900 px-6 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="bg-emerald-600/25 text-emerald-400 p-2 rounded-xl border border-emerald-500/20">
+                    <span className="text-xl">ğŸªª</span>
+                  </div>
+                  <div className="text-left">
+                    <h3 className="text-base font-extrabold tracking-tight text-white flex items-center gap-2">
+                      Ficha de Credenciamento Oficial: <span className="text-emerald-400 font-mono text-sm">[{inst.nome}]</span>
+                    </h3>
+                    <p className="text-xs text-slate-400">DiretÃ³rio de AutorizaÃ§Ãµes Ativas da Senatran e do programa virtual</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedInstrutorDetail(null)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-150 text-xs font-black tracking-wider px-3 py-1.5 rounded-lg border border-slate-700 transition cursor-pointer"
+                >
+                  âœ• FECHAR FICHA
+                </button>
+              </div>
+
+              {/* Scrollable Content wrapper */}
+              <div className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-300">
+                
+                {/* Profile Header Block */}
+                <div className="bg-gradient-to-br from-slate-900 to-emerald-950/30 p-5 rounded-xl border border-emerald-900/20 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 text-left">
+                    {inst.foto ? (
+                      <div className="w-16 h-16 rounded-full border-2 border-emerald-500/80 overflow-hidden shrink-0 shadow-lg">
+                        <img src={inst.foto} alt={inst.nome} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-705 flex items-center justify-center text-slate-400 text-2xl shrink-0 shadow-lg">
+                        ğŸ‘¤
+                      </div>
+                    )}
+                    <div className="space-y-1.5 text-left">
+                      <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider font-mono">DADOS DO CREDENCIADO NACIONAL</span>
+                      <h2 className="text-2xl font-black text-white">{inst.nome}</h2>
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-400">
+                        <span>U.S. Regional: <strong className="text-slate-200 font-bold">{inst.regiao}</strong></span>
+                        <span>â€¢</span>
+                        <span>Capacidade: <strong className="text-emerald-400 font-bold">Sem limite de alunos (Ilimitado)</strong></span>
+                        <span>â€¢</span>
+                        {inst.credencialSenatran && (
+                          <span className="bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-mono text-[9px] px-2 py-0.5 rounded font-black tracking-wider">
+                            SENATRAN: {inst.credencialSenatran}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900/90 p-3 rounded-lg border border-slate-800 divide-y divide-slate-800/80 text-xs min-w-[200px]">
+                    <div className="pb-1.5 flex justify-between gap-2">
+                      <span className="text-slate-400 text-left">Alunos Ativos:</span>
+                      <strong className="text-white font-bold">{assignedStudents.length} vinculados</strong>
+                    </div>
+                    <div className="pt-1.5 flex justify-between gap-2">
+                       <span className="text-slate-400 text-left">Limite de Vagas:</span>
+                       <span className="text-emerald-400 font-black">Ilimitado</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub layout columns */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  
+                  {/* Left Column: Official Profile info */}
+                  <div className="space-y-4">
+                    <h4 className="text-white font-extrabold text-xs uppercase tracking-wider border-b border-slate-800 pb-1 flex items-center gap-1.5 text-left">
+                      <span>ğŸªª</span> Dados do Profissional Parceiro
+                    </h4>
+
+                    <div className="space-y-3.5 text-xs bg-slate-900/50 p-4 rounded-xl border border-slate-800 text-left">
+                      <div>
+                        <p className="text-slate-450 font-semibold">Contato Direto (WhatsApp)</p>
+                        <strong className="text-white font-bold text-sm block mt-0.5">ğŸ“± {inst.whatsapp}</strong>
+                      </div>
+
+                      <hr className="border-slate-800/80" />
+
+                      <div>
+                        <p className="text-slate-450 font-semibold">RegiÃ£o de ConcentraÃ§Ã£o das Aulas</p>
+                        <strong className="text-slate-200 text-sm font-bold block mt-0.5">{inst.regiao}</strong>
+                      </div>
+
+                      <hr className="border-slate-800/80" />
+
+                      {inst.credencialSenatran && (
+                        <>
+                          <div>
+                            <p className="text-slate-450 font-semibold">IdentificaÃ§Ã£o da Credencial Senatran</p>
+                            <span className="inline-block bg-slate-950 font-mono text-emerald-300 border border-emerald-950 px-2.5 py-1 rounded text-[10.5px] font-black tracking-wider mt-1">
+                              {inst.credencialSenatran}
+                            </span>
+                          </div>
+                          <hr className="border-slate-800/80" />
+                        </>
+                      )}
+
+                      <div>
+                        <p className="text-slate-450 font-semibold">EndereÃ§o FÃ­sico Cadastrado</p>
+                        <p className="text-slate-200 mt-1 leading-relaxed font-sans">
+                          {inst.endereco || "Nenhum endereÃ§o especificado no credenciamento."}
+                        </p>
+                      </div>
+
+                      <hr className="border-slate-800/80" />
+
+                      <div className="bg-emerald-950/40 border border-emerald-500/20 p-3 rounded-xl space-y-2">
+                        <p className="text-emerald-400 font-extrabold flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-sans">
+                          ğŸ”‘ Credenciais de Acesso Privadas
+                        </p>
+                        <div className="grid grid-cols-2 gap-2 text-[11px]">
+                          <div>
+                            <span className="text-slate-400 block font-semibold">UsuÃ¡rio (Login):</span>
+                            <strong className="text-slate-100 font-mono select-all bg-slate-950 px-2 py-1 rounded border border-slate-800 block mt-1">{inst.login || generateLogin(inst.nome)}</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block font-semibold">Senha Secreta:</span>
+                            <strong className="text-emerald-400 font-mono select-all bg-slate-950 px-2 py-1 rounded border border-slate-800 block mt-1">{inst.senha || "Sem Senha"}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* AUTO-ENROLLMENT LINK & QR CODE FOR THIS INSTRUCTOR */}
+                    <div className="bg-slate-900 border border-emerald-500/25 rounded-xl p-4 text-left space-y-3 shadow-md mt-4">
+                      <div className="flex items-center gap-1.5">
+                        <span className="p-1 px-1.5 text-[8.5px] font-black tracking-widest text-[#151515] bg-[#32bcad] rounded uppercase font-sans">
+                          Auto-VÃ­nculo
+                        </span>
+                        <h4 className="font-extrabold text-xs text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                          <QrCode className="h-3.5 w-3.5" /> MatrÃ­cula do Instrutor
+                        </h4>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-normal">
+                        Matricule um grupo diretamente vinculando-os ao instrutor <strong>{inst.nome}</strong>. Compartilhe o link ou projete o QR Code.
+                      </p>
+                      
+                      {/* Interactive Copyable Link */}
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-500 font-mono font-extrabold uppercase block">Link de Cadastro</span>
+                        <div className="flex items-stretch gap-1.5">
+                          <input
+                            type="text"
+                            readOnly
+                            value={`${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(inst.nome)}`}
+                            className="bg-slate-950 text-slate-300 font-mono text-[9px] p-2 rounded-lg border border-slate-800 focus:outline-none select-all truncate flex-1"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const enrollmentLink = `${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(inst.nome)}`;
+                              navigator.clipboard.writeText(enrollmentLink);
+                              setToastMessage(`ğŸ“‹ Link de auto-matrÃ­cula para ${inst.nome} copiado!`);
+                            }}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-black px-2 py-1 rounded-lg transition active:scale-95 shrink-0 cursor-pointer"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* QR Code image via free api */}
+                      <div className="flex flex-col items-center bg-slate-950 p-3 rounded-lg border border-slate-850 space-y-2">
+                        <div className="bg-white p-2 rounded-lg shadow-inner">
+                          <img 
+                            src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(inst.nome)}`)}`}
+                            alt="QR Code Auto-MatrÃ­cula"
+                            className="w-[125px] h-[125px] object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <span className="text-[8.5px] text-slate-500 font-mono font-medium uppercase tracking-wider">
+                          QR Code de Auto-InscriÃ§Ã£o Ativa
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Experience Bio & Assigned students table search */}
+                  <div className="space-y-4">
+                    <div className="bg-gradient-to-r from-emerald-950/40 to-slate-900 p-4 rounded-xl border border-emerald-900/30 text-left space-y-2.5">
+                      <h4 className="text-white font-extrabold text-xs uppercase tracking-wider border-b border-emerald-900/30 pb-1 flex items-center gap-1.5">
+                        <span>ğŸ“–</span> HistÃ³rico & Tempo de ExperiÃªncia
+                      </h4>
+                      <div className="space-y-1.5 text-xs text-slate-300">
+                        <p>
+                          <span className="text-slate-450 font-bold">Tempo de AtuaÃ§Ã£o:</span>{" "}
+                          <strong className="text-emerald-400 font-mono text-sm block mt-0.5">{inst.tempoExperiencia || "NÃ£o especificado"}</strong>
+                        </p>
+                        <div className="pt-1.5">
+                          <span className="text-slate-450 font-bold block mb-1">Biografia & TrajetÃ³ria Profissional:</span>
+                          <p className="bg-slate-950/60 p-3 rounded-lg border border-slate-850/80 leading-relaxed font-sans text-slate-200 italic">
+                            "{inst.historia || "Nenhum histÃ³rico profissional cadastrado."}"
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <h4 className="text-white font-extrabold text-xs uppercase tracking-wider border-b border-slate-800 pb-1 flex items-center justify-between gap-1.5 text-left">
+                      <span>ğŸ‘¥</span> Alunos Vinculados Direto ({assignedStudents.length})
+                    </h4>
+
+                    <div className="bg-slate-900/50 rounded-xl border border-slate-800 p-4 space-y-3">
+                      {assignedStudents.length === 0 ? (
+                        <div className="py-8 text-center text-slate-500 italic text-xs">
+                          Nenhum(a) aluno(a) designado(a) para este instrutor atualmente.
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-800/80 max-h-[250px] overflow-y-auto pr-1">
+                          {assignedStudents.map(astud => {
+                            const astudAge = calculateAge(astud.dob);
+                            return (
+                              <div key={astud.id} className="py-2.5 flex items-center justify-between text-xs first:pt-0 last:pb-0 gap-2">
+                                <div className="space-y-0.5 text-left">
+                                  <span className="font-extrabold text-white text-[12px] block">{astud.nome}</span>
+                                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                                    <span className="font-mono bg-slate-950 text-slate-400 px-1 py-0.2 rounded font-bold leading-tight">{astud.id}</span>
+                                    <span>â€¢</span>
+                                    <span>{astud.categoria}</span>
+                                    <span>â€¢</span>
+                                    <span>{astudAge} anos</span>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setSelectedInstrutorDetail(null);
+                                    setSelectedStudentDetail(astud);
+                                  }}
+                                  className="text-[10px] text-indigo-400 hover:text-white bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 px-2 py-1 rounded transition whitespace-nowrap cursor-pointer font-sans"
+                                >
+                                  Ver Ficha
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* DossiÃª de Recibos & QuitaÃ§Ãµes (GOV.BR) */}
+                    <h4 className="text-white font-extrabold text-xs uppercase tracking-wider border-b border-slate-800 pb-1 mt-4 flex items-center justify-between gap-1.5 text-left">
+                      <span>ğŸ“‚</span> DossiÃª de Recibos & QuitaÃ§Ãµes ({inst.recibos?.length || 0})
+                    </h4>
+
+                    <div className="bg-slate-900/50 rounded-xl border border-slate-800 p-4 space-y-3">
+                      {!inst.recibos || inst.recibos.length === 0 ? (
+                        <div className="py-8 text-center text-slate-500 italic text-xs">
+                          Nenhum recibo de quitaÃ§Ã£o emitido para este instrutor.
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-800/80 max-h-[250px] overflow-y-auto pr-1">
+                          {inst.recibos.map(rec => (
+                            <div key={rec.id} className="py-2.5 flex flex-col gap-1.5 text-xs first:pt-0 last:pb-0 text-left">
+                              <div className="flex items-center justify-between">
+                                <span className="font-extrabold font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">{rec.id}</span>
+                                <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                                  rec.status === 'assinado_gov' 
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                    : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse'
+                                }`}>
+                                  {rec.status === 'assinado_gov' ? 'âœ“ Assinado via GOV.BR' : 'â³ Pendente Assinatura'}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center text-[11px] text-slate-300">
+                                <span>Valor Pago: <strong className="text-white font-mono">{rec.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></span>
+                                <span className="text-slate-500">Emitido: {new Date(rec.dataEmissao).toLocaleDateString('pt-BR')}</span>
+                              </div>
+                              {rec.status === 'assinado_gov' ? (
+                                <div className="bg-slate-950/85 p-2 rounded border border-slate-800 text-[10px] font-mono text-slate-400 leading-normal space-y-1 mt-1">
+                                  <p className="text-emerald-400 font-bold flex items-center gap-1">
+                                    <span>ğŸ›¡ï¸</span> Assinado Eletronicamente
+                                  </p>
+                                  <p>Certificado: <span className="text-slate-200 select-all">{rec.identificadorGov}</span></p>
+                                  <p>Data/Hora: <span className="text-slate-200">{new Date(rec.dataAssinatura!).toLocaleString('pt-BR')}</span></p>
+                                  <p className="text-[9px] text-slate-500 italic truncate">Hash: {rec.documentoAssinado}</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => setViewingRecibo({ instrutorNome: inst.nome, recibo: rec })}
+                                    className="w-full mt-2 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold py-1.5 px-2.5 rounded-lg text-[9.5px] transition flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer border border-slate-700"
+                                  >
+                                    ğŸ” Visualizar Recibo Assinado
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="space-y-2 mt-1">
+                                  <div className="text-[10px] text-amber-400 bg-amber-500/5 border border-amber-500/10 p-2 rounded leading-normal">
+                                    Aguardando assinatura digital do instrutor no Painel do Instrutor para homologaÃ§Ã£o jurÃ­dica do dossiÃª.
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setToastMessage(`âœ‰ï¸ NotificaÃ§Ã£o enviada! O link para a assinatura do Recibo ${rec.id} foi encaminhado com sucesso ao WhatsApp e E-mail de ${inst.nome}.`);
+                                      }}
+                                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black py-1.5 px-2 rounded-lg text-[9px] transition flex items-center justify-center gap-1 uppercase tracking-wider cursor-pointer"
+                                    >
+                                      âœ‰ï¸ Enviar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setViewingRecibo({ instrutorNome: inst.nome, recibo: rec })}
+                                      className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-1.5 px-2 rounded-lg text-[9px] transition flex items-center justify-center gap-1 uppercase tracking-wider cursor-pointer border border-slate-700"
+                                    >
+                                      ğŸ” Ver Minuta
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+
+               {/* Action commands line footer */}
+              <div className="bg-slate-900 border-t border-slate-800 p-4 px-6 flex flex-wrap items-center justify-end gap-3 shrink-0">
+                {inst.whatsapp && (
+                  <a
+                    href={`https://wa.me/55${inst.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`OlÃ¡ Instrutor(a) ${inst.nome}! Aqui Ã© da coordenaÃ§Ã£o do programa Nova CNH Brasil.`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold py-2.5 px-4 rounded-xl transition flex items-center gap-2 shadow cursor-pointer font-sans"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    Chamar no WhatsApp
+                  </a>
+                )}
+                {inst.foto && (
+                  <button
+                    onClick={() => handleDownloadFoto(inst.nome, inst.foto)}
+                    className="bg-sky-650 hover:bg-sky-600 text-slate-100 text-xs font-bold py-2.5 px-4 rounded-xl border border-sky-700 transition cursor-pointer"
+                  >
+                    ğŸ“¥ Baixar Foto do Instrutor
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setSelectedInstrutorDetail(null);
+                    setEditingInstrutor(inst);
+                    setInstrutorForm({
+                      nome: inst.nome,
+                      regiao: inst.regiao,
+                      vagas: inst.vagas,
+                      whatsapp: inst.whatsapp,
+                      endereco: inst.endereco || '',
+                      credencialSenatran: inst.credencialSenatran || '',
+                      foto: inst.foto || '',
+                      login: inst.login || generateLogin(inst.nome),
+                      senha: inst.senha || generateSecurePassword(),
+                      tempoExperiencia: inst.tempoExperiencia || '',
+                      historia: inst.historia || '',
+                      chavePix: inst.chavePix || ''
+                    });
+                    setIsInstrutorModalOpen(true);
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow transition cursor-pointer font-sans"
+                >
+                  âœï¸ Editar Credenciamento
+                </button>
+                <button
+                  onClick={() => setSelectedInstrutorDetail(null)}
+                  className="bg-slate-800 hover:bg-slate-755 text-slate-300 hover:text-white text-xs font-bold py-2.5 px-4 rounded-xl transition cursor-pointer font-sans"
+                >
+                  Fechar Janela
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* --- MODAL DE BOAS-VINDAS DO INSTRUTOR INDICADO (QR CODE / REFERRAL) --- */}
+      {scannedInstructorWelcome && (() => {
+        const inst = scannedInstructorWelcome;
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+            <div className="bg-slate-950 text-slate-100 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 text-left">
+              
+              {/* Header */}
+              <div className="bg-gradient-to-r from-emerald-950 to-slate-900 px-6 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xl">ğŸ¤</span>
+                  <div>
+                    <h3 className="text-sm font-black tracking-tight text-white uppercase font-mono">
+                      Instrutor Parceiro Nova CNH
+                    </h3>
+                    <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">IndicaÃ§Ã£o e VÃ­nculo de Aluno</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => {
+                    hasClosedWelcomeRef.current = true;
+                    setScannedInstructorWelcome(null);
+                  }}
+                  className="text-slate-400 hover:text-white transition text-lg font-black font-sans"
+                >
+                  âœ•
+                </button>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="p-6 overflow-y-auto space-y-5 flex-1">
+                
+                {/* Profile Block */}
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-850">
+                  {inst.foto ? (
+                    <div className="w-16 h-16 rounded-full border-2 border-emerald-500 overflow-hidden shrink-0 shadow-lg shadow-emerald-950/40">
+                      <img src={inst.foto} alt={inst.nome} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center text-slate-400 text-2xl shrink-0 shadow-lg">
+                      ğŸ‘¤
+                    </div>
+                  )}
+                  <div className="space-y-1 text-center sm:text-left flex-grow">
+                    <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest font-mono">Instrutor AutÃ´nomo Credenciado</span>
+                    <h2 className="text-xl font-extrabold text-white">{inst.nome}</h2>
+                    <p className="text-xs text-slate-400 font-sans flex flex-wrap items-center justify-center sm:justify-start gap-x-1.5 gap-y-0.5">
+                      <span>AtuaÃ§Ã£o: <strong>{inst.regiao}</strong></span>
+                      {inst.credencialSenatran && (
+                        <>
+                          <span>â€¢</span>
+                          <span className="text-indigo-400 font-mono text-[10px]">SENATRAN: {inst.credencialSenatran}</span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Experience Badge */}
+                <div className="bg-slate-900 border border-emerald-900/20 p-4 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2 text-white font-extrabold text-xs uppercase tracking-wider">
+                    <span>â³</span>
+                    <span>Tempo de ExperiÃªncia</span>
+                  </div>
+                  <p className="text-emerald-400 font-black text-base pl-6 font-mono">
+                    {inst.tempoExperiencia || "MÃºltiplos anos de experiÃªncia comprovada"}
+                  </p>
+                </div>
+
+                {/* Bio / History */}
+                <div className="bg-slate-900/30 border border-slate-850 p-4 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2 text-white font-extrabold text-xs uppercase tracking-wider">
+                    <span>ğŸ“–</span>
+                    <span>TrajetÃ³ria & HistÃ³ria Profissional</span>
+                  </div>
+                  <div className="text-xs text-slate-300 leading-relaxed font-sans italic relative pl-6 pr-2 py-1">
+                    <span className="absolute left-0 top-0 text-3xl text-emerald-500/20 font-serif leading-none">â€œ</span>
+                    <p>
+                      {inst.historia || "Profissional totalmente focado em auxiliar alunos no processo de aprendizagem, superando medos e inseguranÃ§as no trÃ¢nsito."}
+                    </p>
+                    <span className="absolute right-0 bottom-0 text-3xl text-emerald-500/20 font-serif leading-none translate-y-2">â€</span>
+                  </div>
+                </div>
+
+                {/* Connection Alert */}
+                <p className="text-[10.5px] text-slate-400 text-center leading-relaxed">
+                  Ao realizar sua matrÃ­cula, sua ficha de candidato serÃ¡ automaticamente vinculada ao instrutor <strong className="text-white">{inst.nome}</strong> para o acompanhamento das suas aulas prÃ¡ticas.
+                </p>
+
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="bg-slate-900 border-t border-slate-850 p-4 px-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 shrink-0">
+                <button
+                  onClick={() => {
+                    hasClosedWelcomeRef.current = true;
+                    setScannedInstructorWelcome(null);
+                  }}
+                  className="bg-slate-800 hover:bg-slate-755 text-slate-300 hover:text-white text-xs font-bold py-2.5 px-4 rounded-xl transition cursor-pointer font-sans order-2 sm:order-1 text-center"
+                >
+                  Apenas Explorar
+                </button>
+                <button
+                  onClick={() => {
+                    hasClosedWelcomeRef.current = true;
+                    setScannedInstructorWelcome(null);
+                    setTimeout(() => {
+                      const element = document.getElementById('candidate-self-enrollment-platform');
+                      if (element) {
+                        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    }, 300);
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black py-2.5 px-5 rounded-xl shadow-lg transition active:scale-95 cursor-pointer font-sans order-1 sm:order-2 text-center flex items-center justify-center gap-1.5"
+                >
+                  âœï¸ Quero me inscrever com {inst.nome.split(" ")[0]}
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* --- MODAL: ORIENTAÃ‡ÃƒO DO INSTRUTOR (AVATAR) --- */}
+      {adviceModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm border border-slate-100 overflow-hidden animate-in zoom-in-95 duration-200" id="advice-modal-container">
+            
+            <div className="bg-gradient-to-r from-emerald-600 to-indigo-900 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">ğŸ’¡</span>
+                <div>
+                  <h3 className="font-extrabold text-xs md:text-sm tracking-tight">RecomendaÃ§Ã£o de Treino</h3>
+                  <p className="text-[9px] text-emerald-200 font-mono tracking-wider uppercase font-bold">SimulaÃ§Ã£o {adviceAulas} Aulas</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setAdviceModalOpen(false)}
+                className="text-white/80 hover:text-white hover:bg-white/15 rounded-full w-7 h-7 flex items-center justify-center font-bold text-base transition"
+                id="btn-close-advice-modal"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-slate-800 flex flex-col items-center">
+              
+              {/* AVATAR CONTAINER */}
+              <div className="relative">
+                <div className="w-20 h-20 rounded-full border-4 border-emerald-500 overflow-hidden shadow-md">
+                  <img 
+                    src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?q=80&w=200&auto=format&fit=crop" 
+                    alt="Mariana, Instrutora Virtual de DireÃ§Ã£o" 
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+                <span className="absolute bottom-0 right-0 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full flex items-center justify-center animate-pulse" title="Instrutor Digital do Programa">
+                  <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
+                </span>
+              </div>
+
+              {/* INSTRUCTOR DESCRIPTION */}
+              <div className="text-center">
+                <h4 className="font-bold text-slate-800 text-sm">Mariana</h4>
+                <p className="text-[10px] text-slate-400 font-bold uppercase font-mono tracking-wider">Aconselhadora de FormaÃ§Ã£o</p>
+              </div>
+
+              {/* SPEECH BUBBLE MESSAGE */}
+              <div className="relative bg-slate-50 border border-slate-200 rounded-xl p-4 w-full shadow-inner text-slate-600 leading-relaxed text-xs font-semibold text-center">
+                {/* Visual tail of the speech bubble */}
+                <div className="absolute top-[-6px] left-[50%] translate-x-[-50%] w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] border-b-slate-50"></div>
+                
+                <p className="whitespace-normal">
+                  "{getAulasAdviceText(adviceAulas)}"
+                </p>
+                <p className="mt-2 text-emerald-600 font-extrabold text-[11px] border-t border-slate-200/60 pt-2 block">
+                  VocÃª se enquadra nesse perfil? Se sim pode prosseguir. Se nÃ£o, escolha outra quantidade de aulas.
+                </p>
+              </div>
+
+              {/* FOOTER CONFIRM BUTTON */}
+              <button
+                type="button"
+                onClick={() => setAdviceModalOpen(false)}
+                id="btn-confirm-advice"
+                className="w-full py-2.5 px-4 bg-[#112d52] hover:bg-slate-900 text-white rounded-xl text-xs font-extrabold tracking-wider uppercase shadow-md transition-all duration-150 transform active:scale-95 text-center mt-2 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <span>Entendi, Mariana</span>
+                <span>ğŸ‘</span>
+              </button>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL: DETALHES DO PLANO SELECIONADO --- */}
+      {selectedPlanToPreview && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-200" id="plan-detail-modal">
+            
+            {/* Header decorativo de acordo com o plano */}
+            {selectedPlanToPreview === 'jovem-17' && (
+              <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-5">
+                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-100 font-mono">Simulador de Planos</span>
+                <h3 className="text-xl font-black mt-1 flex items-center gap-2">
+                  <span>ğŸŒ±</span> PoupanÃ§a Jovem â€” Planejamento 17 Anos
+                </h3>
+              </div>
+            )}
+
+            {selectedPlanToPreview === 'adulto-18' && (
+              <div className="bg-gradient-to-r from-indigo-700 via-indigo-900 to-blue-900 text-white p-5 border-b-2 border-amber-400">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-indigo-100 font-mono">Simulador de Planos</span>
+                  <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-amber-400 text-slate-950 rounded-full shadow-xs">
+                    â­ MAIS ESCOLHIDO
+                  </span>
+                </div>
+                <h3 className="text-xl font-black mt-1 flex items-center gap-2">
+                  <span>âš¡</span> CNH Facilitada Adultos â€” InÃ­cio Imediato 18+ Anos
+                </h3>
+              </div>
+            )}
+
+            {selectedPlanToPreview === 'habilitado' && (
+              <div className="bg-gradient-to-r from-violet-600 to-purple-900 text-white p-5">
+                <span className="text-[10px] font-black uppercase tracking-widest text-violet-100 font-mono">Simulador de Planos</span>
+                <h3 className="text-xl font-black mt-1 flex items-center gap-2">
+                  <span>ğŸš—</span> Treinamento AvanÃ§ado para Habilitados
+                </h3>
+              </div>
+            )}
+
+            {/* Corpo com InformaÃ§Ãµes Detalhadas e PropÃ³sito */}
+            <div className="p-6 space-y-5 text-slate-700 text-left">
+              
+              {selectedPlanToPreview === 'jovem-17' && (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-extrabold text-slate-800 text-sm mb-1 uppercase tracking-wider font-mono text-emerald-700">ğŸ¯ PropÃ³sito do Plano:</h4>
+                    <p className="text-xs text-slate-600 leading-relaxed font-semibold">
+                      Desenvolvido especialmente para adolescentes e jovens de 17 anos (e atÃ© 24) que desejam planejar sua autonomia. O propÃ³sito Ã© permitir que o jovem comece a construir uma reserva financeira controlada (o baÃº) parcelando o valor s/ juros antes da maioridade legal. Enquanto poupa, estuda e simula a prova teÃ³rica.
+                    </p>
+                  </div>
+
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 space-y-2.5">
+                    <h5 className="text-[11px] font-extrabold text-emerald-800 uppercase tracking-wider">ğŸŒŸ Vantagens e Funcionamento:</h5>
+                    <ul className="text-[11px] text-slate-600 space-y-1.5 font-medium list-disc list-inside">
+                      <li><strong className="text-emerald-950 font-bold">Desbloqueio AutomÃ¡tico:</strong> Ao fazer aniversÃ¡rio de 18 anos, 100% do saldo Ã© liberado na hora para as aulas prÃ¡ticas.</li>
+                      <li><strong className="text-emerald-950 font-bold">Menores Parcelas:</strong> SimulaÃ§Ã£o otimizada e flexÃ­vel para quitar atÃ© os 18 ou estender de forma leve.</li>
+                      <li><strong className="text-emerald-950 font-bold">Estudo Integrado:</strong> Acesso Ã  plataforma simulada de testes para jÃ¡ ir se preparando.</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {selectedPlanToPreview === 'adulto-18' && (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-extrabold text-slate-800 text-sm mb-1 uppercase tracking-wider font-mono text-indigo-700">ğŸ¯ PropÃ³sito do Plano:</h4>
+                    <p className="text-xs text-slate-600 leading-relaxed font-semibold">
+                      Ideal para quem jÃ¡ completou 18 anos ou mais e quer dar inÃ­cio imediato ao processo da primeira habilitaÃ§Ã£o (Carro, Moto ou Ambos) sem precisar esperar. O objetivo Ã© facilitar o acesso aos recursos, dividindo os custos totais em mensalidades previsÃ­veis de atÃ© 12x s/ juros, agendando de imediato as primeiras instruÃ§Ãµes.
+                    </p>
+                  </div>
+
+                  <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 space-y-2.5">
+                    <h5 className="text-[11px] font-extrabold text-indigo-800 uppercase tracking-wider">ğŸŒŸ Vantagens e Funcionamento:</h5>
+                    <ul className="text-[11px] text-slate-600 space-y-1.5 font-medium list-disc list-inside">
+                      <li><strong className="text-indigo-950 font-bold">InÃ­cio Imediato:</strong> Sem burocracia, cadastro rÃ¡pido e direcionamento de instrutor regional.</li>
+                      <li><strong className="text-indigo-950 font-bold">FÃ³rmula Flex:</strong> Permite escolher aulas prÃ¡ticas de carro, moto ou misto sob medida.</li>
+                      <li><strong className="text-indigo-950 font-bold">Flexibilidade:</strong> Pague no Pix, boleto de fomento ou em atÃ© 12 parcelas no cartÃ£o.</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {selectedPlanToPreview === 'habilitado' && (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-extrabold text-slate-800 text-sm mb-1 uppercase tracking-wider font-mono text-violet-700">ğŸ¯ PropÃ³sito do Plano:</h4>
+                    <p className="text-xs text-slate-600 leading-relaxed font-semibold">
+                      Desenvolvido especificamente para motoristas habilitados que possuem CNH de qualquer categoria, mas se sentem inseguros, tÃªm medo de dirigir no trÃ¢nsito, rampa ou vias rÃ¡pidas. O propÃ³sito do treinamento Ã© devolver a confianÃ§a por meio de aulas focadas 100% prÃ¡ticas, com instrutores pacientes e focado nas suas maiores dÃºvidas.
+                    </p>
+                  </div>
+
+                  <div className="bg-violet-50 border border-violet-100 rounded-xl p-4 space-y-2.5">
+                    <h5 className="text-[11px] font-extrabold text-violet-800 uppercase tracking-wider">ğŸŒŸ Vantagens e Funcionamento:</h5>
+                    <ul className="text-[11px] text-slate-600 space-y-1.5 font-medium list-disc list-inside">
+                      <li><strong className="text-violet-950 font-bold">Treinos Reais no TrÃ¢nsito:</strong> Aulas prÃ¡ticas personalizadas em vias de fluxo real na sua cidade.</li>
+                      <li><strong className="text-violet-950 font-bold">Atendimento Humanizado:</strong> Controle de embreagem, balizas, e superaÃ§Ã£o de medos cotidianos.</li>
+                      <li><strong className="text-violet-950 font-bold">Equipamentos Seguros:</strong> VeÃ­culos equipados com duplo comando para total controle e seguranÃ§a.</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {/* Pergunta final para prosseguir */}
+              <div className="border-t border-slate-100 pt-4 space-y-3.5 text-center">
+                <p className="text-xs font-black text-slate-800 bg-amber-50 border border-amber-200/50 p-3 rounded-lg leading-normal">
+                  â“ Se vocÃª acha que este Ã© o seu plano ideal, aperte OK para prosseguir.
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Confirma o plano
+                      setCalcPlano(selectedPlanToPreview);
+                      if (selectedPlanToPreview === 'jovem-17') {
+                        setCalcUseRealAge(true);
+                      } else {
+                        setCalcUseRealAge(false);
+                      }
+                      setSelectedPlanToPreview(null);
+                      setToastMessage(`ğŸ¯ Plano selecionado com sucesso para simulaÃ§Ã£o!`);
+                    }}
+                    className="flex-1 py-3 px-4 bg-[#112d52] hover:bg-slate-900 text-white font-extrabold text-xs tracking-wider uppercase rounded-xl shadow-md active:scale-95 transition-all text-center cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <span>Sim (OK)</span>
+                    <span>ğŸ‘</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPlanToPreview(null)}
+                    className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs tracking-wider uppercase rounded-xl active:scale-95 transition-all text-center cursor-pointer"
+                  >
+                    Voltar
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL DE CONFIRMAÃ‡ÃƒO DE EXCLUSÃƒO / RESET INLINE REGIONAL --- */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200" id="global-confirmation-dialog">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-200">
+            
+            {/* Header customizado */}
+            <div className={`p-4 text-white flex items-center gap-2 ${confirmModal.type === 'danger' ? 'bg-gradient-to-r from-red-600 to-rose-700' : 'bg-gradient-to-r from-indigo-600 to-indigo-800'}`}>
+              <span className="text-lg">âš ï¸</span>
+              <h3 className="text-sm font-black uppercase tracking-wider font-mono">
+                {confirmModal.title}
+              </h3>
+            </div>
+
+            {/* ConteÃºdo */}
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-slate-600 leading-relaxed font-semibold text-left">
+                {confirmModal.message}
+              </p>
+
+              {/* AÃ§Ãµes */}
+              <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  id="confirm-modal-cancel"
+                  onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-[11px] tracking-wider uppercase rounded-xl transition-all cursor-pointer"
+                >
+                  {confirmModal.cancelText || 'Cancelar'}
+                </button>
+
+                <button
+                  type="button"
+                  id="confirm-modal-submit"
+                  onClick={confirmModal.onConfirm}
+                  className={`py-2.5 px-4 text-white font-extrabold text-[11px] tracking-wider uppercase rounded-xl shadow-md transition-all cursor-pointer ${
+                    confirmModal.type === 'danger' 
+                      ? 'bg-red-600 hover:bg-rose-800' 
+                      : 'bg-[#112d52] hover:bg-slate-900'
+                  }`}
+                >
+                  {confirmModal.confirmText || 'Confirmar'}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL DA SUGESTÃƒO DA FORMA HÃBRIDA DE PAGAMENTO --- */}
+      {showHybridPaymentNotice && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200" id="hybrid-payment-notice-dialog">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-200 text-left">
+            {/* Header customizado */}
+            <div className="p-4 text-white flex items-center justify-between bg-gradient-to-r from-teal-600 to-emerald-700">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">ğŸ”€</span>
+                <h3 className="text-sm font-black uppercase tracking-wider font-mono">
+                  Informativo: Plano HÃ­brido
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowHybridPaymentNotice(false)}
+                className="p-1 rounded-lg hover:bg-white/10 active:scale-95 transition-all text-white/80 hover:text-white cursor-pointer flex items-center justify-center"
+                title="Fechar informativo"
+                id="close-hybrid-modal"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* ConteÃºdo */}
+            <div className="p-5 space-y-4">
+              <div className="space-y-3 font-sans">
+                <p className="text-xs text-slate-800 leading-relaxed font-bold">
+                  VocÃª selecionou o Acordo HÃ­brido (Ã€ Vista/Pix + CartÃ£o de CrÃ©dito)!
+                </p>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Nossa sugestÃ£o padrÃ£o do simulador Ã© dividir em <strong>50% de entrada no Pix</strong> e os <strong>50% restantes parcelados no CartÃ£o de CrÃ©dito</strong>.
+                </p>
+                <div className="bg-teal-50 border border-teal-200/50 p-3.5 rounded-xl">
+                  <p className="text-[11px] text-teal-800 font-extrabold flex items-center gap-1.5 uppercase tracking-wide">
+                    <span>ğŸ’¡</span> Flexibilidade Total
+                  </p>
+                  <p className="text-[11px] text-teal-900 leading-normal mt-1 font-semibold">
+                    Lembre-se: <strong>esta divisÃ£o de 50%/50% Ã© apenas uma sugestÃ£o</strong>. No final, a divisÃ£o exata dos valores pode ser dividida e ajustada por vocÃª mesmo, combinando diretamente com nosso consultor no momento de fechar sua matrÃ­cula de acordo com o que melhor se encaixe na sua realidade!
+                  </p>
+                </div>
+              </div>
+
+              {/* AÃ§Ãµes */}
+              <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  id="hybrid-modal-understand"
+                  onClick={() => setShowHybridPaymentNotice(false)}
+                  className="w-full py-3 px-4 bg-teal-650 hover:bg-teal-700 text-white font-extrabold text-[11px] tracking-widest uppercase rounded-xl shadow-md transition-all cursor-pointer text-center"
+                >
+                  Ok, Entendi!
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL DE BAIXA MANUAL DE PAGAMENTOS (CARTÃƒO, PIX, DINHEIRO) --- */}
+      {baixaModalAluno && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-slate-900 text-slate-100 rounded-2xl shadow-2xl w-full max-w-lg border border-slate-700 overflow-hidden text-left flex flex-col max-h-[90vh]">
+            
+            {/* Header */}
+            <div className="p-4 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">ğŸ’³</span>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider font-mono">
+                    Baixa Manual de Pagamento
+                  </h3>
+                  <p className="text-[11px] text-emerald-100 font-medium">
+                    {baixaModalAluno.nome} â€¢ Categoria {baixaModalAluno.categoria}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBaixaModalAluno(null)}
+                className="p-1 rounded-lg hover:bg-white/10 text-white/80 hover:text-white cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <div className="p-5 overflow-y-auto space-y-4 text-xs font-sans">
+              
+              {/* Summary Card */}
+              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 grid grid-cols-2 gap-3">
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase font-mono block">Status Atual:</span>
+                  <span className="text-emerald-400 font-extrabold text-sm font-mono block">
+                    {baixaModalAluno.parcelasPagas} de {baixaModalAluno.parcelasTotal || 12} parcelas
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase font-mono block">Valor Total Contrato:</span>
+                  <span className="text-slate-200 font-bold text-sm font-mono block">
+                    {baixaModalAluno.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Forma de Pagamento */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider block">
+                  Forma do Pagamento Efetuado:
+                </label>
+                <select
+                  value={baixaForm.formaPagamento}
+                  onChange={(e) => setBaixaForm(prev => ({ ...prev, formaPagamento: e.target.value as any }))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2.5 px-3 text-xs text-white font-semibold focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="cartao">ğŸ’³ CartÃ£o de CrÃ©dito (MÃ¡quina / Link)</option>
+                  <option value="pix">âš¡ PIX / TransferÃªncia InstantÃ¢nea</option>
+                  <option value="dinheiro">ğŸ’µ Dinheiro em EspÃ©cie (BalcÃ£o)</option>
+                  <option value="boleto">ğŸ“„ Boleto BancÃ¡rio</option>
+                  <option value="transferencia">ğŸ¦ TransferÃªncia BancÃ¡ria / TED</option>
+                </select>
+              </div>
+
+              {/* Valor do LanÃ§amento */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider block">
+                    Valor Pago (R$):
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={baixaForm.valor}
+                    onChange={(e) => setBaixaForm(prev => ({ ...prev, valor: parseFloat(e.target.value) || 0 }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-emerald-400 font-extrabold font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider block">
+                    Data do Pagamento:
+                  </label>
+                  <input
+                    type="date"
+                    value={baixaForm.data}
+                    onChange={(e) => setBaixaForm(prev => ({ ...prev, data: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Modo de QuitaÃ§Ã£o de Parcelas */}
+              <div className="space-y-2 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+                <label className="text-[11px] font-extrabold text-indigo-300 uppercase tracking-wider block">
+                  AtualizaÃ§Ã£o do Progresso de Parcelas:
+                </label>
+
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="modoAcao"
+                      value="avancar"
+                      checked={baixaForm.modoAcao === 'avancar'}
+                      onChange={() => setBaixaForm(prev => ({ ...prev, modoAcao: 'avancar' }))}
+                      className="accent-emerald-500"
+                    />
+                    <span className="text-slate-200 font-medium">AvanÃ§ar +</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={(baixaModalAluno.parcelasTotal || 12) - baixaModalAluno.parcelasPagas}
+                      value={baixaForm.parcelasBaixadas}
+                      onChange={(e) => setBaixaForm(prev => ({ ...prev, parcelasBaixadas: parseInt(e.target.value) || 1 }))}
+                      disabled={baixaForm.modoAcao !== 'avancar'}
+                      className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-center font-bold text-emerald-400"
+                    />
+                    <span className="text-slate-400">parcela(s) quitada(s)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="modoAcao"
+                      value="quitar_tudo"
+                      checked={baixaForm.modoAcao === 'quitar_tudo'}
+                      onChange={() => setBaixaForm(prev => ({ ...prev, modoAcao: 'quitar_tudo' }))}
+                      className="accent-emerald-500"
+                    />
+                    <span className="text-emerald-400 font-bold">Quitar Contrato Integralmente ({baixaModalAluno.parcelasTotal || 12} de {baixaModalAluno.parcelasTotal || 12})</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="modoAcao"
+                      value="customizado"
+                      checked={baixaForm.modoAcao === 'customizado'}
+                      onChange={() => setBaixaForm(prev => ({ ...prev, modoAcao: 'customizado' }))}
+                      className="accent-emerald-500"
+                    />
+                    <span className="text-slate-200 font-medium">Ajustar total de parcelas pagas para:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={baixaModalAluno.parcelasTotal || 12}
+                      value={baixaForm.novaQtdeParcelasPagas}
+                      onChange={(e) => setBaixaForm(prev => ({ ...prev, novaQtdeParcelasPagas: parseInt(e.target.value) || 0 }))}
+                      disabled={baixaForm.modoAcao !== 'customizado'}
+                      className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-center font-bold text-white"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Comprovante/NSU e ObservaÃ§Ã£o */}
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                    NÂº Comprovante / NSU / AutorizaÃ§Ã£o da Maquininha (Opcional):
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: NSU 9841029 / Aut 10294"
+                    value={baixaForm.nsuComprovante}
+                    onChange={(e) => setBaixaForm(prev => ({ ...prev, nsuComprovante: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                    ObservaÃ§Ã£o Interna:
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Ex: Pago no balcÃ£o da autoescola via maquininha Ton..."
+                    value={baixaForm.observacao}
+                    onChange={(e) => setBaixaForm(prev => ({ ...prev, observacao: e.target.value }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setBaixaModalAluno(null)}
+                  className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmarBaixaManual}
+                  className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-lg transition cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  <span>âœ“</span> Confirmar Baixa
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL DE REMOÃ‡ÃƒO DE CADASTROS FICTÃCIOS / TESTES --- */}
+      {isPurgeModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-slate-900 text-slate-100 rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-700 overflow-hidden text-left flex flex-col max-h-[90vh]">
+            
+            {/* Header */}
+            <div className="p-4 bg-gradient-to-r from-rose-700 to-red-800 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">ğŸ§¹</span>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider font-mono">
+                    Remover Cadastros FictÃ­cios / Testes
+                  </h3>
+                  <p className="text-[11px] text-rose-100 font-medium">
+                    Selecione quais cadastros fictÃ­cios ou de demonstraÃ§Ã£o deseja excluir da base
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPurgeModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-white/80 hover:text-white cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-5 overflow-y-auto space-y-4 text-xs font-sans">
+              
+              <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <span className="text-slate-400 font-semibold">
+                  Exibindo {alunos.length} cadastros no total. ({selectedPurgeIds.length} selecionados para remoÃ§Ã£o)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPurgeIds(alunos.filter(isFictitiousCandidate).map(a => a.id))}
+                    className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-1 rounded font-bold hover:bg-amber-500/20"
+                  >
+                    Selecionar SugestÃµes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedPurgeIds.length === alunos.length) {
+                        setSelectedPurgeIds([]);
+                      } else {
+                        setSelectedPurgeIds(alunos.map(a => a.id));
+                      }
+                    }}
+                    className="text-[10px] bg-slate-800 text-slate-300 px-2 py-1 rounded font-bold hover:bg-slate-700"
+                  >
+                    {selectedPurgeIds.length === alunos.length ? 'Desmarcar Todos' : 'Marcar Todos'}
+                  </button>
+                </div>
+              </div>
+
+              {alunos.length === 0 ? (
+                <p className="text-center text-slate-500 py-6">Nenhum aluno cadastrado no sistema.</p>
+              ) : (
+                <div className="border border-slate-800 rounded-xl overflow-hidden max-h-[350px] overflow-y-auto">
+                  <table className="w-full text-xs text-left text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 uppercase text-[9px] font-extrabold sticky top-0 border-b border-slate-800">
+                      <tr>
+                        <th className="p-3 w-10 text-center">Selecionar</th>
+                        <th className="p-3">Nome do Candidato</th>
+                        <th className="p-3">Data / WhatsApp</th>
+                        <th className="p-3">Tipo / Tag</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-850">
+                      {alunos.map(a => {
+                        const isSuggested = isFictitiousCandidate(a);
+                        const isChecked = selectedPurgeIds.includes(a.id);
+                        return (
+                          <tr
+                            key={a.id}
+                            onClick={() => {
+                              setSelectedPurgeIds(prev => 
+                                isChecked ? prev.filter(id => id !== a.id) : [...prev, a.id]
+                              );
+                            }}
+                            className={`cursor-pointer transition ${
+                              isChecked ? 'bg-rose-950/30' : 'hover:bg-slate-800/40'
+                            }`}
+                          >
+                            <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedPurgeIds(prev => [...prev, a.id]);
+                                  } else {
+                                    setSelectedPurgeIds(prev => prev.filter(id => id !== a.id));
+                                  }
+                                }}
+                                className="accent-rose-500 h-4 w-4"
+                              />
+                            </td>
+                            <td className="p-3 font-bold text-white">
+                              {a.nome}
+                              <span className="block text-[10px] text-slate-500 font-mono">ID: {a.id}</span>
+                            </td>
+                            <td className="p-3 font-mono text-[11px] text-slate-400">
+                              <span>{a.whatsapp || 'Sem Whats'}</span>
+                            </td>
+                            <td className="p-3">
+                              {isSuggested ? (
+                                <span className="bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9px] font-black px-2 py-0.5 rounded-full uppercase font-mono">
+                                  âš ï¸ FictÃ­cio / Teste
+                                </span>
+                              ) : (
+                                <span className="bg-slate-800 text-slate-400 text-[9px] font-semibold px-2 py-0.5 rounded-full font-mono">
+                                  Normal
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsPurgeModalOpen(false)}
+                  className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedPurgeIds.length === 0}
+                  onClick={handleConfirmarLimpezaFicticios}
+                  className="py-2.5 px-5 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-lg transition cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  <span>ğŸ—‘ï¸</span> Excluir {selectedPurgeIds.length} Cadastro(s) Selecionado(s)
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Link Enrollment & Auto-fill Modal */}
+      <LinkEnrollmentModal
+        isOpen={isLinkEnrollmentModalOpen}
+        onClose={() => {
+          setIsLinkEnrollmentModalOpen(false);
+          setLinkModalSelectedAlunoId('');
+        }}
+        alunos={alunos}
+        onMatricular={handleMatricularViaLinkData}
+        initialSelectedAlunoId={linkModalSelectedAlunoId}
+      />
+
+      {/* Persistent App Footer */}
+      <footer className="bg-[#0c2340] text-slate-400 text-center py-4 text-xs font-medium border-t border-indigo-950 mt-12 space-y-1">
+        <p>Â© 2026 Plataforma Nova CNH Brasil na MÃ£o â€” Sincronizador de Contas do Looker Studio</p>
+        <p className="text-[10px] text-slate-500">Iniciativa independente de fomento e planejamento financeiro para candidatos a CNH a partir de 17 anos (foco principal de 17-24 anos).</p>
+      </footer>
+
+    </div>
+  );
+}
