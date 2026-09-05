@@ -122,8 +122,61 @@ export function SalesKanbanCrm({
   const [newLeadPlano, setNewLeadPlano] = useState<'adulto-18' | 'jovem-17' | 'habilitado'>('adulto-18');
   const [newLeadTemperatura, setNewLeadTemperatura] = useState<TemperaturaLead>('quente');
   const [newLeadOrigem, setNewLeadOrigem] = useState('WhatsApp');
-  const [newLeadValor, setNewLeadValor] = useState<number>(1800);
+  const [newLeadValor, setNewLeadValor] = useState<number>(0);
   const [newLeadObs, setNewLeadObs] = useState('');
+
+  // Manual Negotiation Value Modal state
+  const [activeNegotiationModalLead, setActiveNegotiationModalLead] = useState<Aluno | null>(null);
+  const [negotiationValorInput, setNegotiationValorInput] = useState<string>('0');
+  const [negotiationFormaInput, setNegotiationFormaInput] = useState<'cartao' | 'vista' | 'poupanca' | 'hibrido'>('cartao');
+  const [negotiationParcelasInput, setNegotiationParcelasInput] = useState<number>(12);
+  const [negotiationInstrutorInput, setNegotiationInstrutorInput] = useState<string>('A definir');
+  const [negotiationEtapaInput, setNegotiationEtapaInput] = useState<EtapaCrm>('negociacao');
+  const [negotiationObsInput, setNegotiationObsInput] = useState<string>('');
+
+  const handleOpenNegotiationModal = (lead: Aluno) => {
+    setActiveNegotiationModalLead(lead);
+    setNegotiationValorInput(String(lead.valorTotal !== undefined && lead.valorTotal !== null ? lead.valorTotal : 0));
+    setNegotiationFormaInput(lead.formaPagamento || 'cartao');
+    setNegotiationParcelasInput(lead.parcelasTotal || 12);
+    setNegotiationInstrutorInput(lead.instrutor || 'A definir');
+    setNegotiationEtapaInput(lead.etapaCrm === 'novo_lead' ? 'negociacao' : (lead.etapaCrm || 'negociacao'));
+    setNegotiationObsInput('');
+  };
+
+  const handleSaveNegotiationValue = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeNegotiationModalLead) return;
+
+    const parsedVal = Math.max(0, parseFloat(negotiationValorInput.replace(',', '.')) || 0);
+    const nowIso = new Date().toISOString();
+
+    const formaDesc = negotiationFormaInput === 'vista' 
+      ? 'À Vista via Pix/Dinheiro' 
+      : `${negotiationParcelasInput}x no ${negotiationFormaInput === 'cartao' ? 'Cartão de Crédito' : negotiationFormaInput === 'poupanca' ? 'Plano Poupança' : 'Híbrido'}`;
+
+    const obsText = negotiationObsInput.trim() ? ` Obs: ${negotiationObsInput.trim()}` : '';
+    const novaNota: NotaCrm = {
+      id: 'nota_valor_' + Date.now(),
+      data: nowIso,
+      texto: `💰 Valor acordado na negociação pelo Administrador: R$ ${parsedVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (${formaDesc}).${obsText}`,
+      autor: 'Administração / Negociação'
+    };
+
+    const updatedNotas = [novaNota, ...(activeNegotiationModalLead.notasCrm || [])];
+
+    updateAlunoCrm(activeNegotiationModalLead.id, {
+      valorTotal: parsedVal,
+      formaPagamento: negotiationFormaInput,
+      parcelasTotal: negotiationParcelasInput,
+      instrutor: negotiationInstrutorInput,
+      etapaCrm: negotiationEtapaInput,
+      notasCrm: updatedNotas,
+      dataUltimoContato: nowIso
+    });
+
+    setActiveNegotiationModalLead(null);
+  };
 
   // Helper to infer or format CRM stage
   const getAlunoEtapa = (aluno: Aluno): EtapaCrm => {
@@ -219,7 +272,7 @@ export function SalesKanbanCrm({
       instrutor: 'A definir',
       dataAdesao: new Date().toISOString().substring(0, 10),
       parcelasPagas: 0,
-      valorTotal: Number(newLeadValor) || 1800,
+      valorTotal: Math.max(0, Number(newLeadValor) || 0),
       tipoPlano: newLeadPlano === 'adulto-18' 
         ? 'Plano CNH Facilitada Maiores de 18 Anos' 
         : newLeadPlano === 'jovem-17' 
@@ -249,6 +302,7 @@ export function SalesKanbanCrm({
     setNewLeadNome('');
     setNewLeadWhatsapp('');
     setNewLeadObs('');
+    setNewLeadValor(0);
     setIsNewLeadModalOpen(false);
   };
 
@@ -287,7 +341,7 @@ export function SalesKanbanCrm({
   // Funnel Metrics
   const pipelineMetrics = useMemo(() => {
     const totalLeads = alunos.length;
-    const totalValor = alunos.reduce((acc, a) => acc + (a.valorTotal || 1800), 0);
+    const totalValor = alunos.reduce((acc, a) => acc + (Number(a.valorTotal) || 0), 0);
     const quentes = alunos.filter(a => getAlunoTemperatura(a) === 'quente').length;
     const ganhos = alunos.filter(a => getAlunoEtapa(a) === 'ganho').length;
     const taxaConversao = totalLeads > 0 ? Math.round((ganhos / totalLeads) * 100) : 0;
@@ -482,7 +536,7 @@ export function SalesKanbanCrm({
         <div className="flex gap-4 min-w-[1280px]">
           {ETAPAS.map((coluna, index) => {
             const leadsInCol = filteredLeads.filter(a => getAlunoEtapa(a) === coluna.id);
-            const totalColValue = leadsInCol.reduce((acc, a) => acc + (a.valorTotal || 1800), 0);
+            const totalColValue = leadsInCol.reduce((acc, a) => acc + (Number(a.valorTotal) || 0), 0);
 
             return (
               <div 
@@ -573,17 +627,43 @@ export function SalesKanbanCrm({
                           </div>
 
                           {/* INFORMAÇÕES FINANCEIRAS & ORIGEM */}
-                          <div className="bg-slate-50 rounded-lg p-2 text-[10.5px] text-slate-600 flex justify-between items-center font-sans border border-slate-100">
-                            <div>
-                              <span className="text-slate-400 block text-[9px] uppercase font-bold">Valor Estimado</span>
-                              <strong className="text-slate-900 font-black">
-                                {(lead.valorTotal || 1800).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
-                              </strong>
+                          <div className="bg-slate-50 rounded-lg p-2.5 text-[10.5px] text-slate-600 space-y-1.5 font-sans border border-slate-100">
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <span className="text-slate-400 block text-[9px] uppercase font-bold">Valor da Proposta</span>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <strong className={`font-black text-xs font-mono ${(Number(lead.valorTotal) || 0) > 0 ? 'text-emerald-700' : 'text-slate-500'}`}>
+                                    {(Number(lead.valorTotal) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 })}
+                                  </strong>
+                                  {(Number(lead.valorTotal) || 0) === 0 && (
+                                    <span className="text-[8.5px] font-extrabold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
+                                      Fora do caixa
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-slate-400 block text-[9px] uppercase font-bold">Origem</span>
+                                <span className="font-extrabold text-slate-700">{lead.origemLead || 'Direto'}</span>
+                              </div>
                             </div>
-                            <div className="text-right">
-                              <span className="text-slate-400 block text-[9px] uppercase font-bold">Origem</span>
-                              <span className="font-extrabold text-slate-700">{lead.origemLead || 'Direto'}</span>
-                            </div>
+
+                            {/* BOTÃO PARA INCLUIR/AJUSTAR VALOR NA NEGOCIAÇÃO */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenNegotiationModal(lead);
+                              }}
+                              className={`w-full text-[10px] font-black py-1 px-2 rounded-md flex items-center justify-center gap-1 transition cursor-pointer border shadow-2xs ${
+                                (Number(lead.valorTotal) || 0) > 0
+                                  ? 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                                  : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 font-bold'
+                              }`}
+                              title="O administrador pode definir ou alterar manualmente o valor acordado com o candidato"
+                            >
+                              <span>{(Number(lead.valorTotal) || 0) > 0 ? '✏️ Ajustar Valor Negociado' : '➕ Incluir Valor na Negociação'}</span>
+                            </button>
                           </div>
 
                           {/* STATUS DE MATRÍCULA (INDICADOR EXPLÍCITO) */}
@@ -1009,13 +1089,24 @@ export function SalesKanbanCrm({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-xs font-bold text-slate-700">Valor Estimado (R$)</label>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-700">Valor Inicial (R$)</label>
+                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      Padrão R$ 0,00
+                    </span>
+                  </div>
                   <input
                     type="number"
-                    value={newLeadValor}
-                    onChange={e => setNewLeadValor(Number(e.target.value))}
-                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0c2340] font-bold"
+                    step="0.01"
+                    min="0"
+                    placeholder="0,00"
+                    value={newLeadValor === 0 ? '' : newLeadValor}
+                    onChange={e => setNewLeadValor(Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0c2340] font-bold font-mono"
                   />
+                  <p className="text-[10px] text-slate-500 leading-tight">
+                    Inicia em <strong>R$ 0,00</strong> para não computar no fluxo de caixa até ser negociado.
+                  </p>
                 </div>
               </div>
 
@@ -1043,6 +1134,184 @@ export function SalesKanbanCrm({
                   className="bg-[#0c2340] hover:bg-slate-900 text-white text-xs font-extrabold py-2.5 px-5 rounded-xl transition shadow-md"
                 >
                   Adicionar ao Funil
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE DEFINIÇÃO MANUAL DE VALOR DA NEGOCIAÇÃO */}
+      {activeNegotiationModalLead && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
+            <div className="bg-gradient-to-r from-[#0c2340] to-[#1e3a8a] text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">💰</span>
+                <div>
+                  <h3 className="font-extrabold text-sm">Definir Valor da Negociação</h3>
+                  <p className="text-[11px] text-slate-300">Inclusão manual de valor diretamente com o candidato</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveNegotiationModalLead(null)}
+                className="text-slate-300 hover:text-white text-lg font-bold p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveNegotiationValue} className="p-5 space-y-4 max-h-[80vh] overflow-y-auto font-sans">
+              {/* Resumo do Lead */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex justify-between items-center text-xs">
+                <div>
+                  <span className="text-slate-400 block text-[9px] uppercase font-bold">Candidato</span>
+                  <strong className="text-slate-900 text-sm font-extrabold block">{activeNegotiationModalLead.nome}</strong>
+                  <span className="text-slate-500 font-mono text-[11px]">{activeNegotiationModalLead.whatsapp}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-400 block text-[9px] uppercase font-bold">Categoria</span>
+                  <span className="bg-indigo-50 text-indigo-800 font-bold px-2 py-0.5 rounded text-[11px]">
+                    {activeNegotiationModalLead.categoria}
+                  </span>
+                </div>
+              </div>
+
+              {/* Informação sobre Fluxo de Caixa */}
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 text-[11px] p-3 rounded-xl flex items-start gap-2 leading-relaxed">
+                <span className="text-base shrink-0">ℹ️</span>
+                <div>
+                  <strong>Regra de Fluxo de Caixa:</strong> Cadastros iniciam com <strong>R$ 0,00</strong> para não inflar o caixa. O administrador pode incluir e alterar o valor manual nesta tela conforme o acordo comercial direto com o candidato.
+                </div>
+              </div>
+
+              {/* Valor Negociado */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="block text-xs font-black text-slate-700">Valor Acordado na Negociação (R$)</label>
+                  <span className="text-[10px] text-slate-500 font-medium">Deixe 0 para manter fora do fluxo</span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  placeholder="0,00"
+                  value={negotiationValorInput}
+                  onChange={e => setNegotiationValorInput(e.target.value)}
+                  className="w-full text-base p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0c2340] font-black font-mono text-slate-900"
+                />
+
+                {/* Botões de Preenchimento Rápido */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400 font-bold self-center mr-1">Atalhos:</span>
+                  {[0, 1000, 1250, 1500, 1800, 2150].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setNegotiationValorInput(String(val))}
+                      className={`text-[10.5px] px-2 py-0.5 rounded-lg border font-bold font-mono transition cursor-pointer ${
+                        negotiationValorInput === String(val)
+                          ? 'bg-[#0c2340] text-white border-[#0c2340]'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {val === 0 ? 'R$ 0,00 (Zerar)' : `R$ ${val}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Forma de Pagamento e Parcelas */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Condição / Pagamento</label>
+                  <select
+                    value={negotiationFormaInput}
+                    onChange={e => setNegotiationFormaInput(e.target.value as any)}
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0c2340] font-bold"
+                  >
+                    <option value="cartao">Cartão de Crédito</option>
+                    <option value="vista">À Vista (Pix / Dinheiro)</option>
+                    <option value="poupanca">Plano Poupança Jovem</option>
+                    <option value="hibrido">Híbrido (Entrada + Cartão)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Nº de Parcelas</label>
+                  <select
+                    disabled={negotiationFormaInput === 'vista'}
+                    value={negotiationParcelasInput}
+                    onChange={e => setNegotiationParcelasInput(Number(e.target.value))}
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0c2340] font-bold disabled:opacity-50"
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24].map(p => (
+                      <option key={p} value={p}>{p}x {p === 1 ? 'à vista' : 'parcelas'}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Etapa e Instrutor */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Mover para Etapa</label>
+                  <select
+                    value={negotiationEtapaInput}
+                    onChange={e => setNegotiationEtapaInput(e.target.value as EtapaCrm)}
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0c2340] font-bold"
+                  >
+                    <option value="novo_lead">📥 Novos Contatos / Leads</option>
+                    <option value="em_atendimento">💬 Em Atendimento</option>
+                    <option value="proposta_enviada">📄 Proposta Enviada</option>
+                    <option value="negociacao">🤝 Em Negociação</option>
+                    <option value="ganho">🏆 Matrícula Concluída</option>
+                    <option value="perdido">❌ Perdido / Desistiu</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold text-slate-700">Instrutor de Preferência</label>
+                  <select
+                    value={negotiationInstrutorInput}
+                    onChange={e => setNegotiationInstrutorInput(e.target.value)}
+                    className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0c2340]"
+                  >
+                    <option value="A definir">A definir</option>
+                    {instrutores && instrutores.map((i, idx) => (
+                      <option key={i.nome || idx} value={i.nome}>{i.nome} ({i.regiao || 'Geral'})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Observações da Negociação */}
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-700">Anotação do Acordo Comercial (Opcional)</label>
+                <textarea
+                  rows={2}
+                  placeholder="Ex: Candidato concordou com 12x no cartão; pediu início imediato para o próximo mês..."
+                  value={negotiationObsInput}
+                  onChange={e => setNegotiationObsInput(e.target.value)}
+                  className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#0c2340]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setActiveNegotiationModalLead(null)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2.5 px-4 rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold py-2.5 px-5 rounded-xl transition shadow-md flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>💾 Salvar Valor Negociado</span>
                 </button>
               </div>
             </form>

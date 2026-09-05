@@ -360,6 +360,82 @@ export function getStudentBaseValue(student: Aluno): number {
   return student.valorTotal;
 }
 
+export interface InstructorFinancialSummary {
+  myStudents: Aluno[];
+  totalStudents: number;
+  totalVendas: number;
+  totalPaymentReceived: number;
+  totalPendente: number;
+  totalLiberado: number;
+  saldoPago: number;
+  saldoDisponivel: number;
+  progressAvg: number;
+}
+
+export function calculateInstructorFinancials(
+  instructor: Instrutor | null | undefined,
+  allStudents: Aluno[]
+): InstructorFinancialSummary {
+  if (!instructor || !instructor.nome) {
+    return {
+      myStudents: [],
+      totalStudents: 0,
+      totalVendas: 0,
+      totalPaymentReceived: 0,
+      totalPendente: 0,
+      totalLiberado: 0,
+      saldoPago: 0,
+      saldoDisponivel: 0,
+      progressAvg: 0
+    };
+  }
+
+  const myStudents = (allStudents || []).filter(a => isSameInstructor(a.instrutor, instructor.nome));
+  
+  let totalVendas = 0;
+  let totalPaymentReceived = 0;
+  let sumProgress = 0;
+
+  for (const student of myStudents) {
+    const baseTotal = getStudentBaseValue(student);
+    totalVendas += baseTotal;
+
+    const pTotal = student.parcelasTotal || 12;
+    const pPagas = student.parcelasPagas || 0;
+
+    let paidVal = 0;
+    if (pPagas >= pTotal && pTotal > 0) {
+      paidVal = baseTotal;
+    } else if (pTotal > 0) {
+      paidVal = pPagas * (baseTotal / pTotal);
+    }
+    totalPaymentReceived += paidVal;
+
+    const progress = pTotal > 0 ? (pPagas / pTotal) * 100 : 0;
+    sumProgress += progress;
+  }
+
+  totalVendas = Math.round(totalVendas * 100) / 100;
+  totalPaymentReceived = Math.round(totalPaymentReceived * 100) / 100;
+  const totalPendente = Math.max(0, Math.round((totalVendas - totalPaymentReceived) * 100) / 100);
+  const totalLiberado = Math.round((totalPaymentReceived * 0.80) * 100) / 100;
+  const saldoPago = Math.round(Number(instructor.saldoPago || 0) * 100) / 100;
+  const saldoDisponivel = Math.max(0, Math.round((totalLiberado - saldoPago) * 100) / 100);
+  const progressAvg = myStudents.length > 0 ? Math.round(sumProgress / myStudents.length) : 0;
+
+  return {
+    myStudents,
+    totalStudents: myStudents.length,
+    totalVendas,
+    totalPaymentReceived,
+    totalPendente,
+    totalLiberado,
+    saldoPago,
+    saldoDisponivel,
+    progressAvg
+  };
+}
+
 export function calculateMonthsTo18(dobStr: string, todayStr?: string): number {
   if (!dobStr) return 0;
   const dob = new Date(dobStr);
@@ -654,19 +730,26 @@ const mergeAlunosLists = (localList: Aluno[], remoteList: Aluno[]): Aluno[] => {
 const mergeInstrutoresLists = (localList: Instrutor[], remoteList: Instrutor[]): Instrutor[] => {
   const mergedMap = new Map<string, Instrutor>();
 
-  remoteList.forEach(remote => {
+  (remoteList || []).forEach(remote => {
     if (remote && remote.nome) {
       mergedMap.set(remote.nome.trim().toLowerCase(), remote);
     }
   });
 
-  localList.forEach(local => {
+  (localList || []).forEach(local => {
     if (!local || !local.nome) return;
     const key = local.nome.trim().toLowerCase();
     const remote = mergedMap.get(key);
     if (!remote) {
       mergedMap.set(key, local);
     } else {
+      const exRecibos = Array.isArray(remote.recibos) ? remote.recibos : [];
+      const inRecibos = Array.isArray(local.recibos) ? local.recibos : [];
+      const recibosMap = new Map<string, any>();
+      [...exRecibos, ...inRecibos].forEach((r: any) => {
+        if (r && r.id) recibosMap.set(r.id, r);
+      });
+
       const merged: Instrutor = {
         ...remote,
         ...local,
@@ -681,9 +764,7 @@ const mergeInstrutoresLists = (localList: Instrutor[], remoteList: Instrutor[]):
         
         // Financials
         saldoPago: Math.max(Number(local.saldoPago || 0), Number(remote.saldoPago || 0)),
-        recibos: (local.recibos && local.recibos.length >= (remote.recibos || []).length) 
-          ? local.recibos 
-          : remote.recibos
+        recibos: Array.from(recibosMap.values())
       };
       mergedMap.set(key, merged);
     }
@@ -1126,11 +1207,14 @@ export default function App() {
       if (!isMounted) return;
       if (cloudInstrutores && Array.isArray(cloudInstrutores) && cloudInstrutores.length > 0) {
         console.log(`✅ [Firestore Realtime] Recebidos ${cloudInstrutores.length} instrutores da nuvem`);
-        setInstrutores(cloudInstrutores);
-        try {
-          localStorage.setItem('nova_cnh_instrutores', JSON.stringify(cloudInstrutores));
-          localStorage.setItem('nova_cnh_instrutores_backup', JSON.stringify(cloudInstrutores));
-        } catch (e) {}
+        setInstrutores(prev => {
+          const merged = mergeInstrutoresLists(prev, cloudInstrutores);
+          try {
+            localStorage.setItem('nova_cnh_instrutores', JSON.stringify(merged));
+            localStorage.setItem('nova_cnh_instrutores_backup', JSON.stringify(merged));
+          } catch (e) {}
+          return merged;
+        });
       }
     });
 
@@ -1175,7 +1259,13 @@ export default function App() {
           });
         }
         if (data.instrutores && Array.isArray(data.instrutores) && data.instrutores.length > 0) {
-          setInstrutores(data.instrutores);
+          setInstrutores(prev => {
+            const merged = mergeInstrutoresLists(prev, data.instrutores);
+            try {
+              localStorage.setItem('nova_cnh_instrutores', JSON.stringify(merged));
+            } catch (e) {}
+            return merged;
+          });
         }
       })
       .catch(() => {});
@@ -1272,7 +1362,6 @@ export default function App() {
         const hasRemoteUpdate = hasStudentsRefDiff || hasInstrutoresRefDiff || hasGasUrlRefDiff || hasGoogleCodeRefDiff;
 
         if (hasRemoteUpdate) {
-          console.log("⚡ [Sincronia] Detectadas novas atualizações na Nuvem! Sincronizando de forma segura...");
           isUpdatingFromRemote.current = true;
           
           let finalAlunos = currentAlunos;
@@ -1285,9 +1374,10 @@ export default function App() {
 
           let finalInstrutores = currentInstrutores;
           if (hasInstrutoresRefDiff && Array.isArray(serverInstrutores) && serverInstrutores.length > 0) {
-            finalInstrutores = serverInstrutores;
-            setInstrutores(serverInstrutores);
-            localStorage.setItem('nova_cnh_instrutores', JSON.stringify(serverInstrutores));
+            const mergedInstrutores = mergeInstrutoresLists(currentInstrutores, serverInstrutores);
+            finalInstrutores = mergedInstrutores;
+            setInstrutores(mergedInstrutores);
+            localStorage.setItem('nova_cnh_instrutores', JSON.stringify(mergedInstrutores));
           }
 
           if (hasGasUrlRefDiff) {
@@ -6253,13 +6343,13 @@ ${formattedInstrutores}
             <button
               id="tab-gestao"
               onClick={() => setCurrentTab('gestao')}
-              className={`px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-4 md:px-5 py-2.5 rounded-xl text-sm md:text-base font-black flex items-center gap-2 transition-all cursor-pointer ${
                 currentTab === 'gestao' 
-                  ? 'bg-emerald-500 text-slate-950 shadow' 
+                  ? 'bg-emerald-500 text-slate-950 shadow-md ring-2 ring-emerald-400/40' 
                   : 'hover:bg-slate-800 text-slate-200'
               }`}
             >
-              <Users className="h-4 w-4" />
+              <Users className="h-5 w-5" />
               ⚙️ {isAdminAuthenticated ? `Área Administrativa (${cleanAlunos.length})` : 'Área Administrativa 🔒'}
             </button>
           </div>
@@ -8361,104 +8451,270 @@ ${formattedInstrutores}
           ) : (
             <div className="space-y-6 animate-in fade-in duration-200">
               
-              {/* Admin Panel Sub-navigation */}
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-3 shadow-sm">
-                <div>
-                  <h2 className="text-base font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
-                    <span>🛡️ Painel do Gestor Administrativo</span>
-                  </h2>
-                  <p className="text-slate-500 text-xs mt-0.5">Monitore os saldos dos candidatos, acesse os contratos assinados e acompanhe as comissões dos instrutores</p>
+              {/* Header & Menus Operacionais do Painel do Gestor Administrativo */}
+              <div className="bg-white p-5 md:p-7 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <span className="bg-slate-100 text-slate-800 text-xs md:text-sm font-black uppercase px-3 py-1 rounded-lg border border-slate-200 tracking-wider">
+                        Controle Executivo & Gestão
+                      </span>
+                      <span className="flex items-center gap-1.5 text-xs md:text-sm font-black text-emerald-700 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
+                        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Operações em Tempo Real
+                      </span>
+                    </div>
+                    <h2 className="text-2xl md:text-3xl lg:text-4xl font-black text-slate-900 tracking-tight flex items-center gap-2.5">
+                      <span>🛡️ Painel do Gestor Administrativo</span>
+                    </h2>
+                    <p className="text-slate-600 text-sm md:text-base font-medium">
+                      Selecione um módulo operacional abaixo para gerenciar a esteira de vendas, base de candidatos, emissão de recibos, contratos e financeiro dos instrutores.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 self-start md:self-center">
+                    <span className="text-sm md:text-base font-bold text-slate-600 bg-slate-50 px-4 py-2 rounded-xl border border-slate-200">
+                      Módulo ativo: <strong className="text-slate-950 capitalize font-black">{
+                        adminSubTab === 'crm' ? 'CRM de Vendas (Kanban)' :
+                        adminSubTab === 'database' ? 'Candidatos & Instrutores' :
+                        adminSubTab === 'recibos' ? 'Recibos Financeiros' :
+                        adminSubTab === 'contracts' ? 'Contratos de Adesão' : 'Comissões & Finanças'
+                      }</strong>
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-wrap border border-slate-200 bg-slate-50 p-1 rounded-xl gap-1">
+
+                {/* MENUS OPERACIONAIS EXPANDIDOS COM TIPOGRAFIA GRANDE E ALTA VISIBILIDADE */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 pt-1">
+                  
+                  {/* 1. CRM DE VENDAS (KANBAN) */}
                   <button
+                    type="button"
                     onClick={() => setAdminSubTab('crm')}
-                    className={`px-3 py-2 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer select-none ${
+                    className={`group relative text-left p-4 md:p-5 rounded-2xl border-2 transition-all cursor-pointer select-none flex flex-col justify-between gap-3.5 ${
                       adminSubTab === 'crm'
-                        ? 'bg-emerald-600 text-white shadow-md'
-                        : 'text-slate-700 hover:text-slate-950 bg-white border border-slate-200/80'
+                        ? 'bg-gradient-to-br from-emerald-600 to-emerald-800 text-white border-emerald-500 shadow-xl shadow-emerald-900/20 scale-[1.02] ring-2 ring-emerald-400/40'
+                        : 'bg-white hover:bg-emerald-50/50 text-slate-800 border-slate-200 hover:border-emerald-300 hover:shadow-md'
                     }`}
                   >
-                    <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
-                    <span>CRM de Vendas (Kanban)</span>
-                    <span className="bg-amber-400 text-slate-950 text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase">Novo</span>
+                    <div className="flex items-start justify-between">
+                      <div className={`p-3 rounded-2xl ${
+                        adminSubTab === 'crm' 
+                          ? 'bg-white/20 text-white' 
+                          : 'bg-emerald-100 text-emerald-800 group-hover:bg-emerald-200'
+                      }`}>
+                        <TrendingUp className="h-6 w-6" />
+                      </div>
+                      <span className={`text-xs md:text-sm font-black px-3 py-1 rounded-full uppercase tracking-wider ${
+                        adminSubTab === 'crm'
+                          ? 'bg-amber-400 text-slate-950 shadow-xs'
+                          : 'bg-amber-100 text-amber-800 border border-amber-300'
+                      }`}>
+                        NOVO FUNIL
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-base md:text-lg lg:text-xl font-black tracking-tight flex items-center gap-1.5">
+                        <span>CRM de Vendas</span>
+                        {adminSubTab === 'crm' && <span className="text-sm font-black">✓</span>}
+                      </div>
+                      <p className={`text-xs md:text-sm font-bold leading-snug mt-1 ${
+                        adminSubTab === 'crm' ? 'text-emerald-100' : 'text-slate-500 group-hover:text-slate-700'
+                      }`}>
+                        Kanban de Leads & WhatsApp
+                      </p>
+                    </div>
                   </button>
+
+                  {/* 2. CANDIDATOS & INSTRUTORES */}
                   <button
+                    type="button"
                     onClick={() => setAdminSubTab('database')}
-                    className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 cursor-pointer select-none ${
+                    className={`group relative text-left p-4 md:p-5 rounded-2xl border-2 transition-all cursor-pointer select-none flex flex-col justify-between gap-3.5 ${
                       adminSubTab === 'database'
-                        ? 'bg-[#0c2340] text-white shadow'
-                        : 'text-slate-600 hover:text-slate-900'
+                        ? 'bg-gradient-to-br from-[#0c2340] to-slate-900 text-white border-indigo-500 shadow-xl shadow-slate-950/20 scale-[1.02] ring-2 ring-indigo-400/40'
+                        : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-indigo-300 hover:shadow-md'
                     }`}
                   >
-                    <Users className="h-3.5 w-3.5" />
-                    Candidatos & Instrutores
+                    <div className="flex items-start justify-between">
+                      <div className={`p-3 rounded-2xl ${
+                        adminSubTab === 'database' 
+                          ? 'bg-white/20 text-white' 
+                          : 'bg-indigo-100 text-indigo-800 group-hover:bg-indigo-200'
+                      }`}>
+                        <Users className="h-6 w-6" />
+                      </div>
+                      <span className={`text-xs md:text-sm font-black px-3 py-1 rounded-full font-mono ${
+                        adminSubTab === 'database'
+                          ? 'bg-indigo-400 text-slate-950'
+                          : 'bg-slate-100 text-slate-800 border border-slate-200'
+                      }`}>
+                        {cleanAlunos.length} ALUNOS
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-base md:text-lg lg:text-xl font-black tracking-tight flex items-center gap-1.5">
+                        <span>Candidatos & Fichas</span>
+                        {adminSubTab === 'database' && <span className="text-sm font-black">✓</span>}
+                      </div>
+                      <p className={`text-xs md:text-sm font-bold leading-snug mt-1 ${
+                        adminSubTab === 'database' ? 'text-slate-300' : 'text-slate-500 group-hover:text-slate-700'
+                      }`}>
+                        Matrículas, buscas e edições
+                      </p>
+                    </div>
                   </button>
+
+                  {/* 3. RECIBOS DE CANDIDATOS */}
                   <button
+                    type="button"
                     onClick={() => setAdminSubTab('recibos')}
-                    className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 cursor-pointer select-none ${
+                    className={`group relative text-left p-4 md:p-5 rounded-2xl border-2 transition-all cursor-pointer select-none flex flex-col justify-between gap-3.5 ${
                       adminSubTab === 'recibos'
-                        ? 'bg-[#0c2340] text-white shadow'
-                        : 'text-slate-600 hover:text-slate-900'
+                        ? 'bg-gradient-to-br from-[#0c2340] to-slate-900 text-white border-emerald-500 shadow-xl shadow-slate-950/20 scale-[1.02] ring-2 ring-emerald-400/40'
+                        : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-emerald-300 hover:shadow-md'
                     }`}
                   >
-                    <Receipt className="h-3.5 w-3.5 text-emerald-400" />
-                    Recibos de Candidatos
+                    <div className="flex items-start justify-between">
+                      <div className={`p-3 rounded-2xl ${
+                        adminSubTab === 'recibos' 
+                          ? 'bg-white/20 text-white' 
+                          : 'bg-emerald-100 text-emerald-800 group-hover:bg-emerald-200'
+                      }`}>
+                        <Receipt className="h-6 w-6" />
+                      </div>
+                      <span className={`text-xs md:text-sm font-black px-3 py-1 rounded-full uppercase tracking-wider ${
+                        adminSubTab === 'recibos'
+                          ? 'bg-emerald-400 text-slate-950'
+                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      }`}>
+                        FINANCEIRO
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-base md:text-lg lg:text-xl font-black tracking-tight flex items-center gap-1.5">
+                        <span>Recibos de Pagamento</span>
+                        {adminSubTab === 'recibos' && <span className="text-sm font-black">✓</span>}
+                      </div>
+                      <p className={`text-xs md:text-sm font-bold leading-snug mt-1 ${
+                        adminSubTab === 'recibos' ? 'text-slate-300' : 'text-slate-500 group-hover:text-slate-700'
+                      }`}>
+                        Emissão oficial e baixas Pix
+                      </p>
+                    </div>
                   </button>
+
+                  {/* 4. CONTRATOS DE ADESÃO */}
                   <button
+                    type="button"
                     onClick={() => setAdminSubTab('contracts')}
-                    className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 cursor-pointer select-none ${
+                    className={`group relative text-left p-4 md:p-5 rounded-2xl border-2 transition-all cursor-pointer select-none flex flex-col justify-between gap-3.5 ${
                       adminSubTab === 'contracts'
-                        ? 'bg-[#0c2340] text-white shadow'
-                        : 'text-slate-600 hover:text-slate-900'
+                        ? 'bg-gradient-to-br from-[#0c2340] to-slate-900 text-white border-blue-500 shadow-xl shadow-slate-950/20 scale-[1.02] ring-2 ring-blue-400/40'
+                        : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-blue-300 hover:shadow-md'
                     }`}
                   >
-                    <FileText className="h-3.5 w-3.5" />
-                    Contratos de Adesão
+                    <div className="flex items-start justify-between">
+                      <div className={`p-3 rounded-2xl ${
+                        adminSubTab === 'contracts' 
+                          ? 'bg-white/20 text-white' 
+                          : 'bg-blue-100 text-blue-800 group-hover:bg-blue-200'
+                      }`}>
+                        <FileText className="h-6 w-6" />
+                      </div>
+                      <span className={`text-xs md:text-sm font-black px-3 py-1 rounded-full uppercase tracking-wider ${
+                        adminSubTab === 'contracts'
+                          ? 'bg-blue-400 text-slate-950'
+                          : 'bg-blue-50 text-blue-700 border border-blue-200'
+                      }`}>
+                        PDF OFICIAL
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-base md:text-lg lg:text-xl font-black tracking-tight flex items-center gap-1.5">
+                        <span>Contratos de Adesão</span>
+                        {adminSubTab === 'contracts' && <span className="text-sm font-black">✓</span>}
+                      </div>
+                      <p className={`text-xs md:text-sm font-bold leading-snug mt-1 ${
+                        adminSubTab === 'contracts' ? 'text-slate-300' : 'text-slate-500 group-hover:text-slate-700'
+                      }`}>
+                        Termos assinados e downloads
+                      </p>
+                    </div>
                   </button>
+
+                  {/* 5. COMISSÕES & FINANÇAS */}
                   <button
+                    type="button"
                     onClick={() => setAdminSubTab('commissions')}
-                    className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 cursor-pointer select-none ${
+                    className={`group relative text-left p-4 md:p-5 rounded-2xl border-2 transition-all cursor-pointer select-none flex flex-col justify-between gap-3.5 ${
                       adminSubTab === 'commissions'
-                        ? 'bg-[#0c2340] text-white shadow'
-                        : 'text-slate-600 hover:text-slate-900'
+                        ? 'bg-gradient-to-br from-[#0c2340] to-slate-900 text-white border-amber-500 shadow-xl shadow-slate-950/20 scale-[1.02] ring-2 ring-amber-400/40'
+                        : 'bg-white hover:bg-slate-50 text-slate-800 border-slate-200 hover:border-amber-300 hover:shadow-md'
                     }`}
                   >
-                    <Coins className="h-3.5 w-3.5" />
-                    Comissões & Finanças
+                    <div className="flex items-start justify-between">
+                      <div className={`p-3 rounded-2xl ${
+                        adminSubTab === 'commissions' 
+                          ? 'bg-white/20 text-white' 
+                          : 'bg-amber-100 text-amber-800 group-hover:bg-amber-200'
+                      }`}>
+                        <Coins className="h-6 w-6" />
+                      </div>
+                      <span className={`text-xs md:text-sm font-black px-3 py-1 rounded-full uppercase tracking-wider ${
+                        adminSubTab === 'commissions'
+                          ? 'bg-amber-400 text-slate-950'
+                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}>
+                        REPASSES
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-base md:text-lg lg:text-xl font-black tracking-tight flex items-center gap-1.5">
+                        <span>Comissões & Finanças</span>
+                        {adminSubTab === 'commissions' && <span className="text-sm font-black">✓</span>}
+                      </div>
+                      <p className={`text-xs md:text-sm font-bold leading-snug mt-1 ${
+                        adminSubTab === 'commissions' ? 'text-slate-300' : 'text-slate-500 group-hover:text-slate-700'
+                      }`}>
+                        Saldos e repasses a instrutores
+                      </p>
+                    </div>
                   </button>
+
                 </div>
               </div>
 
               {/* BACKUPS LOCAL EM JSON (REDUNDÂNCIA E SEGURANÇA SE DESEJAR EXPORTAR) */}
               <div className="bg-[#0c2340] text-white rounded-2xl p-4 md:p-6 border border-slate-800 shadow-xl space-y-4 animate-in fade-in duration-300">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     <div className="flex items-center gap-2">
-                      <span className="flex h-2 w-2 relative">
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                      <span className="flex h-2.5 w-2.5 relative">
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-400 animate-pulse"></span>
                       </span>
-                      <span className="text-[10px] font-black text-indigo-400 font-mono tracking-wider uppercase">Backup de Segurança Offline</span>
+                      <span className="text-xs font-black text-indigo-300 font-mono tracking-wider uppercase">Backup de Segurança Offline</span>
                     </div>
-                    <h3 className="text-base font-black tracking-tight text-white flex items-center gap-1.5 mt-0.5">
+                    <h3 className="text-lg md:text-xl font-black tracking-tight text-white flex items-center gap-2 mt-0.5">
                       💾 Gerenciar Backups Físicos (JSON)
                     </h3>
-                    <p className="text-slate-350 text-[11px] leading-relaxed max-w-2xl">
+                    <p className="text-slate-300 text-xs md:text-sm leading-relaxed max-w-2xl font-medium">
                       Como o aplicativo agora está hospedado de forma 100% resiliente no Firebase Firestore, seus dados estão salvos na nuvem de forma nativa e automática. Use estes botões se desejar baixar uma cópia offline de segurança em seu computador ou restaurar uma cópia JSON antiga.
                     </p>
                   </div>
                   
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2.5 shrink-0">
                     <button
                       onClick={handleExportBackup}
-                      className="text-[11px] bg-slate-800/80 hover:bg-slate-800 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer select-none"
+                      className="text-xs md:text-sm bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 transition cursor-pointer select-none shadow-sm"
                       title="Salvar todas as fichas e instrutores em arquivo JSON de backup"
                     >
-                      <Download className="h-3.5 w-3.5" />
+                      <Download className="h-4 w-4 text-emerald-400" />
                       Exportar Backup JSON
                     </button>
                     
-                    <label className="text-[11px] bg-slate-800/80 hover:bg-slate-800 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer select-none">
-                      <RefreshCw className="h-3.5 w-3.5 text-indigo-400" />
+                    <label className="text-xs md:text-sm bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 transition cursor-pointer select-none shadow-sm">
+                      <RefreshCw className="h-4 w-4 text-indigo-400" />
                       Importar Backup JSON
                       <input 
                         type="file" 
@@ -9355,26 +9611,17 @@ ${formattedInstrutores}
 
               {adminSubTab === 'commissions' && (() => {
                 const commissionData = instrutores.map(inst => {
-                  const instStudents = cleanAlunos.filter(a => isSameInstructor(a.instrutor, inst.nome));
-                  const totalVendas = instStudents.reduce((acc, a) => acc + getStudentBaseValue(a), 0);
-                  const totalPaymentReceived = instStudents.reduce((acc, a) => {
-                    const baseTotal = getStudentBaseValue(a);
-                    const installmentVal = baseTotal / (a.parcelasTotal || 12);
-                    const paidValue = (a.parcelasPagas || 0) * installmentVal;
-                    return acc + paidValue;
-                  }, 0);
-                  const totalPendente = totalVendas - totalPaymentReceived;
-                  const progressAvg = instStudents.length > 0
-                    ? instStudents.reduce((acc, a) => acc + (a.parcelasPagas / (a.parcelasTotal || 12)) * 100, 0) / instStudents.length
-                    : 0;
-
+                  const fin = calculateInstructorFinancials(inst, cleanAlunos);
                   return {
                     instrutor: inst,
-                    students: instStudents,
-                    totalVendas,
-                    totalPaymentReceived,
-                    totalPendente,
-                    progressAvg: Math.round(progressAvg)
+                    students: fin.myStudents,
+                    totalVendas: fin.totalVendas,
+                    totalPaymentReceived: fin.totalPaymentReceived,
+                    totalPendente: fin.totalPendente,
+                    totalLiberado: fin.totalLiberado,
+                    saldoPago: fin.saldoPago,
+                    saldoDisponivel: fin.saldoDisponivel,
+                    progressAvg: fin.progressAvg
                   };
                 });
 
@@ -9383,7 +9630,7 @@ ${formattedInstrutores}
                   totalPaymentReceived: commissionData.reduce((acc, d) => acc + d.totalPaymentReceived, 0),
                   totalPendente: commissionData.reduce((acc, d) => acc + d.totalPendente, 0),
                   totalStudents: commissionData.reduce((acc, d) => acc + d.students.length, 0),
-                  totalLiberado: commissionData.reduce((acc, d) => acc + Math.max(0, (d.totalPaymentReceived * 0.80) - (d.instrutor.saldoPago || 0)), 0)
+                  totalLiberado: commissionData.reduce((acc, d) => acc + d.saldoDisponivel, 0)
                 };
 
                 const unassignedStudents = cleanAlunos.filter(a => !a.instrutor || a.instrutor === '' || a.instrutor === 'Aguardando Atribuição');
@@ -9748,9 +9995,9 @@ ${formattedInstrutores}
 
                              {/* Saldo Liberado Highlight & Payout Controls */}
                              {(() => {
-                               const totalLiberado = selectedData.totalPaymentReceived * 0.80;
-                               const saldoPago = selectedData.instrutor.saldoPago || 0;
-                               const saldoDisponivel = Math.max(0, totalLiberado - saldoPago);
+                               const totalLiberado = selectedData.totalLiberado;
+                               const saldoPago = selectedData.saldoPago;
+                               const saldoDisponivel = selectedData.saldoDisponivel;
 
                                return (
                                  <div className="bg-emerald-50/50 border border-emerald-150 rounded-xl p-4 space-y-3.5 shadow-sm">
@@ -10272,14 +10519,12 @@ ${formattedInstrutores}
 
                 {/* Dashboard Stats Overview */}
                 {(() => {
-                  const myStudents = cleanAlunos.filter(a => isSameInstructor(a.instrutor, activeInstructor.nome));
-                  const totalVendas = myStudents.reduce((acc, a) => acc + getStudentBaseValue(a), 0);
-                  const totalPaymentReceived = myStudents.reduce((acc, a) => {
-                    const baseTotal = getStudentBaseValue(a);
-                    const installmentVal = baseTotal / (a.parcelasTotal || 12);
-                    const paidValue = (a.parcelasPagas || 0) * installmentVal;
-                    return acc + paidValue;
-                  }, 0);
+                  const fin = calculateInstructorFinancials(activeInstructor, cleanAlunos);
+                  const myStudents = fin.myStudents;
+                  const totalVendas = fin.totalVendas;
+                  const totalPaymentReceived = fin.totalPaymentReceived;
+                  const saldoDisponivel = fin.saldoDisponivel;
+                  const saldoPago = fin.saldoPago;
 
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 text-left">
@@ -10327,10 +10572,10 @@ ${formattedInstrutores}
                         <div>
                           <p className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Saldo Disponível</p>
                           <h4 className="text-2xl font-black text-emerald-300 mt-0.5 font-mono">
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Math.max(0, (totalPaymentReceived * 0.80) - (activeInstructor.saldoPago || 0)))}
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saldoDisponivel)}
                           </h4>
                           <p className="text-[9px] text-emerald-500/80 mt-0.5 font-sans font-medium">
-                            {(activeInstructor.saldoPago || 0) > 0 ? `Já quitado: R$ ${(activeInstructor.saldoPago || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : "80% de comissão liberada (Total - 20%)"}
+                            {saldoPago > 0 ? `Já quitado: R$ ${saldoPago.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : "80% de comissão liberada (Total - 20%)"}
                           </p>
                         </div>
                       </div>

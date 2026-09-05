@@ -322,7 +322,27 @@ function mergeInstrutoresLists(existing: any[], incoming: any[]): any[] {
     if (!item || !item.nome) continue;
     const key = String(item.nome).trim().toLowerCase();
     if (map.has(key)) {
-      map.set(key, { ...map.get(key), ...item });
+      const prev = map.get(key);
+      const exRecibos = Array.isArray(prev.recibos) ? prev.recibos : [];
+      const inRecibos = Array.isArray(item.recibos) ? item.recibos : [];
+      const recibosMap = new Map<string, any>();
+      [...exRecibos, ...inRecibos].forEach((r: any) => {
+        if (r && r.id) recibosMap.set(r.id, r);
+      });
+
+      const merged = {
+        ...prev,
+        ...item,
+        nome: item.nome || prev.nome,
+        login: item.login || prev.login,
+        senha: item.senha || prev.senha,
+        chavePix: item.chavePix || prev.chavePix,
+        foto: item.foto || prev.foto,
+        credencialSenatran: item.credencialSenatran || prev.credencialSenatran,
+        saldoPago: Math.max(Number(prev.saldoPago || 0), Number(item.saldoPago || 0)),
+        recibos: Array.from(recibosMap.values())
+      };
+      map.set(key, merged);
     } else {
       map.set(key, item);
     }

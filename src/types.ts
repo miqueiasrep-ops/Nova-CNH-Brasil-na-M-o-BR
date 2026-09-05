@@ -9,6 +9,7 @@ export interface ReciboQuitacao {
 }
 
 export interface Instrutor {
+  id?: string;
   nome: string;
   regiao: string;
   vagas: number;
@@ -114,21 +115,24 @@ export interface Depoimento {
 
 /**
  * Retorna se um candidato é considerado oficialmente matriculado
- * (i.e. já fechou negócio / etapa 'ganho', ou é um aluno ativo do banco)
- * Leads em prospecção no CRM (novo_lead, em_atendimento, proposta_enviada, negociacao, perdido)
- * NÃO são considerados matriculados até que o negócio seja fechado.
+ * (i.e. possui contrato CNH, matrícula ativa ou está no programa)
+ * Leads de prospecção sem matrícula, leads com valor zerado/não negociado ou explicitamente 'perdido' são excluídos.
  */
 export const isAlunoMatriculado = (aluno?: Aluno | null): boolean => {
   if (!aluno) return false;
-  // Se possui etapa de CRM explicitamente definida
-  if (aluno.etapaCrm) {
-    return aluno.etapaCrm === 'ganho';
-  }
-  // Se foi gerado com prefixo de lead e não foi promovido a 'ganho'
-  if (aluno.id && aluno.id.startsWith('LEAD-')) {
+  // Se foi explicitamente cancelado ou perdido
+  if (aluno.etapaCrm === 'perdido') {
     return false;
   }
-  // Caso contrário, é um aluno matriculado (ex.: cadastrado pelo formulário oficial de matrícula)
+  // Se foi gerado apenas como lead de prospecção (LEAD-) e ainda não foi convertido
+  if (aluno.id && aluno.id.startsWith('LEAD-') && aluno.etapaCrm !== 'ganho') {
+    return false;
+  }
+  // Candidatos registrados no funil que ainda estão como novo lead sem parcelas pagas
+  if (aluno.etapaCrm === 'novo_lead' && (aluno.parcelasPagas || 0) === 0) {
+    return false;
+  }
+  // Qualquer candidato com registro de matrícula, adesão ou ID CNH é contabilizado
   return true;
 };
 
