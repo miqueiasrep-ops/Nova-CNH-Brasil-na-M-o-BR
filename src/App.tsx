@@ -6264,108 +6264,125 @@ ${formattedInstrutores}
       </header>
 
       {/* Primary Navigation Hub */}
-      <nav id="navbar-secondary" className="bg-[#112d52] text-white/90 shadow-sm border-b border-indigo-950">
-        <div className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-between gap-2 py-2">
-          <div className="flex flex-wrap gap-1">
-            <button
-              id="tab-capa"
-              onClick={() => setCurrentTab('capa')}
-              className={`px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all ${
-                currentTab === 'capa' 
-                  ? 'bg-emerald-500 text-slate-950 shadow' 
-                  : 'hover:bg-slate-800 text-slate-200'
-              }`}
-            >
-              <Info className="h-4 w-4" />
-              📖 Proposta do Programa
-            </button>
-
+      <nav id="navbar-secondary" className="bg-[#0b1e35] text-white shadow-2xl border-b-2 border-indigo-900 sticky top-0 z-40 backdrop-blur-md bg-opacity-98">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 md:py-3.5 flex flex-col xl:flex-row xl:items-center justify-between gap-3 md:gap-4">
+          
+          {/* GRUPO PRINCIPAL: INTERESSADOS E ALUNOS */}
+          <div className="flex flex-wrap items-center gap-2.5 md:gap-3">
+            
+            {/* CTA ULTRA CHAMATIVO: SIMULAR PLANO IDEAL */}
             <button
               id="tab-simulador-poupanca"
               onClick={() => setCurrentTab('simulador-poupanca')}
-              className={`px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all relative overflow-hidden ${
+              className={`px-5 md:px-6 py-3 md:py-3.5 rounded-2xl text-base md:text-lg lg:text-xl font-black tracking-tight flex items-center gap-3 transition-all cursor-pointer select-none relative shadow-xl hover:scale-105 active:scale-95 ${
                 currentTab === 'simulador-poupanca' 
-                  ? 'bg-emerald-500 text-slate-950 shadow ring-2 ring-emerald-300' 
-                  : 'bg-gradient-to-r from-amber-500/20 to-emerald-500/20 border border-amber-500/40 text-amber-300 shadow-md animate-pulse hover:bg-[#15345d] hover:border-amber-400'
+                  ? 'bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-400 text-slate-950 ring-4 ring-white shadow-2xl shadow-amber-400/50' 
+                  : 'bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 text-slate-950 ring-4 ring-amber-300/80 hover:ring-amber-200 shadow-amber-500/40 animate-pulse'
               }`}
+              title="Calcule seu plano personalizado agora mesmo"
             >
-              <Sliders className={`h-4 w-4 ${currentTab === 'simulador-poupanca' ? '' : 'text-amber-300 animate-bounce'}`} />
-              <span className="relative flex items-center gap-1">
-                🎛️ Simular meu plano Ideal
-                {currentTab !== 'simulador-poupanca' && (
-                  <span className="absolute -top-1 -right-2 flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+              <div className="bg-slate-950 text-amber-300 p-1.5 rounded-xl shadow-inner shrink-0">
+                <Sliders className="h-5 w-5 md:h-6 md:w-6 animate-bounce" />
+              </div>
+              <div className="text-left leading-tight">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] md:text-xs font-black uppercase tracking-wider bg-red-600 text-white px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1">
+                    <Sparkles className="h-3 w-3" /> CALCULE AGORA
                   </span>
-                )}
-              </span>
+                </div>
+                <span className="block mt-0.5 text-slate-950 font-black">
+                  🎛️ Simular meu plano Ideal
+                </span>
+              </div>
             </button>
 
+            {/* PROPOSTA DO PROGRAMA */}
+            <button
+              id="tab-capa"
+              onClick={() => setCurrentTab('capa')}
+              className={`px-4 sm:px-5 py-2.5 md:py-3 rounded-2xl text-base md:text-lg font-black tracking-tight flex items-center gap-2.5 transition-all cursor-pointer select-none ${
+                currentTab === 'capa' 
+                  ? 'bg-emerald-500 text-slate-950 shadow-xl shadow-emerald-500/30 ring-2 md:ring-3 ring-emerald-300 ring-offset-2 ring-offset-[#0b1e35]' 
+                  : 'bg-white/10 hover:bg-white/20 text-white border-2 border-white/20 hover:border-white/40 shadow-sm'
+              }`}
+            >
+              <Info className="h-5 w-5 md:h-6 md:w-6 shrink-0 text-emerald-400" />
+              <span>📖 Proposta do Programa</span>
+            </button>
+
+            {/* PORTAL DO CANDIDATO */}
             <button
               id="tab-app-jovem"
               onClick={() => setCurrentTab('app-jovem')}
-              className={`px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-4 sm:px-5 py-2.5 md:py-3 rounded-2xl text-base md:text-lg font-black tracking-tight flex items-center gap-2.5 transition-all cursor-pointer select-none ${
                 currentTab === 'app-jovem' 
-                  ? 'bg-emerald-500 text-slate-950 shadow' 
-                  : 'hover:bg-slate-800 text-slate-200'
+                  ? 'bg-emerald-500 text-slate-950 shadow-xl shadow-emerald-500/30 ring-2 md:ring-3 ring-emerald-300 ring-offset-2 ring-offset-[#0b1e35]' 
+                  : 'bg-white/10 hover:bg-white/20 text-white border-2 border-white/20 hover:border-white/40 shadow-sm'
               }`}
             >
-              <Smartphone className="h-4 w-4" />
-              📱 Portal do(a) Candidato(a)
+              <Smartphone className="h-5 w-5 md:h-6 md:w-6 shrink-0 text-cyan-300" />
+              <span>📱 Portal do(a) Candidato(a)</span>
             </button>
 
+            {/* DEPOIMENTOS DOS ALUNOS */}
             <button
               id="tab-depoimentos"
               onClick={() => setCurrentTab('depoimentos')}
-              className={`px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-4 sm:px-5 py-2.5 md:py-3 rounded-2xl text-base md:text-lg font-black tracking-tight flex items-center gap-2.5 transition-all cursor-pointer select-none ${
                 currentTab === 'depoimentos' 
-                  ? 'bg-emerald-500 text-slate-950 shadow font-extrabold' 
-                  : 'bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/30'
+                  ? 'bg-emerald-500 text-slate-950 shadow-xl shadow-emerald-500/30 ring-2 md:ring-3 ring-emerald-300 ring-offset-2 ring-offset-[#0b1e35]' 
+                  : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 hover:text-amber-100 border-2 border-amber-400/60 shadow-sm'
               }`}
             >
-              <Star className="h-4 w-4 text-amber-400 fill-amber-400" />
-              ⭐ Depoimentos dos Alunos
+              <Star className="h-5 w-5 md:h-6 md:w-6 shrink-0 text-amber-400 fill-amber-400" />
+              <span>⭐ Depoimentos dos Alunos</span>
             </button>
+          </div>
 
+          {/* DIVISOR VISUAL E GRUPO RESTRITO / GESTÃO */}
+          <div className="flex flex-wrap items-center gap-2.5 md:gap-3 pt-2 xl:pt-0 border-t border-indigo-900/80 xl:border-t-0">
+            
+            {/* PAINEL DO INSTRUTOR */}
             <button
               id="tab-area-instrutor"
               onClick={() => setCurrentTab('area-instrutor')}
-              className={`px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 transition-all ${
+              className={`px-4 sm:px-5 py-2.5 md:py-3 rounded-2xl text-base md:text-lg font-black tracking-tight flex items-center gap-2.5 transition-all cursor-pointer select-none ${
                 currentTab === 'area-instrutor' 
-                  ? 'bg-emerald-500 text-slate-950 shadow' 
-                  : 'hover:bg-slate-800 text-slate-200'
+                  ? 'bg-emerald-500 text-slate-950 shadow-xl shadow-emerald-500/30 ring-2 md:ring-3 ring-emerald-300 ring-offset-2 ring-offset-[#0b1e35]' 
+                  : 'bg-indigo-950/70 hover:bg-indigo-900/80 text-slate-200 border-2 border-indigo-700/60 hover:border-indigo-500 shadow-sm'
               }`}
             >
-              <QrCode className="h-4 w-4" />
-              👤 {activeInstructor ? `Painel do Instrutor (${activeInstructor.nome})` : 'Painel do Instrutor 🔑'}
+              <QrCode className="h-5 w-5 md:h-6 md:w-6 shrink-0 text-indigo-300" />
+              <span>👤 {activeInstructor ? `Painel do Instrutor (${activeInstructor.nome})` : 'Painel do Instrutor 🔑'}</span>
             </button>
 
+            {/* ÁREA ADMINISTRATIVA */}
             <button
               id="tab-gestao"
               onClick={() => setCurrentTab('gestao')}
-              className={`px-4 md:px-5 py-2.5 rounded-xl text-sm md:text-base font-black flex items-center gap-2 transition-all cursor-pointer ${
+              className={`px-4 sm:px-5 py-2.5 md:py-3 rounded-2xl text-base md:text-lg font-black tracking-tight flex items-center gap-2.5 transition-all cursor-pointer select-none ${
                 currentTab === 'gestao' 
-                  ? 'bg-emerald-500 text-slate-950 shadow-md ring-2 ring-emerald-400/40' 
-                  : 'hover:bg-slate-800 text-slate-200'
+                  ? 'bg-emerald-500 text-slate-950 shadow-xl shadow-emerald-500/30 ring-2 md:ring-3 ring-emerald-300 ring-offset-2 ring-offset-[#0b1e35]' 
+                  : 'bg-indigo-950/70 hover:bg-indigo-900/80 text-slate-200 border-2 border-indigo-700/60 hover:border-indigo-500 shadow-sm'
               }`}
             >
-              <Users className="h-5 w-5" />
-              ⚙️ {isAdminAuthenticated ? `Área Administrativa (${cleanAlunos.length})` : 'Área Administrativa 🔒'}
+              <Users className="h-5 w-5 md:h-6 md:w-6 shrink-0 text-emerald-400" />
+              <span>⚙️ {isAdminAuthenticated ? `Área Administrativa (${cleanAlunos.length})` : 'Área Administrativa 🔒'}</span>
             </button>
-          </div>
 
-          <div className="flex items-center gap-2">
+            {/* SAIR DO SISTEMA */}
             {(isAdminAuthenticated || isAuthenticated) && (
               <button
                 onClick={handleSystemLogout}
-                className="text-[11px] bg-rose-600 hover:bg-rose-500 text-white font-extrabold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shadow-md select-none animate-in fade-in zoom-in-95 duration-150"
+                className="text-sm md:text-base bg-rose-600 hover:bg-rose-500 text-white font-black px-4 py-2.5 md:py-3 rounded-2xl flex items-center gap-2 transition cursor-pointer shadow-lg shadow-rose-900/30 select-none animate-in fade-in zoom-in-95 duration-150"
                 title="Sair do sistema e limpar todas as sessões ativas"
               >
-                <LogOut className="h-3.5 w-3.5" />
-                Sair do Sistema
+                <LogOut className="h-5 w-5" />
+                <span>Sair</span>
               </button>
             )}
           </div>
+
         </div>
       </nav>
     </div>
