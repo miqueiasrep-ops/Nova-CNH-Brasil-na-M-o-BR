@@ -1794,29 +1794,74 @@ export function CandidateEnrollmentForm({
                   <p className="text-[10px] text-slate-400 block font-medium mt-1">Insira seu CEP para preencher o endereço automaticamente ou digite o endereço completo manualmente.</p>
                 </div>
 
-                <div className="space-y-1 md:col-span-2 bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl text-left">
-                  <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wide block">Forma de Pagamento Pré-Selecionada:</span>
-                  <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                    <span className={`text-[10.5px] font-black px-3 py-1 rounded-full tracking-wide shadow-xs ${
-                      enrollFormaPagamento === 'vista' 
-                        ? 'bg-indigo-100 text-indigo-800 border border-indigo-200/50' 
-                        : enrollFormaPagamento === 'cartao' 
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200/50' 
-                          : enrollFormaPagamento === 'hibrido'
-                            ? 'bg-teal-100 text-teal-800 border border-teal-200/50'
-                            : 'bg-emerald-100 text-emerald-800 border border-emerald-200/50'
-                    }`}>
-                      {enrollFormaPagamento === 'vista' 
-                        ? '💵 À VISTA (COTA ÚNICA)' 
-                        : enrollFormaPagamento === 'cartao' 
-                          ? '💳 CARTÃO DE CRÉDITO' 
-                          : enrollFormaPagamento === 'hibrido'
-                            ? '🔀 HÍBRIDO (À VISTA/PIX + CARTÃO)'
-                            : '📦 BAÚ (POUPANÇA PLANEJADA)'}
+                <div className="space-y-2 md:col-span-2 bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl text-left">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wide block">Forma de Pagamento:</span>
+                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/50">
+                      {enrollFormaPagamento === 'vista'
+                        ? '⚡ À Vista via Pix selecionado'
+                        : enrollFormaPagamento === 'cartao'
+                          ? '💳 Cartão de Crédito selecionado'
+                          : '🔀 Acordo Híbrido selecionado'}
                     </span>
-                    <span className="text-[11.5px] text-slate-550 font-medium">
-                      (Configurada na simulação acima. Ajuste o simulador caso pretenda alterar.)
-                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEnrollFormaPagamento('vista');
+                        if (onFormaPagamentoChange) onFormaPagamentoChange('vista');
+                      }}
+                      className={`p-2.5 rounded-xl border-2 flex items-center gap-2.5 text-left cursor-pointer transition select-none ${
+                        enrollFormaPagamento === 'vista'
+                          ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-500 text-emerald-950 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="text-lg">⚡</span>
+                      <div>
+                        <div className="font-extrabold text-xs text-slate-900">À Vista no Pix</div>
+                        <div className="text-[10px] text-slate-500 font-medium">Cota única s/ juros</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEnrollFormaPagamento('cartao');
+                        if (onFormaPagamentoChange) onFormaPagamentoChange('cartao');
+                      }}
+                      className={`p-2.5 rounded-xl border-2 flex items-center gap-2.5 text-left cursor-pointer transition select-none ${
+                        enrollFormaPagamento === 'cartao'
+                          ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-500 text-amber-950 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="text-lg">💳</span>
+                      <div>
+                        <div className="font-extrabold text-xs text-slate-900">Cartão de Crédito</div>
+                        <div className="text-[10px] text-slate-500 font-medium">Em até 12x via maquininha/link</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEnrollFormaPagamento('hibrido');
+                        if (onFormaPagamentoChange) onFormaPagamentoChange('hibrido');
+                      }}
+                      className={`p-2.5 rounded-xl border-2 flex items-center gap-2.5 text-left cursor-pointer transition select-none ${
+                        enrollFormaPagamento === 'hibrido'
+                          ? 'bg-teal-50 border-teal-500 ring-2 ring-teal-500 text-teal-950 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="text-lg">🔀</span>
+                      <div>
+                        <div className="font-extrabold text-xs text-slate-900">Acordo Híbrido</div>
+                        <div className="text-[10px] text-slate-500 font-medium">50% Pix + 50% Cartão</div>
+                      </div>
+                    </button>
                   </div>
                 </div>
 

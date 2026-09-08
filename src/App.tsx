@@ -2284,7 +2284,7 @@ export default function App() {
   const [calcTipo, setCalcTipo] = useState<'carro' | 'moto' | 'ambos'>('ambos'); // Start with ambos so they see the split option
   const [calcParcelas, setCalcParcelas] = useState<number>(12);
   const [calcPlano, setCalcPlano] = useState<'jovem-17' | 'adulto-18' | 'habilitado'>('adulto-18');
-  const [calcFormaPagamento, setCalcFormaPagamento] = useState<'cartao' | 'hibrido'>('cartao');
+  const [calcFormaPagamento, setCalcFormaPagamento] = useState<'cartao' | 'hibrido' | 'vista'>('vista');
   const [showHybridPaymentNotice, setShowHybridPaymentNotice] = useState<boolean>(false);
   const [selectedPlanToPreview, setSelectedPlanToPreview] = useState<'jovem-17' | 'adulto-18' | 'habilitado' | null>(null);
   const [confirmModal, setConfirmModal] = useState<{
@@ -7831,7 +7831,34 @@ ${formattedInstrutores}
                     <label className="block text-xs font-black uppercase tracking-wider text-slate-700">
                       Forma de Pagamento:
                     </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 md:gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 md:gap-3">
+                      <div
+                        onClick={() => {
+                          setCalcFormaPagamento('vista');
+                          setEnrollFormaPagamento('vista');
+                        }}
+                        className={`relative p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col justify-between text-left select-none ${
+                          calcFormaPagamento === 'vista'
+                            ? 'bg-gradient-to-br from-emerald-50 to-emerald-100/40 border-emerald-500 ring-2 ring-emerald-500 ring-offset-1 shadow-md scale-[1.02]'
+                            : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                        }`}
+                      >
+                        {calcFormaPagamento === 'vista' && (
+                          <div className="absolute -top-2 -right-2 bg-emerald-500 text-slate-950 text-[7.5px] font-black px-1.5 py-0.5 rounded-full shadow-xs animate-pulse">
+                            ✓ SELECT
+                          </div>
+                        )}
+                        <div className="space-y-1.5">
+                          <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full block w-fit ${calcFormaPagamento === 'vista' ? 'bg-emerald-500 text-slate-950 font-black' : 'bg-slate-100 text-slate-500'}`}>
+                            ⚡ PIX INSTANTÂNEO
+                          </span>
+                          <h5 className="font-bold text-slate-900 text-xs mt-1">À Vista no Pix</h5>
+                          <p className={`text-[10px] leading-tight ${calcFormaPagamento === 'vista' ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>
+                            Cota única sem taxas adicionais via Pix instantâneo ou dinheiro.
+                          </p>
+                        </div>
+                      </div>
+
                       <div
                         onClick={() => {
                           setCalcFormaPagamento('cartao');
@@ -8104,12 +8131,16 @@ ${formattedInstrutores}
                       }
                       const baseCalcVal = passesToNextYear ? Math.round(rawBaseCalcVal * 1.3) : rawBaseCalcVal;
 
+                      const isVista = calcFormaPagamento === 'vista';
                       const isCartao = calcFormaPagamento === 'cartao';
                       const isHibrido = calcFormaPagamento === 'hibrido';
                       let finalCalcVal = baseCalcVal;
                       let perMonth = 0;
 
-                      if (isCartao) {
+                      if (isVista) {
+                        perMonth = baseCalcVal;
+                        finalCalcVal = baseCalcVal;
+                      } else if (isCartao) {
                         perMonth = Math.ceil(((baseCalcVal * getTonInterestMultiplier(calcParcelas)) / calcParcelas) * 100) / 100;
                         finalCalcVal = perMonth * calcParcelas;
                       } else if (isHibrido) {
@@ -8122,7 +8153,7 @@ ${formattedInstrutores}
                         perMonth = Math.ceil((baseCalcVal / calcParcelas) * 100) / 100;
                         finalCalcVal = perMonth * calcParcelas;
                       }
-                      const divisor = calcParcelas;
+                      const divisor = isVista ? 1 : calcParcelas;
 
                       const carroBasePart = getCarroPrice(calcAulasCarro);
                       const motoBasePart = getMotoPrice(calcAulasMoto);
@@ -8144,11 +8175,17 @@ ${formattedInstrutores}
 
                           <div className="mt-4 pt-4 border-t border-slate-800 space-y-1 text-left">
                             <span className="text-xs text-slate-400 block font-medium">
-                              {calcFormaPagamento === 'cartao' 
-                                ? 'Parcelamento do Cartão de Crédito:' 
-                                : 'Acordo Híbrido (Metade À Vista + Metade Cartão):'}
+                              {calcFormaPagamento === 'vista'
+                                ? 'Condição À Vista no Pix:'
+                                : calcFormaPagamento === 'cartao' 
+                                  ? 'Parcelamento do Cartão de Crédito:' 
+                                  : 'Acordo Híbrido (Metade À Vista + Metade Cartão):'}
                             </span>
-                            {calcFormaPagamento === 'hibrido' ? (
+                            {calcFormaPagamento === 'vista' ? (
+                              <div className="text-xl font-bold text-emerald-300 font-mono" id="calc-valor-parcela">
+                                1x de {finalCalcVal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} à vista no Pix
+                              </div>
+                            ) : calcFormaPagamento === 'hibrido' ? (
                               <div className="space-y-1 mt-1 text-xs">
                                 <div className="text-slate-350">💵 Parte Pix/À Vista: <strong className="font-mono text-emerald-300">{(baseCalcVal / 2).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></div>
                                 <div className="text-slate-350">💳 Parte Cartão: <strong className="font-mono text-emerald-300">{divisor}x de {perMonth.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></div>
@@ -8162,6 +8199,17 @@ ${formattedInstrutores}
                         </>
                       );
                     })()}
+
+                    {calcFormaPagamento === 'vista' && (
+                      <div className="bg-emerald-950/40 p-3 rounded-xl border border-emerald-900/50 mt-4 text-[11px] leading-relaxed text-emerald-200 space-y-1 animate-in fade-in text-left">
+                        <p className="font-extrabold text-emerald-400 flex items-center gap-1 text-[11px]">
+                          <span>⚡</span> Pagamento À Vista no Pix
+                        </p>
+                        <p>
+                          Cota única sem acréscimos. Pague via Chave Pix instantânea para liberação ágil da sua vaga e matrícula no sistema.
+                        </p>
+                      </div>
+                    )}
 
                     {calcFormaPagamento === 'cartao' && (
                       <div className="bg-amber-950/40 p-3 rounded-xl border border-amber-900/50 mt-4 text-[11px] leading-relaxed text-amber-200 space-y-1 animate-in fade-in text-left">
@@ -8267,7 +8315,7 @@ ${formattedInstrutores}
               preSelectedEstadoCivil={preSelectedEstadoCivil}
               onFormaPagamentoChange={(v) => {
                 setEnrollFormaPagamento(v);
-                if (v === 'cartao' || v === 'hibrido') {
+                if (v === 'cartao' || v === 'hibrido' || v === 'vista') {
                   setCalcFormaPagamento(v);
                 }
               }}
