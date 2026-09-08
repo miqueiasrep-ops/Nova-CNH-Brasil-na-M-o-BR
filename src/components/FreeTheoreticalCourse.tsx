@@ -1587,7 +1587,7 @@ export function FreeTheoreticalCourse() {
                 {/* 🎯 CORE RETRY BUTTONS ACTIONS */}
                 <div className="flex flex-wrap gap-3 items-center pt-2">
                   <button
-                    onClick={() => handleStartQuiz(activeMode, selectedMateriaFiltro)}
+                    onClick={() => handleStartQuiz(activeMode === 'menu' ? 'simulado_oficial' : activeMode, selectedMateriaFiltro)}
                     className="bg-indigo-650 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold px-6 py-2.5 rounded-xl transition shadow flex items-center gap-2 hover:scale-101 border-0 cursor-pointer"
                   >
                     <RotateCcw className="h-4.5 w-4.5" /> Refazer Mesmo Simulado

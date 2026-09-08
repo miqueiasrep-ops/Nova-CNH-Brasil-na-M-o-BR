@@ -68,6 +68,7 @@ import {
   deleteDepoimentoFromFirestore,
   saveConfigToFirestore
 } from './lib/firestoreService';
+import { safeStorage } from './lib/safeStorage';
 
 export const getAppBaseUrl = (): string => {
   if (typeof window !== 'undefined' && window.location && window.location.origin) {
@@ -792,11 +793,11 @@ export default function App() {
   const [gasWebhookUrl, setGasWebhookUrl] = useState<string>(() => {
     const metaEnv = (import.meta as any).env;
     const envUrl = metaEnv ? metaEnv.VITE_GAS_WEBHOOK_URL : '';
-    return EMBEDDED_WEBHOOK_URL || envUrl || localStorage.getItem('nova_cnh_gas_webhook_url') || '';
+    return EMBEDDED_WEBHOOK_URL || envUrl || safeStorage.getItem('nova_cnh_gas_webhook_url') || '';
   });
 
   const [googleVerificationCode, setGoogleVerificationCode] = useState<string>(() => {
-    return localStorage.getItem('google_verification_code') || '';
+    return safeStorage.getItem('google_verification_code') || '';
   });
 
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -804,11 +805,11 @@ export default function App() {
   const [testErrorMessage, setTestErrorMessage] = useState<string>('');
 
   useEffect(() => {
-    localStorage.setItem('nova_cnh_gas_webhook_url', gasWebhookUrl.trim());
+    safeStorage.setItem('nova_cnh_gas_webhook_url', gasWebhookUrl.trim());
   }, [gasWebhookUrl]);
 
   useEffect(() => {
-    localStorage.setItem('google_verification_code', googleVerificationCode.trim());
+    safeStorage.setItem('google_verification_code', googleVerificationCode.trim());
   }, [googleVerificationCode]);
 
   // State for scanned instructor welcome message from QR Code
@@ -827,14 +828,14 @@ export default function App() {
 
   // Persistence state with emergency recovery routine
   const [alunos, setAlunos] = useState<Aluno[]>(() => {
-    let saved = localStorage.getItem('nova_cnh_alunos_v3');
+    let saved = safeStorage.getItem('nova_cnh_alunos_v3');
     
     // Emergency data recovery from previous or alternative keys if empty
     if (!saved || saved === '[]') {
       const fallbackKeys = ['nova_cnh_alunos_v3_backup', 'nova_cnh_alunos_v2', 'nova_cnh_alunos_backup', 'nova_cnh_alunos', 'alunos'];
       for (const key of fallbackKeys) {
         try {
-          const val = localStorage.getItem(key);
+          const val = safeStorage.getItem(key);
           if (val && val !== '[]' && val.trim().startsWith('[')) {
             console.log(`💡 [Recuperação Emergencial] Recuperando candidatos da chave: ${key}`);
             saved = val;
@@ -873,12 +874,12 @@ export default function App() {
   });
 
   const [instrutores, setInstrutores] = useState<Instrutor[]>(() => {
-    let saved = localStorage.getItem('nova_cnh_instrutores');
+    let saved = safeStorage.getItem('nova_cnh_instrutores');
     
     // Emergency data recovery from previous backup key if empty
     if (!saved || saved === '[]') {
       try {
-        const backup = localStorage.getItem('nova_cnh_instrutores_backup');
+        const backup = safeStorage.getItem('nova_cnh_instrutores_backup');
         if (backup && backup !== '[]' && backup.trim().startsWith('[')) {
           console.log(`💡 [Recuperação Emergencial] Recuperando instrutores da chave de backup`);
           saved = backup;
@@ -926,13 +927,13 @@ export default function App() {
     });
 
     if (modified && typeof window !== 'undefined') {
-      localStorage.setItem('nova_cnh_instrutores', JSON.stringify(updated));
+      safeStorage.setItem('nova_cnh_instrutores', JSON.stringify(updated));
     }
     return updated;
   });
 
   const [depoimentos, setDepoimentos] = useState<Depoimento[]>(() => {
-    let saved = localStorage.getItem('nova_cnh_depoimentos');
+    let saved = safeStorage.getItem('nova_cnh_depoimentos');
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Depoimento[];
@@ -946,7 +947,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('nova_cnh_depoimentos', JSON.stringify(depoimentos));
+    safeStorage.setItem('nova_cnh_depoimentos', JSON.stringify(depoimentos));
   }, [depoimentos]);
 
   const depoimentosRef = useRef<Depoimento[]>(depoimentos);
@@ -957,9 +958,7 @@ export default function App() {
   const handleAddDepoimento = (novoDepoimento: Depoimento) => {
     const updated = [novoDepoimento, ...depoimentos];
     setDepoimentos(updated);
-    try {
-      localStorage.setItem('nova_cnh_depoimentos', JSON.stringify(updated));
-    } catch (e) {}
+    safeStorage.setItem('nova_cnh_depoimentos', JSON.stringify(updated));
 
     saveDepoimentoToFirestore(novoDepoimento).catch(console.warn);
 
@@ -979,9 +978,7 @@ export default function App() {
   const handleDeleteDepoimento = (idToDelete: string) => {
     const updated = depoimentos.filter(d => d.id !== idToDelete);
     setDepoimentos(updated);
-    try {
-      localStorage.setItem('nova_cnh_depoimentos', JSON.stringify(updated));
-    } catch (e) {}
+    safeStorage.setItem('nova_cnh_depoimentos', JSON.stringify(updated));
 
     deleteDepoimentoFromFirestore(idToDelete).catch(console.warn);
 
@@ -999,16 +996,16 @@ export default function App() {
   };
 
   useEffect(() => {
-    localStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(alunos));
+    safeStorage.setItem('nova_cnh_alunos_v3', JSON.stringify(alunos));
     if (alunos && alunos.length > 0) {
-      localStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(alunos));
+      safeStorage.setItem('nova_cnh_alunos_v3_backup', JSON.stringify(alunos));
     }
   }, [alunos]);
 
   useEffect(() => {
-    localStorage.setItem('nova_cnh_instrutores', JSON.stringify(instrutores));
+    safeStorage.setItem('nova_cnh_instrutores', JSON.stringify(instrutores));
     if (instrutores && instrutores.length > 0) {
-      localStorage.setItem('nova_cnh_instrutores_backup', JSON.stringify(instrutores));
+      safeStorage.setItem('nova_cnh_instrutores_backup', JSON.stringify(instrutores));
     }
   }, [instrutores]);
 
@@ -1639,7 +1636,7 @@ export default function App() {
 
   // UI state
   // Default tab is 'capa' so the visual presentation with the image of the happy youth starts immediately on screen load
-  const [currentTab, setCurrentTab] = useState<'app-jovem' | 'gestao' | 'capa' | 'simulador-poupanca' | 'area-instrutor'>('capa');
+  const [currentTab, setCurrentTab] = useState<'app-jovem' | 'gestao' | 'capa' | 'simulador-poupanca' | 'area-instrutor' | 'depoimentos'>('capa');
   const [adminSubTab, setAdminSubTab] = useState<'database' | 'contracts' | 'commissions' | 'recibos' | 'crm'>('database');
   const [selectedCommissionInstructor, setSelectedCommissionInstructor] = useState<string | null>(null);
   const [commissionSearch, setCommissionSearch] = useState<string>('');
@@ -2282,12 +2279,12 @@ export default function App() {
 
   // States for Planned CNH Savings Calculator (Custom Simulation)
   const [calcAulas, setCalcAulas] = useState<number>(10);
-  const [calcAulasCarro, setCalcAulasCarro] = useState<number>(20); // Default 20 for beginner
-  const [calcAulasMoto, setCalcAulasMoto] = useState<number>(5);    // Default 5 for people with skill
+  const [calcAulasCarro, setCalcAulasCarro] = useState<number>(3); // Default 3 for Carro (R$ 375,00)
+  const [calcAulasMoto, setCalcAulasMoto] = useState<number>(2);    // Default 2 for Moto (R$ 200,00)
   const [calcTipo, setCalcTipo] = useState<'carro' | 'moto' | 'ambos'>('ambos'); // Start with ambos so they see the split option
   const [calcParcelas, setCalcParcelas] = useState<number>(12);
-  const [calcPlano, setCalcPlano] = useState<'jovem-17' | 'adulto-18' | 'habilitado'>('jovem-17');
-  const [calcFormaPagamento, setCalcFormaPagamento] = useState<'poupanca' | 'cartao' | 'vista' | 'hibrido'>('poupanca');
+  const [calcPlano, setCalcPlano] = useState<'jovem-17' | 'adulto-18' | 'habilitado'>('adulto-18');
+  const [calcFormaPagamento, setCalcFormaPagamento] = useState<'cartao' | 'hibrido'>('cartao');
   const [showHybridPaymentNotice, setShowHybridPaymentNotice] = useState<boolean>(false);
   const [selectedPlanToPreview, setSelectedPlanToPreview] = useState<'jovem-17' | 'adulto-18' | 'habilitado' | null>(null);
   const [confirmModal, setConfirmModal] = useState<{
@@ -2574,8 +2571,8 @@ export default function App() {
   const [enrollWhatsappResponsavel, setEnrollWhatsappResponsavel] = useState<string>('');
   const [enrollEndereco, setEnrollEndereco] = useState<string>('');
   const [enrollCategoria, setEnrollCategoria] = useState<string>('Carro (B)');
-  const [enrollPlano, setEnrollPlano] = useState<'jovem-17' | 'adulto-18' | 'habilitado'>('jovem-17');
-  const [enrollFormaPagamento, setEnrollFormaPagamento] = useState<'poupanca' | 'cartao' | 'vista' | 'hibrido'>('poupanca');
+  const [enrollPlano, setEnrollPlano] = useState<'jovem-17' | 'adulto-18' | 'habilitado'>('adulto-18');
+  const [enrollFormaPagamento, setEnrollFormaPagamento] = useState<'poupanca' | 'cartao' | 'vista' | 'hibrido'>('cartao');
   const [enrollInstrutor, setEnrollInstrutor] = useState<string>('A definir');
   const [enrollSenha, setEnrollSenha] = useState<string>(() => String(Math.floor(1000 + Math.random() * 9000)));
   const [enrollCreatedCard, setEnrollCreatedCard] = useState<{
@@ -2881,7 +2878,7 @@ export default function App() {
       const age = calculateAge(alunoForm.dob);
       const computedTipoPlano = (age < 18 && alunoForm.formaPagamento === 'poupanca') 
         ? 'Plano Poupança Jovem 17 Anos' 
-        : (alunoForm.formaPagamento === 'habilitado' ? 'Treinamento para Habilitados' : 'Plano CNH Facilitada Maiores de 18 Anos');
+        : ((alunoForm.formaPagamento as string) === 'habilitado' ? 'Treinamento para Habilitados' : 'Plano CNH Facilitada Maiores de 18 Anos');
 
       const updatedAlunoObj: Aluno = {
         ...editingAluno,
@@ -7834,34 +7831,7 @@ ${formattedInstrutores}
                     <label className="block text-xs font-black uppercase tracking-wider text-slate-700">
                       Forma de Pagamento:
                     </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 md:gap-3">
-                      <div
-                        onClick={() => {
-                          setCalcFormaPagamento('poupanca');
-                          setEnrollFormaPagamento('poupanca');
-                        }}
-                        className={`relative p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col justify-between text-left select-none ${
-                          calcFormaPagamento === 'poupanca'
-                            ? 'bg-gradient-to-br from-emerald-50 to-emerald-100/40 border-emerald-500 ring-2 ring-emerald-500 ring-offset-1 shadow-md scale-[1.02]'
-                            : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
-                        }`}
-                      >
-                        {calcFormaPagamento === 'poupanca' && (
-                          <div className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[7.5px] font-black px-1.5 py-0.5 rounded-full shadow-xs animate-pulse">
-                            ✓ SELECT
-                          </div>
-                        )}
-                        <div className="space-y-1.5">
-                          <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full block w-fit ${calcFormaPagamento === 'poupanca' ? 'bg-emerald-500 text-slate-950 font-black' : 'bg-slate-100 text-slate-500'}`}>
-                            📦 ESTILO BAÚ
-                          </span>
-                          <h5 className="font-bold text-slate-900 text-xs mt-1">Poupança Planejada</h5>
-                          <p className={`text-[10px] leading-tight ${calcFormaPagamento === 'poupanca' ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>
-                            Sem Juros. Começa após quitação programada ou estendida.
-                          </p>
-                        </div>
-                      </div>
-
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 md:gap-3">
                       <div
                         onClick={() => {
                           setCalcFormaPagamento('cartao');
@@ -7885,34 +7855,6 @@ ${formattedInstrutores}
                           <h5 className="font-bold text-slate-900 text-xs mt-1">Cartão de Crédito</h5>
                           <p className={`text-[10px] leading-tight ${calcFormaPagamento === 'cartao' ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>
                             Parcele em até 12x via maquininha ou link seguro de parcelas.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div
-                        onClick={() => {
-                          setCalcFormaPagamento('vista');
-                          setEnrollFormaPagamento('vista');
-                          setCalcParcelas(1);
-                        }}
-                        className={`relative p-3 rounded-xl border-2 cursor-pointer transition-all duration-300 flex flex-col justify-between text-left select-none ${
-                          calcFormaPagamento === 'vista'
-                            ? 'bg-gradient-to-br from-indigo-50 to-indigo-100/40 border-indigo-500 ring-2 ring-indigo-500 ring-offset-1 shadow-md scale-[1.02]'
-                            : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
-                        }`}
-                      >
-                        {calcFormaPagamento === 'vista' && (
-                          <div className="absolute -top-2 -right-2 bg-indigo-500 text-white text-[7.5px] font-black px-1.5 py-0.5 rounded-full shadow-xs animate-pulse">
-                            ✓ SELECT
-                          </div>
-                        )}
-                        <div className="space-y-1.5">
-                          <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-full block w-fit ${calcFormaPagamento === 'vista' ? 'bg-indigo-500 text-white font-black' : 'bg-slate-100 text-slate-500'}`}>
-                            💵 COTA ÚNICA
-                          </span>
-                          <h5 className="font-bold text-slate-900 text-xs mt-1">Pagamento à Vista</h5>
-                          <p className={`text-[10px] leading-tight ${calcFormaPagamento === 'vista' ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>
-                            Investimento único (Pix) com agendamento prioritário das aulas.
                           </p>
                         </div>
                       </div>
@@ -7971,8 +7913,7 @@ ${formattedInstrutores}
                         <div className="relative">
                           <select 
                             id="select-calc-parcelas"
-                            disabled={calcFormaPagamento === 'vista'}
-                            value={calcFormaPagamento === 'vista' ? 1 : calcParcelas}
+                            value={calcParcelas}
                             onChange={(e) => {
                               const val = Number(e.target.value);
                               setCalcParcelas(val);
@@ -7980,13 +7921,13 @@ ${formattedInstrutores}
                                 setCalcStrategy('regular-bau');
                               }
                             }}
-                            className="w-full text-sm md:text-base p-3.5 bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-extrabold text-slate-900 disabled:opacity-50 transition-all shadow-md cursor-pointer hover:border-slate-400"
+                            className="w-full text-sm md:text-base p-3.5 bg-white border-2 border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-extrabold text-slate-900 transition-all shadow-md cursor-pointer hover:border-slate-400"
                           >
                             {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => {
                               const currentMonthForN = new Date().getMonth() + 1;
                               const currentYearForN = new Date().getFullYear();
                               let passesToNextYearForN = false;
-                              if (calcPlano === 'jovem-17' && calcFormaPagamento !== 'vista') {
+                              if (calcPlano === 'jovem-17') {
                                 if (enrollDob && enrollDob.length === 10) {
                                   const birthDate = new Date(enrollDob);
                                   if (!isNaN(birthDate.getTime())) {
@@ -8044,33 +7985,28 @@ ${formattedInstrutores}
                     })()}
                   </div>
 
-                  {/* SIMULAÇÃO DE IDADE REAL DO CANDIDATO */}
-                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-2.5">
-                    <label className="flex items-center gap-2 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={calcUseRealAge}
-                        onChange={(e) => {
-                          const val = e.target.checked;
-                          setCalcUseRealAge(val);
-                          setCalcPlano(val ? 'jovem-17' : 'adulto-18');
-                        }}
-                        className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                      />
-                      <span className="text-xs font-extrabold text-slate-800">Cálculo pela minha Idade Real</span>
-                    </label>
-                    <p className="text-[10px] text-slate-500 leading-normal">
-                      Se você tem 17 anos (recém-completados ou mais), simule o ritmo ideal de transição para o processo de habilitação conforme o CTB ou o financiamento planejado por baú continuado.
-                    </p>
+                  {/* SIMULAÇÃO DE IDADE REAL DO CANDIDATO - EXCLUSIVO PARA O PLANO MENOR DE 18 ANOS (17 ANOS) */}
+                  {calcPlano === 'jovem-17' && (
+                    <div className="bg-emerald-50/90 p-4 rounded-xl border-2 border-emerald-300 space-y-3 animate-in fade-in duration-200 text-left">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-emerald-900 flex items-center gap-1.5">
+                          <span>🌱</span> Planejamento para Menores de 18 Anos (17 Anos)
+                        </span>
+                        <span className="text-[10px] font-black uppercase px-2.5 py-0.5 bg-emerald-200 text-emerald-900 rounded-full">
+                          Transição CTB
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-700 leading-snug font-medium">
+                        Se você tem 17 anos (recém-completados ou mais), simule o ritmo ideal de transição para o processo de habilitação conforme o CTB ou com parcelamento estendido.
+                      </p>
 
-                    {calcUseRealAge && (
-                      <div className="space-y-3 pt-2.5 border-t border-slate-200 animate-in fade-in duration-200">
+                      <div className="space-y-3 pt-2.5 border-t border-emerald-200/80">
                         <div className="space-y-1">
-                          <label className="block text-[10px] font-extrabold text-slate-500 uppercase font-mono">Minha idade atual exata:</label>
+                          <label className="block text-[10px] font-extrabold text-slate-700 uppercase font-mono">Minha idade atual exata:</label>
                           <select
                             value={calcSelectedAgeMonths}
                             onChange={(e) => setCalcSelectedAgeMonths(Number(e.target.value))}
-                            className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold"
+                            className="w-full text-xs p-2.5 bg-white border-2 border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-slate-900 shadow-xs cursor-pointer"
                           >
                             <option value="0">17 anos exatos / 0 meses (Faltam 12 meses para completar 18)</option>
                             <option value="1">17 anos e 1 mês (Faltam 11 meses para completar 18)</option>
@@ -8088,15 +8024,15 @@ ${formattedInstrutores}
                         </div>
 
                         <div className="space-y-1">
-                          <label className="block text-[10px] font-extrabold text-slate-500 uppercase font-mono">Escolha a Estratégia de Início:</label>
+                          <label className="block text-[10px] font-extrabold text-slate-700 uppercase font-mono">Escolha a Estratégia de Início:</label>
                           <div className="grid grid-cols-1 gap-2">
                             <button
                               type="button"
                               onClick={() => setCalcStrategy('real-age-ctb')}
-                              className={`p-2.5 text-left text-xs rounded-lg border leading-tight transition flex flex-col justify-between ${
+                              className={`p-2.5 text-left text-xs rounded-lg border-2 leading-tight transition flex flex-col justify-between cursor-pointer ${
                                 calcStrategy === 'real-age-ctb'
-                                  ? 'bg-emerald-50 border-emerald-500 text-slate-900 shadow-xs'
-                                  : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50'
+                                  ? 'bg-white border-emerald-600 text-slate-900 shadow-sm ring-2 ring-emerald-400'
+                                  : 'bg-white/80 border-slate-200 text-slate-650 hover:bg-white'
                               }`}
                             >
                               <span className="font-bold text-slate-800 flex items-center gap-1">
@@ -8110,14 +8046,14 @@ ${formattedInstrutores}
                             <button
                               type="button"
                               onClick={() => setCalcStrategy('regular-bau')}
-                              className={`p-2.5 text-left text-xs rounded-lg border leading-tight transition flex flex-col justify-between ${
+                              className={`p-2.5 text-left text-xs rounded-lg border-2 leading-tight transition flex flex-col justify-between cursor-pointer ${
                                 calcStrategy === 'regular-bau'
-                                  ? 'bg-indigo-50 border-indigo-500 text-slate-900 shadow-xs'
-                                  : 'bg-white border-slate-200 text-slate-650 hover:bg-slate-50'
+                                  ? 'bg-white border-indigo-600 text-slate-900 shadow-sm ring-2 ring-indigo-400'
+                                  : 'bg-white/80 border-slate-200 text-slate-650 hover:bg-white'
                               }`}
                             >
                               <span className="font-bold text-slate-800 flex items-center gap-1">
-                                <span>📦</span> Continuar com o financiamento do baú
+                                <span>💳</span> Continuar com o parcelamento estendido
                               </span>
                               <span className="text-[10px] text-slate-500 mt-1">
                                 Manter o parcelamento estendido normal de {calcParcelas}x e continuar pagando as parcelas confortavelmente mesmo após os 18 anos.
@@ -8126,8 +8062,8 @@ ${formattedInstrutores}
                           </div>
                         </div>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* COLUNA DE RESULTADO TOTAL & PARCELAMENTO */}
@@ -8154,7 +8090,7 @@ ${formattedInstrutores}
                       const currentMonth = new Date().getMonth() + 1;
                       const currentYear = new Date().getFullYear();
                       let passesToNextYear = false;
-                      if (calcPlano === 'jovem-17' && calcFormaPagamento !== 'vista') {
+                      if (calcPlano === 'jovem-17' && (calcFormaPagamento as string) !== 'vista') {
                         if (enrollDob && enrollDob.length === 10) {
                           const birthDate = new Date(enrollDob);
                           if (!isNaN(birthDate.getTime())) {
@@ -8183,8 +8119,8 @@ ${formattedInstrutores}
                         perMonth = partCartaoMonthly;
                         finalCalcVal = partVista + (partCartaoMonthly * calcParcelas);
                       } else {
-                        perMonth = Math.ceil((baseCalcVal / (calcFormaPagamento === 'vista' ? 1 : calcParcelas)) * 100) / 100;
-                        finalCalcVal = perMonth * (calcFormaPagamento === 'vista' ? 1 : calcParcelas);
+                        perMonth = Math.ceil((baseCalcVal / calcParcelas) * 100) / 100;
+                        finalCalcVal = perMonth * calcParcelas;
                       }
                       const divisor = calcParcelas;
 
@@ -8210,11 +8146,7 @@ ${formattedInstrutores}
                             <span className="text-xs text-slate-400 block font-medium">
                               {calcFormaPagamento === 'cartao' 
                                 ? 'Parcelamento do Cartão de Crédito:' 
-                                : calcFormaPagamento === 'vista'
-                                  ? 'Pagamento em Cota Única (À Vista):'
-                                  : calcFormaPagamento === 'hibrido'
-                                    ? 'Acordo Híbrido (Metade À Vista + Metade Cartão):'
-                                    : 'Financiamento Planejado (Estilo Baú):'}
+                                : 'Acordo Híbrido (Metade À Vista + Metade Cartão):'}
                             </span>
                             {calcFormaPagamento === 'hibrido' ? (
                               <div className="space-y-1 mt-1 text-xs">
@@ -8223,7 +8155,7 @@ ${formattedInstrutores}
                               </div>
                             ) : (
                               <div className="text-xl font-bold text-emerald-300 font-mono" id="calc-valor-parcela">
-                                {calcFormaPagamento === 'vista' ? '1x de ' : `${divisor}x de `}{perMonth.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                {`${divisor}x de `}{perMonth.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                               </div>
                             )}
                           </div>
@@ -8238,30 +8170,6 @@ ${formattedInstrutores}
                         </p>
                         <p>
                           Parcele com uma das menores taxas do mercado, no formato parcelas flexíveis via maquininha com nosso consultor ou link de pagamento.
-                        </p>
-                      </div>
-                    )}
-
-                    {calcFormaPagamento === 'vista' && (
-                      <div className="bg-indigo-950/40 p-3 rounded-xl border border-indigo-900/50 mt-4 text-[11px] leading-relaxed text-indigo-300 space-y-1 animate-in fade-in text-left">
-                        <p className="font-extrabold text-indigo-400 flex items-center gap-1 text-[11px]">
-                          <span>💵</span> Pagamento à Vista (Pix/Dinheiro)
-                        </p>
-                        <p>
-                          Sem juros ou acréscimos comerciais. Permite agendamento e ativação imediata de todo o seu cronograma prático prioritário.
-                        </p>
-                      </div>
-                    )}
-
-                    {calcFormaPagamento === 'poupanca' && calcUseRealAge && (
-                      <div className="bg-slate-800/55 p-3 rounded-xl border border-slate-700/50 mt-4 text-[11px] leading-relaxed text-slate-300 space-y-1 animate-in fade-in text-left">
-                        <p className="font-extrabold text-emerald-300 flex items-center gap-1 text-[11px]">
-                          <span>📌</span> {calcStrategy === 'real-age-ctb' ? 'Modo Planejamento CTB' : 'Modo Parcelamento Estendido'}
-                        </p>
-                        <p>
-                          {calcStrategy === 'real-age-ctb'
-                            ? `Ideal para quem quer dar entrada no sistema assim que completar 18 anos! Você pagará ${12 - calcSelectedAgeMonths} parcelas mensais antes do aniversário, permitindo quitação completa do baú na data da liberação.`
-                            : `Perfeito para manter parcelas bem finas de forma confortável. Você segue pagando as parcelas mesmo após os 18 anos, e inicia as aulas práticas respeitando seu fluxo financeiro.`}
                         </p>
                       </div>
                     )}
@@ -8359,7 +8267,9 @@ ${formattedInstrutores}
               preSelectedEstadoCivil={preSelectedEstadoCivil}
               onFormaPagamentoChange={(v) => {
                 setEnrollFormaPagamento(v);
-                setCalcFormaPagamento(v);
+                if (v === 'cartao' || v === 'hibrido') {
+                  setCalcFormaPagamento(v);
+                }
               }}
               setToastMessage={setToastMessage}
               setActiveStudentId={setActiveStudentId}
@@ -8380,8 +8290,8 @@ ${formattedInstrutores}
                   setCalcAulas(10);
                 } else if (v === 'Carro e Moto (A+B)') {
                   setCalcTipo('ambos');
-                  setCalcAulasCarro(20);
-                  setCalcAulasMoto(5);
+                  setCalcAulasCarro(3);
+                  setCalcAulasMoto(2);
                 }
               }}
               onPlanoChange={(v) => {

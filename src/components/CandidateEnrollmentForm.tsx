@@ -102,12 +102,12 @@ export function CandidateEnrollmentForm({
   alunos,
   setAlunos,
   instrutores = [],
-  preSelectedPlano = 'jovem-17',
+  preSelectedPlano = 'adulto-18',
   preSelectedCategoria = 'Carro (B)',
-  preSelectedDob = '2008-08-14',
+  preSelectedDob = '2005-05-15',
   preSelectedAulas = 10,
-  preSelectedAulasCarro = 20,
-  preSelectedAulasMoto = 5,
+  preSelectedAulasCarro = 3,
+  preSelectedAulasMoto = 2,
   preSelectedTipo = 'ambos',
   preSelectedNome = '',
   preSelectedCpf = '',
@@ -128,7 +128,7 @@ export function CandidateEnrollmentForm({
   onPlanoChange,
   onDobChange,
   preSelectedParcelas = 12,
-  preSelectedFormaPagamento = 'poupanca',
+  preSelectedFormaPagamento = 'cartao',
   onFormaPagamentoChange,
   setLoginIdAttempt,
   setLoginSenhaAttempt
@@ -1857,6 +1857,12 @@ export function CandidateEnrollmentForm({
                       onChange={(e) => {
                         const val = e.target.value;
                         setEnrollCategoria(val);
+                        if (val === 'Carro e Moto (A+B)') {
+                          setEnrollAulasCarro(3);
+                          setEnrollAulasMoto(2);
+                          if (onAulasCarroChange) onAulasCarroChange(3);
+                          if (onAulasMotoChange) onAulasMotoChange(2);
+                        }
                         if (onCategoriaChange) onCategoriaChange(val);
                       }}
                       className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-[#0c2340] font-semibold text-slate-800"

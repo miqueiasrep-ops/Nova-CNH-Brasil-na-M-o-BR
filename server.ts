@@ -13,36 +13,51 @@ try {
   // ignore
 }
 
+function safeServerItemString(item: any): string {
+  if (item === null || item === undefined) return '';
+  if (typeof item === 'string') return item;
+  if (item instanceof Error) return `${item.name}: ${item.message}\n${item.stack || ''}`;
+  try {
+    return typeof item === 'object' ? JSON.stringify(item) : String(item);
+  } catch {
+    return String(item);
+  }
+}
+
 // Global console error filtering on the server for benign Firestore free tier quota exhaustion
 const origConsoleError = console.error;
 console.error = function (...args: any[]) {
-  const fullText = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
-  if (
-    fullText.includes('RESOURCE_EXHAUSTED') ||
-    fullText.includes('resource-exhausted') ||
-    fullText.includes('Quota limit exceeded') ||
-    fullText.includes('maximum backoff delay') ||
-    fullText.includes('free tier database') ||
-    fullText.includes('Free daily write units')
-  ) {
-    return;
-  }
+  try {
+    const fullText = args.map(safeServerItemString).join(' ');
+    if (
+      fullText.includes('RESOURCE_EXHAUSTED') ||
+      fullText.includes('resource-exhausted') ||
+      fullText.includes('Quota limit exceeded') ||
+      fullText.includes('maximum backoff delay') ||
+      fullText.includes('free tier database') ||
+      fullText.includes('Free daily write units')
+    ) {
+      return;
+    }
+  } catch (_) {}
   origConsoleError.apply(console, args);
 };
 
 const origConsoleWarn = console.warn;
 console.warn = function (...args: any[]) {
-  const fullText = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
-  if (
-    fullText.includes('RESOURCE_EXHAUSTED') ||
-    fullText.includes('resource-exhausted') ||
-    fullText.includes('Quota limit exceeded') ||
-    fullText.includes('maximum backoff delay') ||
-    fullText.includes('free tier database') ||
-    fullText.includes('Free daily write units')
-  ) {
-    return;
-  }
+  try {
+    const fullText = args.map(safeServerItemString).join(' ');
+    if (
+      fullText.includes('RESOURCE_EXHAUSTED') ||
+      fullText.includes('resource-exhausted') ||
+      fullText.includes('Quota limit exceeded') ||
+      fullText.includes('maximum backoff delay') ||
+      fullText.includes('free tier database') ||
+      fullText.includes('Free daily write units')
+    ) {
+      return;
+    }
+  } catch (_) {}
   origConsoleWarn.apply(console, args);
 };
 
