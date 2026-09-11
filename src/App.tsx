@@ -27,6 +27,8 @@ import {
   MapPin, 
   Calendar, 
   ChevronRight,
+  ChevronLeft,
+  Printer,
   Info,
   ExternalLink,
   ChevronDown,
@@ -361,6 +363,44 @@ export function getStudentBaseValue(student: Aluno): number {
   return student.valorTotal;
 }
 
+export function getStudentPaidAmount(student: Aluno): number {
+  if (!student) return 0;
+  const contractTotal = getStudentBaseValue(student);
+  if (contractTotal <= 0) return 0;
+
+  // 1. Total recorded via explicit manual/digital baixas
+  const baixas = student.baixasPagamento || [];
+  const baixasSum = baixas.reduce((acc, b) => acc + (Number(b.valor) || 0), 0);
+  if (baixas.length > 0) {
+    return Math.min(contractTotal, Math.round(baixasSum * 100) / 100);
+  }
+
+  // 2. Se não há baixas e parcelasPagas é 0, o aluno não efetuou pagamento
+  const pTotal = student.parcelasTotal || (student.formaPagamento === 'vista' ? 1 : 12);
+  const pPagas = Number(student.parcelasPagas) || 0;
+  if (pPagas <= 0) {
+    return 0;
+  }
+
+  // 3. Fallback direct valorPago or upfront paid
+  if (student.formaPagamento === 'vista' && pPagas >= 1) {
+    return contractTotal;
+  }
+
+  let parcelasSum = 0;
+  if (pPagas >= pTotal && pTotal > 0) {
+    parcelasSum = contractTotal;
+  } else if (pTotal > 0 && pPagas > 0) {
+    parcelasSum = (pPagas / pTotal) * contractTotal;
+  }
+
+  const directPaid = Number((student as any).valorPago || 0);
+
+  // Use the highest coherent indicator, strictly bounded by the contract base total
+  const bestPaid = Math.max(parcelasSum, directPaid);
+  return Math.min(contractTotal, Math.round(bestPaid * 100) / 100);
+}
+
 export interface InstructorFinancialSummary {
   myStudents: Aluno[];
   totalStudents: number;
@@ -401,18 +441,10 @@ export function calculateInstructorFinancials(
     const baseTotal = getStudentBaseValue(student);
     totalVendas += baseTotal;
 
-    const pTotal = student.parcelasTotal || 12;
-    const pPagas = student.parcelasPagas || 0;
-
-    let paidVal = 0;
-    if (pPagas >= pTotal && pTotal > 0) {
-      paidVal = baseTotal;
-    } else if (pTotal > 0) {
-      paidVal = pPagas * (baseTotal / pTotal);
-    }
+    const paidVal = getStudentPaidAmount(student);
     totalPaymentReceived += paidVal;
 
-    const progress = pTotal > 0 ? (pPagas / pTotal) * 100 : 0;
+    const progress = baseTotal > 0 ? (paidVal / baseTotal) * 100 : 0;
     sumProgress += progress;
   }
 
@@ -434,6 +466,226 @@ export function calculateInstructorFinancials(
     saldoPago,
     saldoDisponivel,
     progressAvg
+  };
+}
+
+export interface CandidatoMensalRow {
+  aluno: Aluno;
+  contractTotal: number;
+  parcelasTotal: number;
+  parcelasPagas: number;
+  numeroParcela: number | null;
+  valorParcela: number;
+  comissaoParcela: number;
+  statusMes: 'pago' | 'aguardando' | 'atrasado' | 'quitado_anterior' | 'fora_periodo';
+  valorCobradoNoMes: number;
+  valorPagoNoMes: number;
+  comissaoRecebida: number;
+  comissaoPrevista: number;
+  dataPagamento?: string;
+  formaPagamento?: string;
+  baixaCorrespondente?: BaixaPagamento;
+  dataVencimentoMes: string;
+}
+
+export interface MonthlyLedgerSummary {
+  candidates: CandidatoMensalRow[];
+  totalPrevisto: number;
+  totalRecebido: number;
+  comissaoPrevista: number;
+  comissaoRecebida: number;
+  totalPagos: number;
+  totalPendentes: number;
+}
+
+export function formatMonthTitle(monthStr: string): string {
+  if (!monthStr || monthStr.length < 7) return monthStr;
+  const [yearStr, monthStrNum] = monthStr.split('-');
+  const y = parseInt(yearStr, 10);
+  const m = parseInt(monthStrNum, 10) - 1;
+  const date = new Date(y, m, 1);
+  const monthName = date.toLocaleDateString('pt-BR', { month: 'long' });
+  return `${monthName.charAt(0).toUpperCase() + monthName.slice(1)} de ${y}`;
+}
+
+export function calculateInstructorMonthlyLedger(
+  instructor: Instrutor | null | undefined,
+  allStudents: Aluno[],
+  targetYearMonth: string
+): MonthlyLedgerSummary {
+  if (!instructor || !instructor.nome || !targetYearMonth) {
+    return {
+      candidates: [],
+      totalPrevisto: 0,
+      totalRecebido: 0,
+      comissaoPrevista: 0,
+      comissaoRecebida: 0,
+      totalPagos: 0,
+      totalPendentes: 0
+    };
+  }
+
+  const myStudents = (allStudents || []).filter(a => isSameInstructor(a.instrutor, instructor.nome));
+  const todayStr = new Date().toISOString().substring(0, 10);
+  const [targetYear, targetMonth] = targetYearMonth.split('-').map(Number);
+
+  let totalPrevisto = 0;
+  let totalRecebido = 0;
+  let totalPagos = 0;
+  let totalPendentes = 0;
+
+  const candidates: CandidatoMensalRow[] = myStudents.map(student => {
+    const contractTotal = (student.parcelasTotal === 1 || student.formaPagamento === 'vista')
+      ? student.valorTotal
+      : getStudentBaseValue(student);
+    const parcelasTotal = student.parcelasTotal || 12;
+    const valorParcela = Math.round((contractTotal / parcelasTotal) * 100) / 100;
+    const comissaoParcela = Math.round((valorParcela * 0.80) * 100) / 100;
+
+    const adesaoStr = student.dataAdesao || todayStr;
+    const [adesaoAno, adesaoMes, adesaoDia] = adesaoStr.substring(0, 10).split('-').map(Number);
+    const diaVenc = Math.min(28, adesaoDia || 10);
+    const dataVencimentoMes = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(diaVenc).padStart(2, '0')}`;
+
+    const diffMonths = (targetYear - (adesaoAno || targetYear)) * 12 + (targetMonth - (adesaoMes || targetMonth));
+    const numeroParcela = diffMonths + 1;
+
+    const baixasNoMes = (student.baixasPagamento || []).filter(b => b.data && b.data.startsWith(targetYearMonth));
+    const valorBaixasNoMes = baixasNoMes.reduce((acc, b) => acc + (Number(b.valor) || 0), 0);
+
+    let statusMes: 'pago' | 'aguardando' | 'atrasado' | 'quitado_anterior' | 'fora_periodo' = 'aguardando';
+    let valorCobradoNoMes = valorParcela;
+    let valorPagoNoMes = 0;
+    let dataPagamento: string | undefined;
+    let formaPagamento: string = student.formaPagamento || 'cartao';
+    let baixaCorrespondente: BaixaPagamento | undefined;
+
+    const hasExplicitBaixas = (student.baixasPagamento || []).length > 0;
+
+    if (hasExplicitBaixas) {
+      if (baixasNoMes.length > 0) {
+        statusMes = 'pago';
+        const maxPermitido = student.parcelasTotal === 1 ? student.valorTotal : (contractTotal || student.valorTotal);
+        valorPagoNoMes = Math.min(maxPermitido, valorBaixasNoMes);
+        dataPagamento = baixasNoMes[0].data;
+        formaPagamento = baixasNoMes[0].formaPagamento || student.formaPagamento || 'cartao';
+        baixaCorrespondente = baixasNoMes[0];
+      } else {
+        // Aluno tem baixas cadastradas, mas nenhuma neste mês específico
+        if (diffMonths < 0) {
+          statusMes = 'fora_periodo';
+          valorCobradoNoMes = 0;
+        } else if (student.parcelasPagas >= parcelasTotal || getStudentPaidAmount(student) >= contractTotal) {
+          statusMes = 'quitado_anterior';
+          valorCobradoNoMes = 0;
+        } else if (dataVencimentoMes <= todayStr) {
+          statusMes = 'atrasado';
+        } else {
+          statusMes = 'aguardando';
+        }
+      }
+    } else {
+      // Alunos sem histórico de baixas manuais (compatibilidade cadastros diretos/legados)
+      if (diffMonths < 0) {
+        statusMes = 'fora_periodo';
+        valorCobradoNoMes = 0;
+      } else if (student.formaPagamento === 'vista') {
+        if (diffMonths === 0) {
+          if (student.parcelasPagas >= 1) {
+            statusMes = 'pago';
+            valorPagoNoMes = contractTotal;
+            dataPagamento = adesaoStr;
+            formaPagamento = 'vista';
+          } else {
+            statusMes = dataVencimentoMes <= todayStr ? 'atrasado' : 'aguardando';
+          }
+        } else {
+          // diffMonths > 0: quitou à vista no mês da adesão, não neste mês
+          if (student.parcelasPagas >= 1) {
+            statusMes = 'quitado_anterior';
+            valorCobradoNoMes = 0;
+          } else {
+            statusMes = 'atrasado';
+          }
+        }
+      } else {
+        // Planos parcelados
+        if (diffMonths >= parcelasTotal) {
+          if (student.parcelasPagas >= parcelasTotal) {
+            statusMes = 'quitado_anterior';
+            valorCobradoNoMes = 0;
+          } else {
+            statusMes = 'atrasado';
+          }
+        } else {
+          // diffMonths >= 0 && diffMonths < parcelasTotal
+          if (student.parcelasPagas >= numeroParcela) {
+            statusMes = 'pago';
+            valorPagoNoMes = valorParcela;
+            dataPagamento = dataVencimentoMes;
+          } else {
+            statusMes = dataVencimentoMes <= todayStr ? 'atrasado' : 'aguardando';
+          }
+        }
+      }
+    }
+
+    if (valorBaixasNoMes > 0 && statusMes !== 'pago') {
+      statusMes = 'pago';
+      const maxPermitido = student.parcelasTotal === 1 ? student.valorTotal : (contractTotal || student.valorTotal);
+      valorPagoNoMes = Math.min(maxPermitido, valorBaixasNoMes);
+      dataPagamento = baixasNoMes[0].data;
+      formaPagamento = baixasNoMes[0].formaPagamento;
+      baixaCorrespondente = baixasNoMes[0];
+    }
+
+    const comissaoRecebida = Math.round((valorPagoNoMes * 0.80) * 100) / 100;
+    const comissaoPrevista = Math.round((valorCobradoNoMes * 0.80) * 100) / 100;
+
+    if (statusMes === 'pago') {
+      totalRecebido += valorPagoNoMes;
+      totalPagos++;
+    } else if (statusMes === 'aguardando' || statusMes === 'atrasado') {
+      totalPendentes++;
+    }
+
+    if (statusMes !== 'fora_periodo' && statusMes !== 'quitado_anterior') {
+      totalPrevisto += valorCobradoNoMes;
+    }
+
+    return {
+      aluno: student,
+      contractTotal,
+      parcelasTotal,
+      parcelasPagas: student.parcelasPagas,
+      numeroParcela: numeroParcela > 0 && numeroParcela <= parcelasTotal ? numeroParcela : null,
+      valorParcela,
+      comissaoParcela,
+      statusMes,
+      valorCobradoNoMes,
+      valorPagoNoMes,
+      comissaoRecebida,
+      comissaoPrevista,
+      dataPagamento,
+      formaPagamento,
+      baixaCorrespondente,
+      dataVencimentoMes
+    };
+  });
+
+  totalPrevisto = Math.round(totalPrevisto * 100) / 100;
+  totalRecebido = Math.round(totalRecebido * 100) / 100;
+  const comissaoPrevista = Math.round((totalPrevisto * 0.80) * 100) / 100;
+  const comissaoRecebida = Math.round((totalRecebido * 0.80) * 100) / 100;
+
+  return {
+    candidates,
+    totalPrevisto,
+    totalRecebido,
+    comissaoPrevista,
+    comissaoRecebida,
+    totalPagos,
+    totalPendentes
   };
 }
 
@@ -612,7 +864,7 @@ export const normalizeCandidateName = (nome?: string): string => {
 // Deduplicação inteligente e universal de candidatos (por CPF limpo, Nome completo normalizado e ID)
 export const deduplicateAlunosList = (list: Aluno[]): Aluno[] => {
   if (!Array.isArray(list)) return [];
-  const result: Aluno[] = [];
+  let result: Aluno[] = [];
 
   for (const raw of list) {
     if (!raw || (!raw.nome && !raw.id)) continue;
@@ -705,11 +957,92 @@ export const deduplicateAlunosList = (list: Aluno[]): Aluno[] => {
         whatsappResponsavel: primary.whatsappResponsavel || secondary.whatsappResponsavel,
         updatedAt: primary.updatedAt || secondary.updatedAt || new Date().toISOString()
       };
+
+      // Sanitização de coerência financeira: se não há parcelas pagas e não há baixas, valorPago é 0
+      if (merged.parcelasPagas === 0 && (!merged.baixasPagamento || merged.baixasPagamento.length === 0)) {
+        merged.valorPago = 0;
+      }
+      // Sanitização de baixa indevida para Alice Renata (template legado)
+      const isAliceMerged = (canonicalId === 'CNH-031' || cleanCpf === '13593931451' || cleanName.includes('alice renata da silva ferreira'));
+      if (isAliceMerged) {
+        merged.baixasPagamento = (merged.baixasPagamento || []).filter(b => b.id !== 'bx-1755800000000' && !b.observacao?.includes('Adesão eletrônica Contrato Quitado À Vista R$ 2.950,00'));
+        if (merged.baixasPagamento.length === 0) {
+          merged.parcelasPagas = 0;
+          merged.valorPago = 0;
+          merged.comprovantes = [];
+          if (merged.etapaCrm === 'ganho') {
+            merged.etapaCrm = 'em_atendimento';
+          }
+        }
+      }
+
       result[matchIdx] = merged;
     } else {
+      if (item.parcelasPagas === 0 && (!item.baixasPagamento || item.baixasPagamento.length === 0)) {
+        item.valorPago = 0;
+      }
+      const isAliceItem = (rawId === 'CNH-031' || cleanCpf === '13593931451' || cleanName.includes('alice renata da silva ferreira'));
+      if (isAliceItem) {
+        item.baixasPagamento = (item.baixasPagamento || []).filter(b => b.id !== 'bx-1755800000000' && !b.observacao?.includes('Adesão eletrônica Contrato Quitado À Vista R$ 2.950,00'));
+        if (item.baixasPagamento.length === 0) {
+          item.parcelasPagas = 0;
+          item.valorPago = 0;
+          item.comprovantes = [];
+          if (item.etapaCrm === 'ganho') {
+            item.etapaCrm = 'em_atendimento';
+          }
+        }
+      }
       result.push(item);
     }
   }
+
+  // Sanitização específica para Rosália e garantias de integridade financeira em planos de 1 parcela
+  result = result.map(aluno => {
+    const rawId = String(aluno.id || '').toUpperCase().trim();
+    const cleanCpf = (aluno.cpf || '').replace(/\D/g, '');
+    const cleanName = (aluno.nome || '').toLowerCase().trim();
+
+    // Rosália da Silva Bezerra Rosa: valor normal R$ 320,00, 1 parcela, remover duplicata BX-MTX0A7Y6
+    const isRosalia = (rawId === 'CNH-025' || cleanCpf === '79261779468' || cleanName.includes('rosalia da silva bezerra') || cleanName.includes('rosália da silva bezerra'));
+    if (isRosalia) {
+      aluno.valorTotal = 320;
+      aluno.parcelasTotal = 1;
+      aluno.parcelasPagas = 1;
+      aluno.valorPago = 320;
+      const filteredBaixas = (aluno.baixasPagamento || []).filter(b => b.id !== 'BX-MTX0A7Y6');
+      if (filteredBaixas.length > 0) {
+        const validBaixa = filteredBaixas.find(b => b.id === 'BX-MTX08M5U') || filteredBaixas[0];
+        validBaixa.valor = 320;
+        validBaixa.parcelasBaixadas = 1;
+        aluno.baixasPagamento = [validBaixa];
+      } else {
+        aluno.baixasPagamento = [{
+          id: 'BX-MTX08M5U',
+          data: '2026-09-11',
+          valor: 320,
+          parcelasBaixadas: 1,
+          formaPagamento: 'Cartão de Crédito (Máquina/Link)',
+          operador: 'Instrutor Miqueias Souza de Lima',
+          observacao: ''
+        }];
+      }
+      aluno.comprovantes = (aluno.comprovantes || []).filter(c => !c.id?.includes('BX-MTX0A7Y6') && !c.nomeArquivo?.includes('BX-MTX0A7Y6') && !c.id?.includes('BX-MTWZ'));
+    }
+
+    // Regra geral de integridade: se parcelasTotal === 1 e soma das baixas excede valorTotal por duplicidade, ajustar
+    if (aluno.parcelasTotal === 1 && aluno.valorTotal > 0 && (aluno.baixasPagamento || []).length > 1) {
+      const sumBaixas = aluno.baixasPagamento!.reduce((s, b) => s + (Number(b.valor) || 0), 0);
+      if (sumBaixas > aluno.valorTotal) {
+        const validBaixa = aluno.baixasPagamento![0];
+        validBaixa.valor = aluno.valorTotal;
+        validBaixa.parcelasBaixadas = 1;
+        aluno.baixasPagamento = [validBaixa];
+      }
+    }
+
+    return aluno;
+  });
 
   // Ordenação natural por ID (CNH-005, CNH-007, etc.)
   result.sort((a, b) => {
@@ -2081,6 +2414,15 @@ export default function App() {
   const [filterInstructor, setFilterInstructor] = useState('Todos');
   const [filterClassificacao, setFilterClassificacao] = useState('Todas');
 
+  // Estados para o Controle Mensal de Pagamentos do Instrutor
+  const [instActiveTab, setInstActiveTab] = useState<'mensal' | 'carteira' | 'ferramentas' | 'recibos'>('mensal');
+  const [instSelectedMonth, setInstSelectedMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [instMonthStatusFilter, setInstMonthStatusFilter] = useState<'pagos' | 'todos' | 'pendentes'>('pagos');
+  const [instMonthSearch, setInstMonthSearch] = useState<string>('');
+
   // Interactive Quiz State
   const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
   const [selectedQuizOpcao, setSelectedQuizOpcao] = useState<number | null>(null);
@@ -2426,34 +2768,120 @@ export default function App() {
     nsuComprovante: ''
   });
 
+  const [baixaModalAba, setBaixaModalAba] = useState<'baixa' | 'ajuste' | 'historico'>('baixa');
+  const [isInstReconcileOpen, setIsInstReconcileOpen] = useState<boolean>(false);
+
   // Estados para Modal de Limpeza de Cadastros Fictícios / Testes
   const [isPurgeModalOpen, setIsPurgeModalOpen] = useState<boolean>(false);
   const [selectedPurgeIds, setSelectedPurgeIds] = useState<string[]>([]);
 
   // Handler para abrir modal de baixa manual
-  const handleAbrirBaixaManual = (aluno: Aluno) => {
-    const showBaseValue = currentTab === 'area-instrutor';
-    const displayValorTotal = showBaseValue ? getStudentBaseValue(aluno) : aluno.valorTotal;
+  const handleAbrirBaixaManual = (aluno: Aluno, valorCustom?: number, dataCustom?: string) => {
+    const contractTotal = getStudentBaseValue(aluno);
     const parcelasTotal = aluno.parcelasTotal || 12;
-    const defaultInstallmentVal = Math.round((displayValorTotal / parcelasTotal) * 100) / 100;
+    const jaPago = getStudentPaidAmount(aluno);
+    const restante = Math.max(0, Math.round((contractTotal - jaPago) * 100) / 100);
+    const defaultInstallmentVal = Math.round((contractTotal / parcelasTotal) * 100) / 100;
     
     setBaixaModalAluno(aluno);
+    setBaixaModalAba('baixa');
     setBaixaForm({
       formaPagamento: aluno.formaPagamento === 'cartao' ? 'cartao' : aluno.formaPagamento === 'vista' ? 'pix' : 'cartao',
-      valor: defaultInstallmentVal,
+      valor: valorCustom && valorCustom > 0 ? valorCustom : (restante > 0 ? (defaultInstallmentVal > 0 ? defaultInstallmentVal : restante) : contractTotal),
       parcelasBaixadas: 1,
       modoAcao: 'avancar',
       novaQtdeParcelasPagas: Math.min(parcelasTotal, aluno.parcelasPagas + 1),
       observacao: '',
-      data: new Date().toISOString().substring(0, 10),
+      data: dataCustom || new Date().toISOString().substring(0, 10),
       nsuComprovante: ''
     });
+  };
+
+  // Funções para o Controle Mensal de Pagamentos do Instrutor
+  const handleStepMonth = (direction: -1 | 1) => {
+    const [yearStr, monthStr] = instSelectedMonth.split('-');
+    const y = parseInt(yearStr, 10);
+    const m = parseInt(monthStr, 10) - 1;
+    const newDate = new Date(y, m + direction, 1);
+    const nextMonthStr = `${newDate.getFullYear()}-${String(newDate.getMonth() + 1).padStart(2, '0')}`;
+    setInstSelectedMonth(nextMonthStr);
+    setInstMonthStatusFilter('pagos');
+  };
+
+  const handleCopiarFechamentoWhatsApp = (monthStr: string, summary: MonthlyLedgerSummary, instNome: string, instRegiao?: string) => {
+    const monthFormatted = formatMonthTitle(monthStr);
+    const dataHoje = new Date().toLocaleDateString('pt-BR');
+    const quitadosList = summary.candidates.filter(c => c.statusMes === 'pago');
+    const pendentesList = summary.candidates.filter(c => c.statusMes === 'atrasado' || c.statusMes === 'aguardando');
+    
+    let msg = `📊 *FECHAMENTO MENSAL - ${monthFormatted.toUpperCase()}*\n`;
+    msg += `👤 *Instrutor:* ${instNome} ${instRegiao ? `(${instRegiao})` : ''}\n`;
+    msg += `📅 *Gerado em:* ${dataHoje}\n`;
+    msg += `------------------------------------\n`;
+    msg += `💰 *Total Arrecadado no Mês:* ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(summary.totalRecebido)}\n`;
+    msg += `⚡ *Repasse Instrutor (80%):* ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(summary.comissaoRecebida)}\n`;
+    msg += `👥 *Alunos Quitados no Mês:* ${summary.totalPagos}\n`;
+    msg += `⏳ *Pendências do Mês:* ${summary.totalPendentes}\n`;
+    msg += `------------------------------------\n`;
+    msg += `✅ *ALUNOS QUE QUITARAM NO MÊS (${quitadosList.length}):*\n`;
+    
+    if (quitadosList.length === 0) {
+      msg += `_(Nenhum aluno quitou parcelas nesta competência)_\n`;
+    } else {
+      quitadosList.forEach((item, idx) => {
+        const stNome = item.aluno.nome;
+        const cat = item.aluno.categoria;
+        const parcTxt = item.numeroParcela ? `Parc. ${item.numeroParcela}/${item.parcelasTotal}` : (item.aluno.formaPagamento === 'vista' ? 'À Vista' : 'Geral');
+        const valStr = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.valorPagoNoMes);
+        const repStr = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.comissaoRecebida);
+        const dtPg = item.dataPagamento ? formatDateBR(item.dataPagamento) : 'No mês';
+        msg += `✅ ${idx + 1}. ${stNome} (Cat. ${cat}) - ${parcTxt} | Pago: ${valStr} (${dtPg}) [Repasse 80%: ${repStr}]\n`;
+      });
+    }
+
+    if (pendentesList.length > 0) {
+      msg += `\n⏳ *PENDÊNCIAS DO MÊS (${pendentesList.length}):*\n`;
+      pendentesList.forEach((item, idx) => {
+        const stNome = item.aluno.nome;
+        const cat = item.aluno.categoria;
+        const parcTxt = item.numeroParcela ? `Parc. ${item.numeroParcela}/${item.parcelasTotal}` : 'Parcela';
+        const valStr = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.valorCobradoNoMes);
+        const statusTxt = item.statusMes === 'atrasado' ? 'Em Atraso' : 'A Vencer';
+        msg += `⚠️ ${idx + 1}. ${stNome} (Cat. ${cat}) - ${parcTxt} | ${statusTxt}: ${valStr} (Venc. ${formatDateBR(item.dataVencimentoMes)})\n`;
+      });
+    }
+
+    msg += `\n_Relatório gerado pelo Painel do Instrutor - Nova CNH Brasil para conferência financeira e repasses._`;
+
+    navigator.clipboard.writeText(msg);
+    setToastMessage(`📋 Fechamento mensal de ${monthFormatted} copiado com sucesso!`);
+  };
+
+  const handleCobrarCandidatoWhatsApp = (student: Aluno, row: CandidatoMensalRow, instNome: string, instPix?: string) => {
+    const cleanPhone = (student.whatsapp || '').replace(/\D/g, '');
+    const parcTxt = row.numeroParcela ? `da sua ${row.numeroParcela}ª parcela` : 'do seu plano';
+    const valStr = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.valorCobradoNoMes);
+    const vencStr = formatDateBR(row.dataVencimentoMes);
+
+    let msg = `Olá, *${student.nome.split(' ')[0]}*! Tudo bem?\n\n`;
+    msg += `Aqui é o seu instrutor *${instNome}* da Nova CNH Brasil.\n`;
+    msg += `Estou passando para acompanhar sua habilitação e lembrar ${parcTxt} no valor de *${valStr}* com vencimento em *${vencStr}*.\n\n`;
+    if (instPix) {
+      msg += `💳 Você pode efetuar o pagamento via PIX na chave:\n*${instPix}*\n\n`;
+      msg += `Assim que fizer, pode me mandar o comprovante aqui que já dou a baixa no sistema e libero seu recibo oficial!\n`;
+    } else {
+      msg += `Qualquer dúvida ou caso queira a chave PIX para acerto, estou à disposição!\n`;
+    }
+    msg += `Ótimos estudos e rumo à CNH! 🚗`;
+
+    window.open(`https://wa.me/55${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
   // Handler para confirmar baixa manual
   const handleConfirmarBaixaManual = () => {
     if (!baixaModalAluno) return;
     const aluno = baixaModalAluno;
+    const contractTotal = getStudentBaseValue(aluno);
     const parcelasTotal = aluno.parcelasTotal || 12;
 
     let targetParcelasPagas = aluno.parcelasPagas;
@@ -2509,10 +2937,70 @@ export default function App() {
     if (selectedStudentDetail && selectedStudentDetail.id === aluno.id) {
       setSelectedStudentDetail(updatedAluno);
     }
+    setBaixaModalAluno(updatedAluno);
 
     setToastMessage(`💳 Baixa manual de ${valorPago.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (${formaPagamentoText}) registrada com sucesso!`);
-    setBaixaModalAluno(null);
     handleEmitirReciboCandidato(updatedAluno, newBaixa);
+  };
+
+  // Handler para excluir baixa manual e recalcular
+  const handleExcluirBaixaManual = (alunoId: string, baixaId: string) => {
+    const targetAluno = alunos.find(a => a.id === alunoId);
+    if (!targetAluno) return;
+    
+    const removedBaixa = (targetAluno.baixasPagamento || []).find(b => b.id === baixaId);
+    const remainingBaixas = (targetAluno.baixasPagamento || []).filter(b => b.id !== baixaId);
+    
+    let newParcelasPagas = targetAluno.parcelasPagas;
+    if (removedBaixa && removedBaixa.parcelasBaixadas > 0) {
+      newParcelasPagas = Math.max(0, targetAluno.parcelasPagas - removedBaixa.parcelasBaixadas);
+    }
+    
+    const updatedAluno: Aluno = {
+      ...targetAluno,
+      parcelasPagas: newParcelasPagas,
+      valorPago: (newParcelasPagas === 0 && remainingBaixas.length === 0) ? 0 : targetAluno.valorPago,
+      baixasPagamento: remainingBaixas
+    };
+    
+    const updatedList = alunos.map(a => a.id === alunoId ? updatedAluno : a);
+    saveAlunosList(updatedList);
+    
+    if (selectedStudentDetail && selectedStudentDetail.id === alunoId) {
+      setSelectedStudentDetail(updatedAluno);
+    }
+    if (baixaModalAluno && baixaModalAluno.id === alunoId) {
+      setBaixaModalAluno(updatedAluno);
+    }
+    
+    setToastMessage('🗑️ Baixa manual removida com sucesso. Saldos recalculados!');
+  };
+
+  // Handler para ajuste direto de quitação (sem criar comprovante financeiro extra)
+  const handleAjustarQuitaDireto = (alunoId: string, novasParcelasPagas: number) => {
+    const targetAluno = alunos.find(a => a.id === alunoId);
+    if (!targetAluno) return;
+
+    const pTotal = targetAluno.parcelasTotal || 12;
+    const finalParcelas = Math.max(0, Math.min(pTotal, novasParcelasPagas));
+
+    const updatedAluno: Aluno = {
+      ...targetAluno,
+      parcelasPagas: finalParcelas,
+      valorPago: (finalParcelas === 0 && (targetAluno.baixasPagamento || []).length === 0) ? 0 : (finalParcelas >= pTotal ? getStudentBaseValue(targetAluno) : targetAluno.valorPago)
+    };
+
+    const updatedList = alunos.map(a => a.id === alunoId ? updatedAluno : a);
+    saveAlunosList(updatedList);
+
+    if (selectedStudentDetail && selectedStudentDetail.id === alunoId) {
+      setSelectedStudentDetail(updatedAluno);
+    }
+    if (baixaModalAluno && baixaModalAluno.id === alunoId) {
+      setBaixaModalAluno(updatedAluno);
+    }
+
+    setToastMessage(`⚡ Status de parcelas atualizado para ${finalParcelas} de ${pTotal}!`);
   };
 
   // Helper para identificar cadastros fictícios / testes
@@ -2730,9 +3218,9 @@ export default function App() {
     const totalAlunos = cleanAlunos.length;
     const menores = cleanAlunos.filter(a => calculateAge(a.dob) < 18).length;
     const maiores = totalAlunos - menores;
-    const totalPlano = cleanAlunos.reduce((sum, a) => sum + Number(a.valorTotal), 0);
-    const totalPago = cleanAlunos.reduce((sum, a) => sum + (Number(a.parcelasPagas) * (Number(a.valorTotal) / (a.parcelasTotal || 12))), 0);
-    const progressoMedio = totalAlunos > 0 ? (cleanAlunos.reduce((sum, a) => sum + (Number(a.parcelasPagas) / (a.parcelasTotal || 12)), 0) / totalAlunos) * 100 : 0;
+    const totalPlano = cleanAlunos.reduce((sum, a) => sum + getStudentBaseValue(a), 0);
+    const totalPago = cleanAlunos.reduce((sum, a) => sum + getStudentPaidAmount(a), 0);
+    const progressoMedio = totalPlano > 0 ? (totalPago / totalPlano) * 100 : 0;
     
     // Aggregates for visual charts
     const categoriaDistrib = cleanAlunos.reduce((acc: { [key: string]: number }, cur) => {
@@ -2742,8 +3230,8 @@ export default function App() {
 
     const instrutorFinanceiro = instrutores.map(inst => {
       const deAlunos = cleanAlunos.filter(a => isSameInstructor(a.instrutor, inst.nome));
-      const totalPlanoInst = deAlunos.reduce((sum, a) => sum + Number(a.valorTotal), 0);
-      const totalPagoInst = deAlunos.reduce((sum, a) => sum + (Number(a.parcelasPagas) * (Number(a.valorTotal) / (a.parcelasTotal || 12))), 0);
+      const totalPlanoInst = deAlunos.reduce((sum, a) => sum + getStudentBaseValue(a), 0);
+      const totalPagoInst = deAlunos.reduce((sum, a) => sum + getStudentPaidAmount(a), 0);
       return {
         nome: inst.nome,
         vagas: inst.vagas,
@@ -2786,6 +3274,47 @@ export default function App() {
       return matchSearch && matchCat && matchInst && matchClass;
     });
   }, [cleanAlunos, searchQuery, filterCategoria, filterInstructor, filterClassificacao]);
+
+  // Lista dinâmica de competências mensais disponíveis para o instrutor
+  const availableMonthsList = useMemo(() => {
+    const monthsSet = new Set<string>();
+    const now = new Date();
+    for (let i = -12; i <= 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      monthsSet.add(mStr);
+    }
+    if (activeInstructor) {
+      const myStudents = cleanAlunos.filter(a => isSameInstructor(a.instrutor, activeInstructor.nome));
+      myStudents.forEach(st => {
+        if (st.dataAdesao && st.dataAdesao.length >= 7) {
+          monthsSet.add(st.dataAdesao.substring(0, 7));
+        }
+        (st.baixasPagamento || []).forEach(b => {
+          if (b.data && b.data.length >= 7) {
+            monthsSet.add(b.data.substring(0, 7));
+          }
+        });
+      });
+    }
+    return Array.from(monthsSet).sort().reverse();
+  }, [activeInstructor, cleanAlunos]);
+
+  // Mapa de contagem de alunos quitados em cada competência para exibir no seletor
+  const monthQuitadosCountMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    if (!activeInstructor) return map;
+    availableMonthsList.forEach(mStr => {
+      const summary = calculateInstructorMonthlyLedger(activeInstructor, cleanAlunos, mStr);
+      map[mStr] = summary.totalPagos;
+    });
+    return map;
+  }, [activeInstructor, cleanAlunos, availableMonthsList]);
+
+  // Dados do fechamento mensal do instrutor logado
+  const monthlyLedger = useMemo(() => {
+    return calculateInstructorMonthlyLedger(activeInstructor, cleanAlunos, instSelectedMonth);
+  }, [activeInstructor, cleanAlunos, instSelectedMonth]);
 
   // Reset demo databases
   const resetDemoData = () => {
@@ -2894,6 +3423,7 @@ export default function App() {
         instrutor: alunoForm.instrutor,
         dataAdesao: alunoForm.dataAdesao,
         parcelasPagas: Math.max(0, Number(alunoForm.parcelasPagas) || 0),
+        valorPago: Number(alunoForm.parcelasPagas) === 0 ? 0 : (editingAluno.valorPago || 0),
         baixasPagamento: Number(alunoForm.parcelasPagas) === 0 ? [] : (editingAluno.baixasPagamento || []),
         valorTotal: Math.max(0, Number(alunoForm.valorTotal) || 0),
         senha: alunoForm.senha || String(Math.floor(1000 + Math.random() * 9000)),
@@ -5251,8 +5781,9 @@ ${formattedInstrutores}
           const age = calculateAge(a.dob);
           const monthsTo18 = calculateMonthsTo18(a.dob);
           const classification = age < 18 ? `Menor (${age} anos)` : `Maior (${age} anos)`;
-          const currentPaid = a.parcelasPagas * (a.valorTotal / (a.parcelasTotal || 12));
-          const progress = `${((a.parcelasPagas / (a.parcelasTotal || 12)) * 100).toFixed(1)}%`;
+          const baseTotal = getStudentBaseValue(a);
+          const currentPaid = getStudentPaidAmount(a);
+          const progress = `${baseTotal > 0 ? ((currentPaid / baseTotal) * 100).toFixed(1) : '0.0'}%`;
           
           return [
             a.id,
@@ -5267,7 +5798,7 @@ ${formattedInstrutores}
             a.instrutor,
             a.dataAdesao,
             a.parcelasPagas,
-            a.valorTotal,
+            baseTotal,
             currentPaid.toFixed(2),
             progress
           ];
@@ -8865,8 +9396,9 @@ ${formattedInstrutores}
                     const age = calculateAge(a.dob);
                     const isUnder = age < 18;
                     const monthsTo18 = calculateMonthsTo18(a.dob);
-                    const currentPaid = a.parcelasPagas * (a.valorTotal / (a.parcelasTotal || 12));
-                    const progressPercent = Math.min(100, Math.max(0, (a.parcelasPagas / (a.parcelasTotal || 12)) * 100));
+                    const baseTotal = getStudentBaseValue(a);
+                    const currentPaid = getStudentPaidAmount(a);
+                    const progressPercent = baseTotal > 0 ? Math.min(100, Math.max(0, (currentPaid / baseTotal) * 100)) : 0;
 
                     return (
                       <div 
@@ -10480,6 +11012,14 @@ ${formattedInstrutores}
                   <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
                     <button
                       type="button"
+                      onClick={() => setIsInstReconcileOpen(true)}
+                      className="bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-bold py-2.5 px-4 rounded-xl transition cursor-pointer flex items-center gap-1.5 active:scale-95"
+                      title="Abrir painel de reconciliação de saldos e baixas dos alunos"
+                    >
+                      <span>⚡</span> Reconciliar / Ajustar Saldos
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         setActiveInstructor(null);
                         setInstructorLoginWhatsapp('');
@@ -10571,7 +11111,596 @@ ${formattedInstrutores}
                   );
                 })()}
 
-                {/* Main Content Area: Left side links, Right side student ledger */}
+                {/* SUB-TABS DO PAINEL DO INSTRUTOR */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/90 p-2.5 rounded-2xl border border-slate-800 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setInstActiveTab('mensal')}
+                      className={`py-2.5 px-4 rounded-xl text-xs transition cursor-pointer flex items-center gap-2 ${
+                        instActiveTab === 'mensal'
+                          ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                          : 'bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-850 border border-slate-800 font-bold'
+                      }`}
+                    >
+                      <Calendar className="h-4 w-4" />
+                      <span>Controle Mensal de Pagamentos</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                        instActiveTab === 'mensal' ? 'bg-slate-950/25 text-slate-950' : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                      }`}>
+                        {formatMonthTitle(instSelectedMonth)}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setInstActiveTab('carteira')}
+                      className={`py-2.5 px-4 rounded-xl text-xs transition cursor-pointer flex items-center gap-2 ${
+                        instActiveTab === 'carteira'
+                          ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                          : 'bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-850 border border-slate-800 font-bold'
+                      }`}
+                    >
+                      <Users className="h-4 w-4" />
+                      <span>Carteira de Alunos</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                        instActiveTab === 'carteira' ? 'bg-slate-950/25 text-slate-950' : 'bg-slate-800 text-slate-300'
+                      }`}>
+                        {cleanAlunos.filter(a => isSameInstructor(a.instrutor, activeInstructor.nome)).length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setInstActiveTab('ferramentas')}
+                      className={`py-2.5 px-4 rounded-xl text-xs transition cursor-pointer flex items-center gap-2 ${
+                        instActiveTab === 'ferramentas'
+                          ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                          : 'bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-850 border border-slate-800 font-bold'
+                      }`}
+                    >
+                      <QrCode className="h-4 w-4" />
+                      <span>Link & QR Code</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setInstActiveTab('recibos')}
+                      className={`py-2.5 px-4 rounded-xl text-xs transition cursor-pointer flex items-center gap-2 ${
+                        instActiveTab === 'recibos'
+                          ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 font-black'
+                          : 'bg-slate-950 text-slate-300 hover:text-white hover:bg-slate-850 border border-slate-800 font-bold'
+                      }`}
+                    >
+                      <Receipt className="h-4 w-4" />
+                      <span>Recibos GOV.BR</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                        instActiveTab === 'recibos' ? 'bg-slate-950/25 text-slate-950' : 'bg-slate-800 text-slate-300'
+                      }`}>
+                        {activeInstructor.recibos?.length || 0}
+                      </span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => setIsInstReconcileOpen(true)}
+                      className="bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-bold py-2 px-3.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 active:scale-95"
+                    >
+                      <span>⚡</span> Reconciliar / Ajustar
+                    </button>
+                  </div>
+                </div>
+
+                {/* ABA 1: CONTROLE MENSAL DE PAGAMENTOS (EXTRATO DE CONFERÊNCIA) */}
+                {instActiveTab === 'mensal' && (() => {
+                  const filteredCandidates = monthlyLedger.candidates.filter(c => {
+                    if (instMonthStatusFilter === 'pagos' && c.statusMes !== 'pago') return false;
+                    if (instMonthStatusFilter === 'pendentes' && c.statusMes !== 'aguardando' && c.statusMes !== 'atrasado') return false;
+                    if (instMonthSearch.trim()) {
+                      const q = instMonthSearch.toLowerCase();
+                      const matchName = c.aluno.nome.toLowerCase().includes(q);
+                      const matchId = c.aluno.id.toLowerCase().includes(q);
+                      const matchCpf = (c.aluno.cpf || '').replace(/\D/g, '').includes(q.replace(/\D/g, ''));
+                      if (!matchName && !matchId && !matchCpf) return false;
+                    }
+                    return true;
+                  });
+
+                  const totalAtivosNoMes = monthlyLedger.totalPagos + monthlyLedger.totalPendentes;
+                  const taxaAdimplencia = totalAtivosNoMes > 0 ? Math.round((monthlyLedger.totalPagos / totalAtivosNoMes) * 100) : 0;
+
+                  return (
+                    <div className="space-y-6 text-left">
+                      {/* Top Controls Bar: Month Selector & Quick Actions */}
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xl">📅</span>
+                              <h3 className="font-extrabold text-base text-white tracking-tight">
+                                Controle Mensal de Pagamentos dos Candidatos
+                              </h3>
+                              <span className="bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full">
+                                80% de Repasse
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-400 font-sans mt-1">
+                              Conferência financeira mês a mês das parcelas e quitações dos alunos vinculados a você.
+                            </p>
+                          </div>
+
+                          {/* Month Navigation & Action Buttons */}
+                          <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+                            {/* Step Month Buttons */}
+                            <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl p-1 gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleStepMonth(-1)}
+                                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                                title="Mês Anterior"
+                              >
+                                <ChevronLeft className="h-4 w-4" />
+                              </button>
+
+                              <select
+                                value={instSelectedMonth}
+                                onChange={(e) => {
+                                  setInstSelectedMonth(e.target.value);
+                                  setInstMonthStatusFilter('pagos');
+                                }}
+                                className="bg-transparent text-white font-mono text-xs font-bold px-2 py-1 focus:outline-none cursor-pointer"
+                              >
+                                {availableMonthsList.map(mStr => {
+                                  const qCount = monthQuitadosCountMap[mStr] || 0;
+                                  return (
+                                    <option key={mStr} value={mStr} className="bg-slate-900 text-white font-mono">
+                                      {formatMonthTitle(mStr)} {qCount > 0 ? `• (${qCount} quitado${qCount !== 1 ? 's' : ''})` : `(0)`}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+
+                              <button
+                                type="button"
+                                onClick={() => handleStepMonth(1)}
+                                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                                title="Próximo Mês"
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </button>
+                            </div>
+
+                            {/* Quick Current Month Button */}
+                            {(() => {
+                              const nowMonthStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+                              if (instSelectedMonth !== nowMonthStr) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setInstSelectedMonth(nowMonthStr);
+                                      setInstMonthStatusFilter('pagos');
+                                    }}
+                                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold py-2 px-3 rounded-xl transition cursor-pointer"
+                                  >
+                                    Mês Atual
+                                  </button>
+                                );
+                              }
+                              return null;
+                            })()}
+
+                            {/* Export / Copy WhatsApp Report */}
+                            <button
+                              type="button"
+                              onClick={() => handleCopiarFechamentoWhatsApp(instSelectedMonth, monthlyLedger, activeInstructor.nome, activeInstructor.regiao)}
+                              className="bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-bold py-2 px-3 rounded-xl transition cursor-pointer flex items-center gap-1.5"
+                              title="Copiar relatório formatado para prestar contas via WhatsApp com a autoescola"
+                            >
+                              <span>📋</span> Copiar p/ WhatsApp
+                            </button>
+
+                            {/* Print Button */}
+                            <button
+                              type="button"
+                              onClick={() => window.print()}
+                              className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold py-2 px-3 rounded-xl transition cursor-pointer flex items-center gap-1.5"
+                              title="Imprimir extrato mensal"
+                            >
+                              <Printer className="h-3.5 w-3.5" /> Imprimir
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Competência Financial Summary Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                          <div className="bg-slate-950 border border-slate-850 p-4 rounded-xl space-y-1">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Recebido no Mês</span>
+                            <div className="text-xl font-black text-emerald-400 font-mono">
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(monthlyLedger.totalRecebido)}
+                            </div>
+                            <p className="text-[9.5px] text-slate-400">Parcelas/baixas quitadas em {formatMonthTitle(instSelectedMonth)}</p>
+                          </div>
+
+                          <div className="bg-emerald-950/30 border border-emerald-500/30 p-4 rounded-xl space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Sua Comissão (80%)</span>
+                              <span className="text-[9px] bg-emerald-500/20 text-emerald-300 font-black px-1.5 py-0.2 rounded font-mono">80%</span>
+                            </div>
+                            <div className="text-xl font-black text-emerald-300 font-mono">
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(monthlyLedger.comissaoRecebida)}
+                            </div>
+                            <p className="text-[9.5px] text-emerald-400/80">Valor liberado para repasse ao instrutor</p>
+                          </div>
+
+                          <div className="bg-slate-950 border border-slate-850 p-4 rounded-xl space-y-1">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Previsão da Competência</span>
+                            <div className="text-xl font-black text-white font-mono">
+                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(monthlyLedger.totalPrevisto)}
+                            </div>
+                            <p className="text-[9.5px] text-slate-400">Total projetado das parcelas ativas no mês</p>
+                          </div>
+
+                          <div className="bg-slate-950 border border-slate-850 p-4 rounded-xl space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Adimplência do Mês</span>
+                              <span className="text-[10px] font-mono font-bold text-emerald-400">{taxaAdimplencia}%</span>
+                            </div>
+                            <div className="text-xl font-black text-slate-200 font-mono">
+                              {monthlyLedger.totalPagos} <span className="text-xs text-slate-500 font-normal font-sans">pagos / {monthlyLedger.totalPendentes} pendentes</span>
+                            </div>
+                            {/* Visual mini bar */}
+                            <div className="bg-slate-900 h-1.5 rounded-full overflow-hidden border border-slate-800 mt-1">
+                              <div 
+                                className="bg-emerald-400 h-full rounded-full transition-all duration-300"
+                                style={{ width: `${taxaAdimplencia}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Filter Tabs & Candidate Search */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                          {/* Status Filter Buttons */}
+                          <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                            <button
+                              type="button"
+                              onClick={() => setInstMonthStatusFilter('pagos')}
+                              className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                                instMonthStatusFilter === 'pagos'
+                                  ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
+                                  : 'text-slate-400 hover:text-emerald-300'
+                              }`}
+                              title="Exibir apenas alunos que quitaram parcelas nesta competência"
+                            >
+                              <span className={`h-2 w-2 rounded-full ${instMonthStatusFilter === 'pagos' ? 'bg-slate-950' : 'bg-emerald-400'}`}></span>
+                              Quitados no Mês ({monthlyLedger.totalPagos})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInstMonthStatusFilter('pendentes')}
+                              className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                                instMonthStatusFilter === 'pendentes'
+                                  ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40 font-bold shadow-sm'
+                                  : 'text-slate-400 hover:text-amber-300'
+                              }`}
+                              title="Exibir apenas alunos pendentes ou com parcelas a vencer neste mês"
+                            >
+                              <span className="h-2 w-2 rounded-full bg-amber-400"></span>
+                              Pendentes ({monthlyLedger.totalPendentes})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInstMonthStatusFilter('todos')}
+                              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                                instMonthStatusFilter === 'todos'
+                                  ? 'bg-slate-800 text-white font-bold'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                              title="Exibir todos os alunos da sua carteira nesta competência"
+                            >
+                              Todos ({monthlyLedger.candidates.length})
+                            </button>
+                          </div>
+
+                          {/* Search Candidate Input */}
+                          <div className="relative max-w-xs w-full">
+                            <input
+                              type="text"
+                              placeholder="Buscar candidato por nome ou ID..."
+                              value={instMonthSearch}
+                              onChange={(e) => setInstMonthSearch(e.target.value)}
+                              className="w-full bg-slate-950 text-xs text-slate-200 placeholder-slate-500 pl-3 pr-8 py-2 rounded-xl border border-slate-800 focus:border-emerald-500 focus:outline-none transition"
+                            />
+                            {instMonthSearch && (
+                              <button
+                                type="button"
+                                onClick={() => setInstMonthSearch('')}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Monthly Ledger Table / Candidate Cards */}
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+                        {/* Subheader indicando o filtro atual */}
+                        <div className="bg-slate-950/70 px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-200 flex items-center gap-1.5">
+                              {instMonthStatusFilter === 'pagos' ? (
+                                <>
+                                  <span className="text-emerald-400">✅</span>
+                                  <span>Alunos que Quitaram no Mês ({filteredCandidates.length})</span>
+                                </>
+                              ) : instMonthStatusFilter === 'pendentes' ? (
+                                <>
+                                  <span className="text-amber-400">⏳</span>
+                                  <span>Alunos com Cobrança Pendente no Mês ({filteredCandidates.length})</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-slate-400">👥</span>
+                                  <span>Todos os Alunos da Carteira ({filteredCandidates.length})</span>
+                                </>
+                              )}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-mono">
+                              • Competência: {formatMonthTitle(instSelectedMonth)}
+                            </span>
+                          </div>
+
+                          {instMonthStatusFilter === 'pagos' && monthlyLedger.totalRecebido > 0 && (
+                            <div className="flex items-center gap-2 text-[11px] font-mono">
+                              <span className="text-slate-400">Liquidado:</span>
+                              <span className="text-emerald-400 font-bold">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(monthlyLedger.totalRecebido)}
+                              </span>
+                              <span className="text-slate-600">|</span>
+                              <span className="text-slate-400">Sua Comissão (80%):</span>
+                              <span className="text-emerald-300 font-bold">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(monthlyLedger.comissaoRecebida)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {filteredCandidates.length === 0 ? (
+                          <div className="py-14 px-6 text-center space-y-3">
+                            <span className="text-4xl block">
+                              {instMonthStatusFilter === 'pagos' ? '📅' : '🔍'}
+                            </span>
+                            <h4 className="text-sm font-bold text-slate-200">
+                              {instMonthStatusFilter === 'pagos'
+                                ? `Nenhum aluno quitou no mês de ${formatMonthTitle(instSelectedMonth)}`
+                                : `Nenhum candidato encontrado com os filtros selecionados`}
+                            </h4>
+                            <p className="text-xs text-slate-500 max-w-md mx-auto">
+                              {instMonthStatusFilter === 'pagos'
+                                ? `Não constam parcelas ou baixas quitadas em ${formatMonthTitle(instSelectedMonth)} para sua carteira de alunos.`
+                                : `Não há registros para a busca "${instMonthSearch}" na competência de ${formatMonthTitle(instSelectedMonth)}.`}
+                            </p>
+                            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                              {instMonthStatusFilter === 'pagos' && monthlyLedger.totalPendentes > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setInstMonthStatusFilter('pendentes')}
+                                  className="text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold px-3.5 py-2 rounded-xl transition cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <span>⏳</span> Ver {monthlyLedger.totalPendentes} Candidato(s) Pendentes
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setInstMonthStatusFilter('todos');
+                                  setInstMonthSearch('');
+                                }}
+                                className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3.5 py-2 rounded-xl transition cursor-pointer"
+                              >
+                                Ver todos da carteira ({monthlyLedger.candidates.length})
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs border-collapse">
+                              <thead>
+                                <tr className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[10px] font-mono">
+                                  <th className="py-3.5 px-4">Candidato</th>
+                                  <th className="py-3.5 px-4">Parcela / Plano</th>
+                                  <th className="py-3.5 px-4">Vencimento</th>
+                                  <th className="py-3.5 px-4">Valor Parcela</th>
+                                  <th className="py-3.5 px-4">Repasse Instrutor (80%)</th>
+                                  <th className="py-3.5 px-4">Status no Mês</th>
+                                  <th className="py-3.5 px-4 text-right">Ações Rápidas</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-850">
+                                {filteredCandidates.map((row) => {
+                                  const student = row.aluno;
+                                  const cleanPhone = (student.whatsapp || '').replace(/\D/g, '');
+
+                                  return (
+                                    <tr 
+                                      key={student.id}
+                                      className="hover:bg-slate-850/50 transition duration-150"
+                                    >
+                                      {/* Candidato Info */}
+                                      <td className="py-3.5 px-4">
+                                        <div className="space-y-0.5">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-extrabold text-white text-xs">{student.nome}</span>
+                                            <span className="text-[9px] bg-slate-950 text-indigo-400 border border-slate-800 px-1.5 py-0.2 rounded font-mono font-bold">
+                                              {student.categoria}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-2 text-[10.5px] text-slate-400 font-mono">
+                                            <span>ID: {student.id}</span>
+                                            {student.whatsapp && (
+                                              <>
+                                                <span>•</span>
+                                                <a 
+                                                  href={`https://wa.me/55${cleanPhone}`}
+                                                  target="_blank" 
+                                                  rel="noopener noreferrer"
+                                                  className="text-emerald-400 hover:underline flex items-center gap-0.5"
+                                                >
+                                                  <span>💬</span> {student.whatsapp}
+                                                </a>
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </td>
+
+                                      {/* Parcela / Plano */}
+                                      <td className="py-3.5 px-4 font-mono">
+                                        <div className="space-y-0.5">
+                                          <span className="font-bold text-slate-200">
+                                            {row.numeroParcela 
+                                              ? `${row.numeroParcela}ª de ${row.parcelasTotal}` 
+                                              : (student.formaPagamento === 'vista' ? 'À Vista (PIX)' : 'Geral')}
+                                          </span>
+                                          <span className="block text-[10px] text-slate-500 font-sans">
+                                            Contrato: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.contractTotal)}
+                                          </span>
+                                        </div>
+                                      </td>
+
+                                      {/* Vencimento no Mês */}
+                                      <td className="py-3.5 px-4 font-mono text-slate-300">
+                                        {formatDateBR(row.dataVencimentoMes)}
+                                      </td>
+
+                                      {/* Valor Parcela */}
+                                      <td className="py-3.5 px-4 font-mono font-bold text-slate-200">
+                                        {row.statusMes === 'pago' ? (
+                                          <span className="text-emerald-400 font-extrabold">
+                                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.valorPagoNoMes)}
+                                          </span>
+                                        ) : (
+                                          <span>
+                                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.valorCobradoNoMes)}
+                                          </span>
+                                        )}
+                                      </td>
+
+                                      {/* Repasse Instrutor (80%) */}
+                                      <td className="py-3.5 px-4 font-mono">
+                                        <div className="space-y-0.5">
+                                          <span className="font-black text-emerald-300 text-sm">
+                                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(
+                                              row.statusMes === 'pago' ? row.comissaoRecebida : row.comissaoPrevista
+                                            )}
+                                          </span>
+                                          <span className="block text-[9px] text-emerald-500 font-sans font-semibold">
+                                            {row.statusMes === 'pago' ? '✓ Liberado 80%' : 'Previsto (80%)'}
+                                          </span>
+                                        </div>
+                                      </td>
+
+                                      {/* Status no Mês */}
+                                      <td className="py-3.5 px-4">
+                                        {row.statusMes === 'pago' && (
+                                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-sans">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                                            Pago {row.dataPagamento ? `em ${formatDateBR(row.dataPagamento)}` : ''}
+                                            {row.formaPagamento && ` (${row.formaPagamento.toUpperCase()})`}
+                                          </span>
+                                        )}
+                                        {row.statusMes === 'aguardando' && (
+                                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 font-sans">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
+                                            Aguardando Vencimento
+                                          </span>
+                                        )}
+                                        {row.statusMes === 'atrasado' && (
+                                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30 font-sans">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse"></span>
+                                            Em Atraso
+                                          </span>
+                                        )}
+                                        {row.statusMes === 'quitado_anterior' && (
+                                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30 font-sans">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-blue-400"></span>
+                                            Contrato 100% Quitado
+                                          </span>
+                                        )}
+                                        {row.statusMes === 'fora_periodo' && (
+                                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700 font-sans">
+                                            Adesão em Mês Posterior
+                                          </span>
+                                        )}
+                                      </td>
+
+                                      {/* Ações Rápidas */}
+                                      <td className="py-3.5 px-4 text-right">
+                                        <div className="flex items-center justify-end gap-1.5">
+                                          {row.statusMes === 'pago' ? (
+                                            <>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleEmitirReciboCandidato(student, row.baixaCorrespondente)}
+                                                className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer"
+                                                title="Ver ou imprimir recibo oficial do aluno"
+                                              >
+                                                <Receipt className="h-3 w-3 text-emerald-400" />
+                                                <span>Recibo</span>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleAbrirBaixaManual(student, row.valorCobradoNoMes, row.dataVencimentoMes)}
+                                                className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition cursor-pointer"
+                                                title="Visualizar histórico ou fazer novos lançamentos"
+                                              >
+                                                💳 Baixas
+                                              </button>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleAbrirBaixaManual(student, row.valorCobradoNoMes, row.dataVencimentoMes)}
+                                                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-2.5 py-1.5 rounded-lg text-[10.5px] transition active:scale-95 flex items-center gap-1 cursor-pointer shadow-sm"
+                                                title="Dar baixa nesta parcela manual ou via comprovante"
+                                              >
+                                                <span>💳</span> Baixar Parcela
+                                              </button>
+
+                                              {student.whatsapp && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleCobrarCandidatoWhatsApp(student, row, activeInstructor.nome, activeInstructor.chavePix)}
+                                                  className="bg-[#25d366]/15 hover:bg-[#25d366]/25 text-[#25d366] border border-[#25d366]/30 px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer"
+                                                  title="Enviar mensagem de cobrança amigável via WhatsApp"
+                                                >
+                                                  <span>💬</span> Lembrar
+                                                </button>
+                                              )}
+                                            </>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* ABA 2: CARTEIRA DE ALUNOS REFERENCIADOS */}
+                {instActiveTab === 'carteira' && (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-left">
                   
                   {/* LEFT CHANNEL: EXCLUSIVE REFERRAL LINKS */}
@@ -10813,8 +11942,8 @@ ${formattedInstrutores}
                         <div className="space-y-3.5 max-h-[500px] overflow-y-auto pr-1">
                           {myFilteredStudents.map((student) => {
                             const baseTotal = getStudentBaseValue(student);
-                            const currentPaid = (student.parcelasPagas || 0) * (baseTotal / (student.parcelasTotal || 12));
-                            const completionPercentage = Math.min(100, Math.max(0, ((student.parcelasPagas || 0) / (student.parcelasTotal || 12)) * 100));
+                            const currentPaid = getStudentPaidAmount(student);
+                            const completionPercentage = baseTotal > 0 ? Math.min(100, Math.max(0, (currentPaid / baseTotal) * 100)) : 0;
 
                             return (
                               <div 
@@ -10875,10 +12004,18 @@ ${formattedInstrutores}
                                 <div className="flex sm:flex-col items-stretch gap-2 shrink-0">
                                   <button
                                     type="button"
+                                    onClick={() => handleAbrirBaixaManual(student)}
+                                    className="flex-1 sm:flex-none text-center bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold py-2 px-3.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1"
+                                    title="Dar baixa manual ou ajustar parcelas do aluno"
+                                  >
+                                    💳 Baixa / Ajuste
+                                  </button>
+                                  <button
+                                    type="button"
                                     onClick={() => setSelectedStudentDetail(student)}
                                     className="flex-1 sm:flex-none text-center bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 text-[10px] font-bold py-2 px-3.5 rounded-xl transition cursor-pointer"
                                   >
-                                    📋 Ver Detalhes / Plano
+                                    📋 Detalhes
                                   </button>
                                   <a
                                     href={`https://wa.me/55${student.whatsapp.replace(/\D/g, '')}`}
@@ -10898,6 +12035,190 @@ ${formattedInstrutores}
                   </div>
 
                 </div>
+                )}
+
+                {/* ABA 3: FERRAMENTAS - LINK, QR CODE & CHAVE PIX */}
+                {instActiveTab === 'ferramentas' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+                    <div className="bg-slate-900 border border-emerald-500/25 rounded-2xl p-6 shadow-md space-y-5">
+                      <div className="space-y-1">
+                        <span className="p-0.5 px-2 text-[9px] font-black bg-emerald-500 text-slate-950 rounded uppercase font-sans">
+                          Lead Generator Comissionado
+                        </span>
+                        <h3 className="font-extrabold text-base text-slate-100">Seu Link Exclusivo de Matrícula</h3>
+                        <p className="text-xs text-slate-400 leading-normal font-sans">
+                          Envie este link para potenciais alunos ou divulgue nas suas redes sociais. Cada matrícula feita através dele é atrelada diretamente a você, garantindo seus 80% de comissão.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2 bg-slate-950 p-4 rounded-xl border border-slate-850">
+                        <span className="text-[10px] text-emerald-400 font-mono font-extrabold uppercase block">
+                          🔗 Link de Auto-Cadastro
+                        </span>
+                        <div className="flex items-stretch gap-2">
+                          <input
+                            type="text"
+                            readOnly
+                            value={`${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(activeInstructor.nome)}`}
+                            className="bg-slate-900 text-slate-200 font-mono text-xs p-3 rounded-xl border border-slate-800 focus:outline-none select-all truncate flex-1"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const enrollmentLink = `${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(activeInstructor.nome)}`;
+                              navigator.clipboard.writeText(enrollmentLink);
+                              setToastMessage(`📋 Link do instrutor autônomo ${activeInstructor.nome} copiado!`);
+                            }}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black px-4 rounded-xl transition active:scale-95 shrink-0 cursor-pointer shadow-md shadow-emerald-500/10"
+                          >
+                            Copiar Link
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-950 p-4 rounded-xl border border-slate-850 space-y-3">
+                        <h4 className="font-bold text-xs text-slate-200 flex items-center gap-2">
+                          <span>🔑</span> Cadastrar / Atualizar Chave PIX
+                        </h4>
+                        <p className="text-[11px] text-slate-400">
+                          Informe a chave PIX onde você deseja receber o repasse das comissões pela Secretaria Central.
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="CPF, E-mail, Telefone ou Aleatória"
+                            value={instructorChavePixInput}
+                            onChange={(e) => setInstructorChavePixInput(e.target.value)}
+                            className="bg-slate-900 text-slate-200 font-mono text-xs p-2.5 rounded-xl border border-slate-800 focus:outline-none focus:border-emerald-500 flex-1"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              saveInstrutoresList(instrutores.map(i => isSameInstructor(i.nome, activeInstructor.nome) ? { ...i, chavePix: instructorChavePixInput.trim() } : i));
+                              setToastMessage("💾 Chave PIX salva e vinculada com sucesso!");
+                            }}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs px-4 rounded-xl transition cursor-pointer"
+                          >
+                            Salvar PIX
+                          </button>
+                        </div>
+                        {activeInstructor.chavePix && (
+                          <div className="text-[11px] text-emerald-400 font-mono flex items-center gap-1.5 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20">
+                            <span>✓</span> Chave atual ativa: <strong>{activeInstructor.chavePix}</strong>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-md flex flex-col items-center justify-center text-center space-y-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-[#32bcad] font-mono font-black uppercase tracking-wider block">
+                          QR Code para Apresentação
+                        </span>
+                        <h3 className="font-extrabold text-base text-slate-100">Escaneamento Direto</h3>
+                        <p className="text-xs text-slate-400 max-w-sm">
+                          Deixe este QR Code visível na tela ou imprima para que o candidato aponte a câmera e comece a contratação imediatamente.
+                        </p>
+                      </div>
+
+                      <div className="bg-white p-4 rounded-2xl shadow-xl border-4 border-emerald-500/30">
+                        <img 
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(`${AUTODRIVE_PLATFORM_URL}/?inscrever=true&instrutor=${encodeURIComponent(activeInstructor.nome)}`)}`}
+                          alt="Referral QR Code"
+                          className="w-[180px] h-[180px] object-contain"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+
+                      <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+                        Instrutor: {activeInstructor.nome}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* ABA 4: RECIBOS & QUITAÇÕES GOV.BR */}
+                {instActiveTab === 'recibos' && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-4 text-left">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                      <div>
+                        <h3 className="font-extrabold text-base text-white tracking-tight flex items-center gap-2">
+                          <span>📋</span> Seus Recibos de Comissão & Quitações
+                        </h3>
+                        <p className="text-xs text-slate-400 font-sans mt-0.5">
+                          Visualize pagamentos recebidos e assine os recibos eletronicamente via GOV.BR com validade jurídica.
+                        </p>
+                      </div>
+                    </div>
+
+                    {!activeInstructor.recibos || activeInstructor.recibos.length === 0 ? (
+                      <div className="py-12 text-center text-slate-500 italic text-xs bg-slate-950/40 rounded-xl border border-slate-855 space-y-2">
+                        <div className="text-2xl">📑</div>
+                        <p>Nenhum recibo de comissão emitido até o momento.</p>
+                        <p className="text-[11px] text-slate-600">Os recibos oficiais são gerados conforme as baixas e repasses são homologados.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {activeInstructor.recibos.map(rec => (
+                          <div key={rec.id} className="bg-slate-950 border border-slate-850 p-4 rounded-xl space-y-3 text-xs text-left">
+                            <div className="flex items-center justify-between">
+                              <span className="font-extrabold font-mono text-[#32bcad] bg-[#32bcad]/10 px-2.5 py-1 rounded border border-[#32bcad]/20">
+                                {rec.id}
+                              </span>
+                              <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full ${
+                                rec.status === 'assinado_gov' 
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse'
+                              }`}>
+                                {rec.status === 'assinado_gov' ? '✓ Assinado Eletronicamente' : '⏳ Assinatura Pendente'}
+                              </span>
+                            </div>
+
+                            <div className="flex justify-between items-center text-xs text-slate-300 border-y border-slate-850 py-2">
+                              <span>Valor Pago: <strong className="text-white font-mono text-sm">{rec.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></span>
+                              <span className="text-slate-500 font-mono text-[11px]">{new Date(rec.dataEmissao).toLocaleDateString('pt-BR')}</span>
+                            </div>
+
+                            {rec.status === 'assinado_gov' ? (
+                              <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 text-[10px] font-mono text-slate-400 space-y-1.5">
+                                <p className="text-emerald-400 font-bold flex items-center gap-1">
+                                  <span>🛡️</span> Assinado Eletronicamente
+                                </p>
+                                <p className="truncate">Certificado: <span className="text-slate-200">{rec.identificadorGov}</span></p>
+                                <p>Data: <span className="text-slate-200">{new Date(rec.dataAssinatura!).toLocaleDateString('pt-BR')}</span></p>
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingRecibo({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                  className="w-full mt-2 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold py-2 px-3 rounded-lg text-[10px] transition flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer"
+                                >
+                                  🔍 Visualizar Recibo Oficial
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSimulateGovSign(activeInstructor, rec)}
+                                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black py-2.5 px-3 rounded-xl text-xs transition active:scale-95 flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer shadow-sm"
+                                >
+                                  🖋️ Assinar via GOV.BR
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingRecibo({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2.5 px-3.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                                  title="Visualizar Recibo"
+                                >
+                                  🔍 Ver
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
               </div>
             )}
@@ -13181,9 +14502,16 @@ ${formattedInstrutores}
         const monthsTo18 = calculateMonthsTo18(a.dob);
         const showBaseValue = currentTab === 'area-instrutor';
         const displayValorTotal = showBaseValue ? getStudentBaseValue(a) : a.valorTotal;
-        const currentPaid = a.parcelasPagas * (displayValorTotal / (a.parcelasTotal || 12));
-        const progressPercent = Math.min(100, Math.max(0, (a.parcelasPagas / (a.parcelasTotal || 12)) * 100));
-        const restValue = Math.max(0, displayValorTotal - currentPaid);
+        const isFullyPaid = (a.parcelasPagas || 0) >= (a.parcelasTotal || 12) && (a.parcelasTotal || 12) > 0;
+        const basePaid = getStudentPaidAmount(a);
+        const baixasSumTotal = (a.baixasPagamento || []).reduce((acc, b) => acc + (Number(b.valor) || 0), 0);
+        const currentPaid = isFullyPaid 
+          ? displayValorTotal 
+          : (showBaseValue 
+              ? basePaid 
+              : Math.min(displayValorTotal, Math.max(baixasSumTotal, basePaid)));
+        const progressPercent = displayValorTotal > 0 ? (isFullyPaid ? 100 : Math.min(100, Math.max(0, (currentPaid / displayValorTotal) * 100))) : 0;
+        const restValue = isFullyPaid ? 0 : Math.max(0, displayValorTotal - currentPaid);
 
         return (
           <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-md flex items-center justify-center z-50 p-0 sm:p-4">
@@ -13552,14 +14880,28 @@ ${formattedInstrutores}
                                 {bx.observacao && <span className="text-slate-500 italic text-[10px] truncate block">{bx.observacao}</span>}
                               </td>
                               <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                                <button
-                                  type="button"
-                                  onClick={() => handleEmitirReciboCandidato(a, bx)}
-                                  className="bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 hover:text-white border border-emerald-500/30 font-bold px-2.5 py-1 rounded-lg text-[10px] transition cursor-pointer flex items-center gap-1 ml-auto"
-                                  title="Visualizar / Imprimir Recibo Oficial de Quitação"
-                                >
-                                  <Receipt className="h-3 w-3 text-emerald-400" /> Recibo
-                                </button>
+                                <div className="flex items-center justify-end gap-1.5 ml-auto">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEmitirReciboCandidato(a, bx)}
+                                    className="bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 hover:text-white border border-emerald-500/30 font-bold px-2.5 py-1 rounded-lg text-[10px] transition cursor-pointer flex items-center gap-1"
+                                    title="Visualizar / Imprimir Recibo Oficial de Quitação"
+                                  >
+                                    <Receipt className="h-3 w-3 text-emerald-400" /> Recibo
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm(`Deseja excluir a baixa ${bx.id} no valor de ${bx.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}? O saldo será recalculado imediatamente.`)) {
+                                        handleExcluirBaixaManual(a.id, bx.id);
+                                      }
+                                    }}
+                                    className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/30 font-bold px-2 py-1 rounded-lg text-[10px] transition cursor-pointer flex items-center gap-1"
+                                    title="Excluir este lançamento e recalcular saldos"
+                                  >
+                                    <Trash2 className="h-3 w-3 text-rose-400" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -14591,212 +15933,605 @@ ${formattedInstrutores}
       )}
 
       {/* --- MODAL DE BAIXA MANUAL DE PAGAMENTOS (CARTÃO, PIX, DINHEIRO) --- */}
-      {baixaModalAluno && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-slate-900 text-slate-100 rounded-2xl shadow-2xl w-full max-w-lg border border-slate-700 overflow-hidden text-left flex flex-col max-h-[90vh]">
-            
-            {/* Header */}
-            <div className="p-4 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">💳</span>
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-wider font-mono">
-                    Baixa Manual de Pagamento
-                  </h3>
-                  <p className="text-[11px] text-emerald-100 font-medium">
-                    {baixaModalAluno.nome} • Categoria {baixaModalAluno.categoria}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setBaixaModalAluno(null)}
-                className="p-1 rounded-lg hover:bg-white/10 text-white/80 hover:text-white cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
+      {baixaModalAluno && (() => {
+        const contractTotal = getStudentBaseValue(baixaModalAluno);
+        const currentPaid = getStudentPaidAmount(baixaModalAluno);
+        const parcelasTotal = baixaModalAluno.parcelasTotal || 12;
+        const isFullyPaid = (baixaModalAluno.parcelasPagas || 0) >= parcelasTotal && parcelasTotal > 0;
+        const saldoRestante = isFullyPaid ? 0 : Math.max(0, contractTotal - currentPaid);
+        const baixas = baixaModalAluno.baixasPagamento || [];
+        const valorParcelaCalc = contractTotal / parcelasTotal;
 
-            {/* Form Body */}
-            <div className="p-5 overflow-y-auto space-y-4 text-xs font-sans">
+        return (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+            <div className="bg-slate-900 text-slate-100 rounded-2xl shadow-2xl w-full max-w-xl border border-slate-700 overflow-hidden text-left flex flex-col max-h-[92vh]">
               
-              {/* Summary Card */}
-              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 grid grid-cols-2 gap-3">
-                <div>
-                  <span className="text-slate-400 text-[10px] uppercase font-mono block">Status Atual:</span>
-                  <span className="text-emerald-400 font-extrabold text-sm font-mono block">
-                    {baixaModalAluno.parcelasPagas} de {baixaModalAluno.parcelasTotal || 12} parcelas
-                  </span>
+              {/* Header */}
+              <div className="p-4 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">💳</span>
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-wider font-mono">
+                      Controle Financeiro & Baixa
+                    </h3>
+                    <p className="text-[11px] text-emerald-100 font-medium">
+                      {baixaModalAluno.nome} • [{baixaModalAluno.id}] • Cat. {baixaModalAluno.categoria}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-slate-400 text-[10px] uppercase font-mono block">Valor Total Contrato:</span>
-                  <span className="text-slate-200 font-bold text-sm font-mono block">
-                    {baixaModalAluno.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                  </span>
-                </div>
-              </div>
-
-              {/* Forma de Pagamento */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider block">
-                  Forma do Pagamento Efetuado:
-                </label>
-                <select
-                  value={baixaForm.formaPagamento}
-                  onChange={(e) => setBaixaForm(prev => ({ ...prev, formaPagamento: e.target.value as any }))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2.5 px-3 text-xs text-white font-semibold focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="cartao">💳 Cartão de Crédito (Máquina / Link)</option>
-                  <option value="pix">⚡ PIX / Transferência Instantânea</option>
-                  <option value="dinheiro">💵 Dinheiro em Espécie (Balcão)</option>
-                  <option value="boleto">📄 Boleto Bancário</option>
-                  <option value="transferencia">🏦 Transferência Bancária / TED</option>
-                </select>
-              </div>
-
-              {/* Valor do Lançamento */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider block">
-                    Valor Pago (R$):
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={baixaForm.valor}
-                    onChange={(e) => setBaixaForm(prev => ({ ...prev, valor: parseFloat(e.target.value) || 0 }))}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-emerald-400 font-extrabold font-mono focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider block">
-                    Data do Pagamento:
-                  </label>
-                  <input
-                    type="date"
-                    value={baixaForm.data}
-                    onChange={(e) => setBaixaForm(prev => ({ ...prev, data: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              {/* Modo de Quitação de Parcelas */}
-              <div className="space-y-2 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
-                <label className="text-[11px] font-extrabold text-indigo-300 uppercase tracking-wider block">
-                  Atualização do Progresso de Parcelas:
-                </label>
-
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="modoAcao"
-                      value="avancar"
-                      checked={baixaForm.modoAcao === 'avancar'}
-                      onChange={() => setBaixaForm(prev => ({ ...prev, modoAcao: 'avancar' }))}
-                      className="accent-emerald-500"
-                    />
-                    <span className="text-slate-200 font-medium">Avançar +</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={(baixaModalAluno.parcelasTotal || 12) - baixaModalAluno.parcelasPagas}
-                      value={baixaForm.parcelasBaixadas}
-                      onChange={(e) => setBaixaForm(prev => ({ ...prev, parcelasBaixadas: parseInt(e.target.value) || 1 }))}
-                      disabled={baixaForm.modoAcao !== 'avancar'}
-                      className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-center font-bold text-emerald-400"
-                    />
-                    <span className="text-slate-400">parcela(s) quitada(s)</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="modoAcao"
-                      value="quitar_tudo"
-                      checked={baixaForm.modoAcao === 'quitar_tudo'}
-                      onChange={() => setBaixaForm(prev => ({ ...prev, modoAcao: 'quitar_tudo' }))}
-                      className="accent-emerald-500"
-                    />
-                    <span className="text-emerald-400 font-bold">Quitar Contrato Integralmente ({baixaModalAluno.parcelasTotal || 12} de {baixaModalAluno.parcelasTotal || 12})</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="modoAcao"
-                      value="customizado"
-                      checked={baixaForm.modoAcao === 'customizado'}
-                      onChange={() => setBaixaForm(prev => ({ ...prev, modoAcao: 'customizado' }))}
-                      className="accent-emerald-500"
-                    />
-                    <span className="text-slate-200 font-medium">Ajustar total de parcelas pagas para:</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={baixaModalAluno.parcelasTotal || 12}
-                      value={baixaForm.novaQtdeParcelasPagas}
-                      onChange={(e) => setBaixaForm(prev => ({ ...prev, novaQtdeParcelasPagas: parseInt(e.target.value) || 0 }))}
-                      disabled={baixaForm.modoAcao !== 'customizado'}
-                      className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-center font-bold text-white"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              {/* Comprovante/NSU e Observação */}
-              <div className="space-y-3">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                    Nº Comprovante / NSU / Autorização da Maquininha (Opcional):
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ex: NSU 9841029 / Aut 10294"
-                    value={baixaForm.nsuComprovante}
-                    onChange={(e) => setBaixaForm(prev => ({ ...prev, nsuComprovante: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">
-                    Observação Interna:
-                  </label>
-                  <textarea
-                    rows={2}
-                    placeholder="Ex: Pago no balcão da autoescola via maquininha Ton..."
-                    value={baixaForm.observacao}
-                    onChange={(e) => setBaixaForm(prev => ({ ...prev, observacao: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-3">
                 <button
                   type="button"
                   onClick={() => setBaixaModalAluno(null)}
-                  className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
+                  className="p-1 rounded-lg hover:bg-white/10 text-white/80 hover:text-white cursor-pointer"
                 >
-                  Cancelar
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Navigation Tabs */}
+              <div className="flex border-b border-slate-800 bg-slate-950/80 px-4 pt-2 gap-2 text-xs font-bold shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setBaixaModalAba('baixa')}
+                  className={`pb-2.5 px-3 border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
+                    baixaModalAba === 'baixa'
+                      ? 'border-emerald-500 text-emerald-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>💳</span> Registrar Baixa
                 </button>
                 <button
                   type="button"
-                  onClick={handleConfirmarBaixaManual}
-                  className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-lg transition cursor-pointer flex items-center gap-1.5 active:scale-95"
+                  onClick={() => setBaixaModalAba('ajuste')}
+                  className={`pb-2.5 px-3 border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
+                    baixaModalAba === 'ajuste'
+                      ? 'border-emerald-500 text-emerald-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                  }`}
                 >
-                  <span>✓</span> Confirmar Baixa
+                  <span>⚡</span> Ajuste Direto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBaixaModalAba('historico')}
+                  className={`pb-2.5 px-3 border-b-2 transition cursor-pointer flex items-center gap-1.5 ${
+                    baixaModalAba === 'historico'
+                      ? 'border-emerald-500 text-emerald-400'
+                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>📜</span> Histórico ({baixas.length})
+                </button>
+              </div>
+
+              {/* Form Body */}
+              <div className="p-5 overflow-y-auto space-y-4 text-xs font-sans flex-1">
+                
+                {/* Summary Card */}
+                <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <span className="text-slate-400 text-[10px] uppercase font-mono block">Valor Contrato</span>
+                    <span className="text-slate-200 font-bold text-sm font-mono block mt-0.5">
+                      {contractTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[10px] uppercase font-mono block">Total Já Quitado</span>
+                    <span className="text-emerald-400 font-extrabold text-sm font-mono block mt-0.5">
+                      {currentPaid.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </span>
+                    <span className="text-[9px] text-slate-500 font-mono">({baixaModalAluno.parcelasPagas} de {parcelasTotal} parc.)</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[10px] uppercase font-mono block">Saldo Restante</span>
+                    <span className="text-amber-400 font-extrabold text-sm font-mono block mt-0.5">
+                      {saldoRestante.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* ABA 1: REGISTRAR BAIXA MANUAL */}
+                {baixaModalAba === 'baixa' && (
+                  <div className="space-y-4">
+                    {/* Forma de Pagamento */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider block">
+                        Forma do Pagamento Efetuado:
+                      </label>
+                      <select
+                        value={baixaForm.formaPagamento}
+                        onChange={(e) => setBaixaForm(prev => ({ ...prev, formaPagamento: e.target.value as any }))}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2.5 px-3 text-xs text-white font-semibold focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="cartao">💳 Cartão de Crédito (Máquina / Link)</option>
+                        <option value="pix">⚡ PIX / Transferência Instantânea</option>
+                        <option value="dinheiro">💵 Dinheiro em Espécie (Balcão)</option>
+                        <option value="boleto">📄 Boleto Bancário</option>
+                        <option value="transferencia">🏦 Transferência Bancária / TED</option>
+                      </select>
+                    </div>
+
+                    {/* Valor do Lançamento */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider block">
+                          Valor Pago (R$):
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={baixaForm.valor}
+                          onChange={(e) => setBaixaForm(prev => ({ ...prev, valor: parseFloat(e.target.value) || 0 }))}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-emerald-400 font-extrabold font-mono focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-extrabold text-slate-300 uppercase tracking-wider block">
+                          Data do Pagamento:
+                        </label>
+                        <input
+                          type="date"
+                          value={baixaForm.data}
+                          onChange={(e) => setBaixaForm(prev => ({ ...prev, data: e.target.value }))}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-white font-mono focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Modo de Quitação de Parcelas */}
+                    <div className="space-y-2 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+                      <label className="text-[11px] font-extrabold text-indigo-300 uppercase tracking-wider block">
+                        Atualização do Progresso de Parcelas:
+                      </label>
+
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="modoAcao"
+                            value="avancar"
+                            checked={baixaForm.modoAcao === 'avancar'}
+                            onChange={() => {
+                              const novasParc = 1;
+                              const valSug = Math.min(saldoRestante, Math.round(novasParc * valorParcelaCalc * 100) / 100);
+                              setBaixaForm(prev => ({ ...prev, modoAcao: 'avancar', parcelasBaixadas: novasParc, valor: valSug > 0 ? valSug : prev.valor }));
+                            }}
+                            className="accent-emerald-500"
+                          />
+                          <span className="text-slate-200 font-medium">Avançar +</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={Math.max(1, parcelasTotal - baixaModalAluno.parcelasPagas)}
+                            value={baixaForm.parcelasBaixadas}
+                            onChange={(e) => {
+                              const p = parseInt(e.target.value) || 1;
+                              const valSug = Math.min(saldoRestante, Math.round(p * valorParcelaCalc * 100) / 100);
+                              setBaixaForm(prev => ({ ...prev, parcelasBaixadas: p, valor: valSug > 0 ? valSug : prev.valor }));
+                            }}
+                            disabled={baixaForm.modoAcao !== 'avancar'}
+                            className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-center font-bold text-emerald-400"
+                          />
+                          <span className="text-slate-400">parcela(s) quitada(s)</span>
+                        </label>
+
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="modoAcao"
+                            value="quitar_tudo"
+                            checked={baixaForm.modoAcao === 'quitar_tudo'}
+                            onChange={() => {
+                              setBaixaForm(prev => ({ 
+                                ...prev, 
+                                modoAcao: 'quitar_tudo', 
+                                valor: saldoRestante > 0 ? saldoRestante : contractTotal,
+                                parcelasBaixadas: Math.max(1, parcelasTotal - baixaModalAluno.parcelasPagas)
+                              }));
+                            }}
+                            className="accent-emerald-500"
+                          />
+                          <span className="text-emerald-400 font-bold">Quitar Contrato Integralmente ({parcelasTotal} de {parcelasTotal})</span>
+                        </label>
+
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="modoAcao"
+                            value="customizado"
+                            checked={baixaForm.modoAcao === 'customizado'}
+                            onChange={() => setBaixaForm(prev => ({ ...prev, modoAcao: 'customizado' }))}
+                            className="accent-emerald-500"
+                          />
+                          <span className="text-slate-200 font-medium">Ajustar total de parcelas pagas para:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={parcelasTotal}
+                            value={baixaForm.novaQtdeParcelasPagas}
+                            onChange={(e) => setBaixaForm(prev => ({ ...prev, novaQtdeParcelasPagas: parseInt(e.target.value) || 0 }))}
+                            disabled={baixaForm.modoAcao !== 'customizado'}
+                            className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-center font-bold text-white"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Comprovante/NSU e Observação */}
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                          Nº Comprovante / NSU / Autorização da Maquininha (Opcional):
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ex: NSU 9841029 / Aut 10294"
+                          value={baixaForm.nsuComprovante}
+                          onChange={(e) => setBaixaForm(prev => ({ ...prev, nsuComprovante: e.target.value }))}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                          Observação Interna:
+                        </label>
+                        <textarea
+                          rows={2}
+                          placeholder="Ex: Pago no balcão da autoescola via maquininha Ton..."
+                          value={baixaForm.observacao}
+                          onChange={(e) => setBaixaForm(prev => ({ ...prev, observacao: e.target.value }))}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl py-2 px-3 text-xs text-white focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center justify-end gap-2 border-t border-slate-800 pt-3">
+                      <button
+                        type="button"
+                        onClick={() => setBaixaModalAluno(null)}
+                        className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmarBaixaManual}
+                        className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-lg transition cursor-pointer flex items-center gap-1.5 active:scale-95"
+                      >
+                        <span>✓</span> Confirmar Baixa
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ABA 2: AJUSTE DIRETO DE PARCELAS */}
+                {baixaModalAba === 'ajuste' && (
+                  <div className="space-y-4">
+                    <div className="bg-indigo-950/40 border border-indigo-500/30 p-4 rounded-xl space-y-2">
+                      <div className="flex items-center gap-2 text-indigo-300 font-bold">
+                        <span>⚡</span>
+                        <span>Ajuste Direto de Quitação</span>
+                      </div>
+                      <p className="text-slate-300 text-xs leading-relaxed">
+                        Utilize este recurso para sincronizar o progresso de parcelas do aluno sem criar duplicidade de lançamentos no caixa ou gerar novos recibos.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                      <label className="text-xs font-bold text-slate-200 block">
+                        Selecione a quantidade correta de parcelas quitadas:
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <select
+                          value={baixaModalAluno.parcelasPagas}
+                          onChange={(e) => handleAjustarQuitaDireto(baixaModalAluno.id, parseInt(e.target.value) || 0)}
+                          className="bg-slate-900 border border-slate-700 rounded-xl py-2 px-4 text-sm text-white font-bold font-mono focus:outline-none focus:border-emerald-500 cursor-pointer"
+                        >
+                          {Array.from({ length: parcelasTotal + 1 }, (_, i) => (
+                            <option key={i} value={i}>
+                              {i} de {parcelasTotal} parcelas ({i === parcelasTotal ? '100% Quitado' : i === 0 ? 'Pendente' : `${((i / parcelasTotal) * 100).toFixed(0)}%`})
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-slate-400 text-xs">
+                          Equivale a {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(baixaModalAluno.parcelasPagas * valorParcelaCalc)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleAjustarQuitaDireto(baixaModalAluno.id, parcelasTotal)}
+                        className="py-3 px-4 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <span>⚡</span> Quitar 100% ({parcelasTotal}/{parcelasTotal})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAjustarQuitaDireto(baixaModalAluno.id, 0)}
+                        className="py-3 px-4 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <span>🔄</span> Zerar Parcelas (0/{parcelasTotal})
+                      </button>
+                    </div>
+
+                    <div className="flex justify-end pt-3 border-t border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setBaixaModalAluno(null)}
+                        className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
+                      >
+                        Concluído
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ABA 3: HISTÓRICO DE BAIXAS */}
+                {baixaModalAba === 'historico' && (
+                  <div className="space-y-4">
+                    {baixas.length === 0 ? (
+                      <div className="text-center py-8 bg-slate-950/60 rounded-xl border border-slate-850">
+                        <span className="text-2xl block mb-2 opacity-50">💳</span>
+                        <p className="text-xs text-slate-400 font-semibold">Nenhuma baixa manual registrada neste aluno.</p>
+                        <p className="text-[11px] text-slate-500 mt-1">Clique na aba "Registrar Baixa" acima para lançar um pagamento.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+                        {baixas.map((bx) => (
+                          <div 
+                            key={bx.id} 
+                            className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between gap-3 text-xs"
+                          >
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-indigo-400 text-[10px] bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">
+                                  {bx.id}
+                                </span>
+                                <span className="text-slate-400 text-[10px]">{formatDateBR(bx.data)}</span>
+                                <span className="text-emerald-400 font-extrabold font-mono text-sm">
+                                  {bx.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </span>
+                              </div>
+                              <p className="text-slate-300 text-[11px] font-medium">
+                                Forma: <strong className="text-white">{bx.formaPagamento}</strong>
+                                {bx.parcelasBaixadas > 0 && ` • +${bx.parcelasBaixadas} parcela(s)`}
+                              </p>
+                              {bx.observacao && (
+                                <p className="text-slate-400 italic text-[10px]">{bx.observacao}</p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleEmitirReciboCandidato(baixaModalAluno, bx)}
+                                className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold px-2.5 py-1.5 rounded-lg text-[10px] transition cursor-pointer flex items-center gap-1"
+                              >
+                                <Receipt className="w-3 h-3" /> Recibo
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm(`Deseja excluir a baixa ${bx.id} no valor de ${bx.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}?`)) {
+                                    handleExcluirBaixaManual(baixaModalAluno.id, bx.id);
+                                  }
+                                }}
+                                className="bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 font-bold px-2 py-1.5 rounded-lg text-[10px] transition cursor-pointer"
+                                title="Excluir lançamento incorreto"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end pt-3 border-t border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setBaixaModalAluno(null)}
+                        className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
+                      >
+                        Fechar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* --- MODAL DE RECONCILIAÇÃO FINANCEIRA DO INSTRUTOR --- */}
+      {isInstReconcileOpen && activeInstructor && (() => {
+        const fin = calculateInstructorFinancials(activeInstructor, cleanAlunos);
+        const myStudents = fin.myStudents;
+
+        return (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+            <div className="bg-slate-900 text-slate-100 rounded-2xl shadow-2xl w-full max-w-4xl border border-slate-700 overflow-hidden text-left flex flex-col max-h-[92vh]">
+              
+              {/* Header */}
+              <div className="p-4 bg-gradient-to-r from-emerald-700 via-teal-700 to-slate-900 text-white flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="bg-white/10 p-2 rounded-xl">
+                    <Sliders className="h-5 w-5 text-emerald-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-wider font-mono">
+                      Reconciliação e Ajustes Financeiros dos Alunos
+                    </h3>
+                    <p className="text-[11px] text-emerald-100 font-medium">
+                      Instrutor: <strong>{activeInstructor.nome}</strong> • {myStudents.length} aluno(s) vinculados
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsInstReconcileOpen(false)}
+                  className="p-1 rounded-lg hover:bg-white/10 text-white/80 hover:text-white cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* KPI Summary Banner */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-950/80 border-b border-slate-800 text-center">
+                <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Meus Indicados</span>
+                  <span className="text-xl font-black text-white font-mono">{myStudents.length}</span>
+                </div>
+                <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Volume Contratado</span>
+                  <span className="text-xl font-black text-emerald-400 font-mono">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fin.totalVendas)}
+                  </span>
+                </div>
+                <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Arrecadado Real</span>
+                  <span className="text-xl font-black text-amber-400 font-mono">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fin.totalPaymentReceived)}
+                  </span>
+                </div>
+                <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Saldo Disponível (80%)</span>
+                  <span className="text-xl font-black text-emerald-300 font-mono">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(fin.saldoDisponivel)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Students Table */}
+              <div className="p-4 overflow-y-auto flex-1 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    Lista de Alunos da Carteira & Ações Rápidas
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Clique em <strong>"Baixa"</strong> para registrar recebimento ou <strong>"Quitar"</strong> para ajuste instantâneo
+                  </span>
+                </div>
+
+                {myStudents.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 italic bg-slate-950/40 rounded-xl border border-slate-850">
+                    Nenhum aluno vinculado a este instrutor.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-slate-800">
+                    <table className="w-full text-xs text-left text-slate-300">
+                      <thead className="bg-slate-950 text-slate-400 uppercase text-[9px] font-extrabold tracking-wider border-b border-slate-800">
+                        <tr>
+                          <th className="py-2.5 px-3">Aluno</th>
+                          <th className="py-2.5 px-3">Cat.</th>
+                          <th className="py-2.5 px-3">Valor Contrato</th>
+                          <th className="py-2.5 px-3">Já Quitado</th>
+                          <th className="py-2.5 px-3">Parcelas</th>
+                          <th className="py-2.5 px-3 text-right">Ações Rápidas</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 bg-slate-900/50">
+                        {myStudents.map(student => {
+                          const baseTotal = getStudentBaseValue(student);
+                          const paidAmount = getStudentPaidAmount(student);
+                          const pTotal = student.parcelasTotal || 12;
+                          const pPagas = student.parcelasPagas || 0;
+                          const percent = baseTotal > 0 ? Math.min(100, Math.round((paidAmount / baseTotal) * 100)) : 0;
+                          const isFullyPaid = percent >= 100 || pPagas >= pTotal;
+
+                          return (
+                            <tr key={student.id} className="hover:bg-slate-800/40 transition">
+                              <td className="py-2.5 px-3">
+                                <span className="font-bold text-white block">{student.nome}</span>
+                                <span className="text-[10px] text-slate-400 font-mono">{student.id}</span>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span className="font-mono font-bold text-indigo-300">{student.categoria}</span>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-semibold text-slate-200">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(baseTotal)}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-extrabold text-emerald-400">
+                                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(paidAmount)}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono text-[11px]">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={isFullyPaid ? 'text-emerald-400 font-bold' : 'text-slate-300'}>
+                                    {pPagas}/{pTotal}
+                                  </span>
+                                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-sans font-bold ${isFullyPaid ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>
+                                    {percent}%
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleAbrirBaixaManual(student);
+                                    }}
+                                    className="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold py-1 px-2.5 rounded-lg transition cursor-pointer"
+                                    title="Dar baixa manual em pagamento deste aluno"
+                                  >
+                                    💳 Baixa
+                                  </button>
+                                  {!isFullyPaid ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAjustarQuitaDireto(student.id, pTotal)}
+                                      className="bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold py-1 px-2.5 rounded-lg transition cursor-pointer"
+                                      title="Marcar aluno como 100% quitado instantaneamente"
+                                    >
+                                      ⚡ Quitar 100%
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAjustarQuitaDireto(student.id, 0)}
+                                      className="bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-[10px] font-bold py-1 px-2 rounded-lg transition cursor-pointer"
+                                      title="Resetar parcelas para 0"
+                                    >
+                                      🔄 Zerar
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between shrink-0">
+                <span className="text-[11px] text-slate-400">
+                  Os cálculos de repasse do instrutor são atualizados em tempo real conforme as baixas e parcelas são registradas.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsInstReconcileOpen(false)}
+                  className="py-2 px-5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow"
+                >
+                  Fechar Reconciliação
                 </button>
               </div>
 
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* --- MODAL DE REMOÇÃO DE CADASTROS FICTÍCIOS / TESTES --- */}
       {isPurgeModalOpen && (

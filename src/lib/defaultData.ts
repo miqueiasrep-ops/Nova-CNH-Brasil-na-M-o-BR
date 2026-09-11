@@ -228,29 +228,11 @@ export const DEFAULT_ALUNOS: Aluno[] = [
       {
         "data": "2026-07-31",
         "id": "BX-MS8BH1JC",
-        "parcelasBaixadas": 10,
+        "parcelasBaixadas": 12,
         "operador": "Instrutor Miqueias Souza de Lima ",
         "valor": 850,
-        "observacao": "",
+        "observacao": "Quitação integral via máquina de cartão",
         "formaPagamento": "Cartão de Crédito (Máquina/Link)"
-      },
-      {
-        "id": "BX-MS8BG1MR",
-        "parcelasBaixadas": 1,
-        "operador": "Instrutor Miqueias Souza de Lima ",
-        "formaPagamento": "Cartão de Crédito (Máquina/Link)",
-        "observacao": "",
-        "valor": 850,
-        "data": "2026-07-30"
-      },
-      {
-        "formaPagamento": "Cartão de Crédito (Máquina/Link)",
-        "id": "BX-MS8BF5QW",
-        "operador": "Instrutor Miqueias Souza de Lima ",
-        "data": "2026-07-30",
-        "parcelasBaixadas": 1,
-        "observacao": "",
-        "valor": 668.19
       }
     ],
     "instrutor": "Miqueias Souza de Lima",
@@ -430,31 +412,13 @@ export const DEFAULT_ALUNOS: Aluno[] = [
     "dataAdesao": "2026-07-31",
     "baixasPagamento": [
       {
-        "observacao": "",
+        "observacao": "Quitação integral via PIX",
         "operador": "Instrutor Miqueias Souza de Lima ",
         "id": "BX-MSD6NBXV",
-        "valor": 70.83,
-        "data": "2026-08-03",
-        "formaPagamento": "PIX / Transferência Instantânea",
-        "parcelasBaixadas": 11
-      },
-      {
-        "id": "BX-MSD6MVWY",
-        "data": "2026-08-03",
-        "formaPagamento": "PIX / Transferência Instantânea",
         "valor": 850,
-        "operador": "Instrutor Miqueias Souza de Lima ",
-        "parcelasBaixadas": 1,
-        "observacao": ""
-      },
-      {
-        "valor": 850,
-        "formaPagamento": "PIX / Transferência Instantânea",
-        "id": "BX-MSD6L222",
         "data": "2026-08-03",
-        "observacao": "",
-        "parcelasBaixadas": 0,
-        "operador": "Instrutor Miqueias Souza de Lima "
+        "formaPagamento": "PIX / Transferência Instantânea",
+        "parcelasBaixadas": 12
       }
     ],
     "endereco": "Rua Santa Ana, bloco 2, AP 401, Califórnia, Ipojuca/PE",
@@ -761,9 +725,10 @@ export const DEFAULT_ALUNOS: Aluno[] = [
     "categoria": "Carro (B)",
     "instrutor": "Miqueias Souza de Lima",
     "dataAdesao": "2026-08-20",
-    "parcelasPagas": 2,
-    "parcelasTotal": 2,
+    "parcelasPagas": 1,
+    "parcelasTotal": 1,
     "valorTotal": 320,
+    "valorPago": 320,
     "aulas": 4,
     "formaPagamento": "cartao",
     "tipoPlano": "Plano CNH Facilitada Maiores de 18 Anos",
@@ -771,9 +736,29 @@ export const DEFAULT_ALUNOS: Aluno[] = [
     "estadoCivil": "Solteiro(a)",
     "senha": "7914",
     "pontosSimulado": 120,
-    "comprovantes": [],
-    "baixasPagamento": [],
-    "updatedAt": "2026-09-01T18:24:30.426Z",
+    "comprovantes": [
+      {
+        "id": "COMP-BX-MTX08M5U",
+        "nomeArquivo": "Baixa_cartao_BX-MTX08M5U.pdf",
+        "conteudo": "",
+        "dataEnvio": "2026-09-11T13:41:23.634Z",
+        "valor": 320,
+        "validado": true,
+        "observacao": "[Baixa Manual Confirmada] Cartão de Crédito (Máquina/Link) - Valor: R$ 320,00 "
+      }
+    ],
+    "baixasPagamento": [
+      {
+        "id": "BX-MTX08M5U",
+        "observacao": "",
+        "operador": "Instrutor Miqueias Souza de Lima",
+        "formaPagamento": "Cartão de Crédito (Máquina/Link)",
+        "parcelasBaixadas": 1,
+        "data": "2026-09-11",
+        "valor": 320
+      }
+    ],
+    "updatedAt": "2026-09-11T13:41:48.996Z",
     "dob": "2008-01-01",
     "telefone": "81991315714",
     "etapaCrm": "ganho",
@@ -972,9 +957,9 @@ export const DEFAULT_ALUNOS: Aluno[] = [
     "categoria": "Carro e Moto (A+B)",
     "instrutor": "Miqueias Souza de Lima",
     "dataAdesao": "2026-08-21",
-    "parcelasPagas": 1,
+    "parcelasPagas": 0,
     "valorTotal": 2950,
-    "valorPago": 2950,
+    "valorPago": 0,
     "pontosSimulado": 120,
     "senha": "1881",
     "endereco": "Rua Ana Isabel, Garapu, Cabo de Santo Agostinho/PE",
@@ -989,19 +974,10 @@ export const DEFAULT_ALUNOS: Aluno[] = [
     "parcelasTotal": 1,
     "formaPagamento": "vista",
     "comprovantes": [],
-    "baixasPagamento": [
-      {
-        "id": "bx-1755800000000",
-        "data": "2026-08-21",
-        "valor": 2950,
-        "formaPagamento": "Pix / À Vista",
-        "parcelasBaixadas": 1,
-        "observacao": "Adesão eletrônica Contrato Quitado À Vista R$ 2.950,00"
-      }
-    ],
-    "updatedAt": "2026-08-21T17:56:44.718Z",
+    "baixasPagamento": [],
+    "updatedAt": "2026-09-11T13:22:00.000Z",
     "dataUltimoContato": "2026-08-25T18:34:54.414Z",
-    "etapaCrm": "ganho"
+    "etapaCrm": "em_atendimento"
   },
   {
     "parcelasPagas": 0,

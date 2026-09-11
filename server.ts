@@ -240,6 +240,7 @@ function mergeTwoAlunoObjects(obj1: any, obj2: any): any {
   // Handle baixas and comprovantes: if newer explicitly set parcelasPagas to 0, use newer baixas (or empty)
   if (newer.parcelasPagas === 0) {
     merged.baixasPagamento = Array.isArray(newer.baixasPagamento) ? newer.baixasPagamento : [];
+    merged.valorPago = 0;
   } else {
     const baixas1 = Array.isArray(obj1.baixasPagamento) ? obj1.baixasPagamento : [];
     const baixas2 = Array.isArray(obj2.baixasPagamento) ? obj2.baixasPagamento : [];
@@ -257,6 +258,23 @@ function mergeTwoAlunoObjects(obj1: any, obj2: any): any {
     if (c && c.id) compMap.set(c.id, c);
   });
   merged.comprovantes = Array.from(compMap.values());
+
+  // Rosália da Silva Bezerra Rosa: valor normal R$ 320,00, 1 parcela, remover baixa duplicada
+  const isRosalia = (merged.id === 'CNH-025' || (merged.cpf && String(merged.cpf).replace(/\D/g, '') === '79261779468') || (merged.nome && String(merged.nome).toLowerCase().includes('rosalia da silva bezerra')) || (merged.nome && String(merged.nome).toLowerCase().includes('rosália da silva bezerra')));
+  if (isRosalia) {
+    merged.valorTotal = 320;
+    merged.parcelasTotal = 1;
+    merged.parcelasPagas = 1;
+    merged.valorPago = 320;
+    merged.baixasPagamento = (merged.baixasPagamento || []).filter((b: any) => b.id !== 'BX-MTX0A7Y6');
+    if (merged.baixasPagamento.length > 1) {
+      const validBaixa = merged.baixasPagamento.find((b: any) => b.id === 'BX-MTX08M5U') || merged.baixasPagamento[0];
+      validBaixa.valor = 320;
+      validBaixa.parcelasBaixadas = 1;
+      merged.baixasPagamento = [validBaixa];
+    }
+    merged.comprovantes = (merged.comprovantes || []).filter((c: any) => !c.id?.includes('BX-MTX0A7Y6') && !c.nomeArquivo?.includes('BX-MTX0A7Y6') && !c.id?.includes('BX-MTWZ'));
+  }
 
   return merged;
 }
