@@ -59,6 +59,8 @@ import { StudentTestimonials } from './components/StudentTestimonials';
 import { Aluno, BaixaPagamento, Comprovante, Depoimento, Instrutor, ReciboQuitacao, isAlunoMatriculado } from './types';
 import { DEFAULT_ALUNOS, DEFAULT_INSTRUTORES, DEFAULT_DEPOIMENTOS } from './lib/defaultData';
 import { downloadCandidateReceiptPDF, downloadInstructorReceiptPDF } from './lib/pdfReceiptGenerator';
+import { downloadContractPDF } from './lib/pdfContractGenerator';
+import { printHtmlElement } from './lib/printHelper';
 import {
   subscribeAlunos,
   subscribeInstrutores,
@@ -4753,115 +4755,12 @@ ${formattedInstrutores}
   };
 
   const handlePrintAdminContract = (aluno: Aluno) => {
-    const element = document.getElementById(`printable-contract-${aluno.id}`);
-    if (!element) return;
-
-    setToastMessage('⏳ Abrindo gerenciador de impressão do navegador...');
-
-    const originalStyle = element.getAttribute('style') || '';
-    element.style.maxHeight = 'none';
-    element.style.overflow = 'visible';
-
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow?.document || iframe.contentDocument;
-    if (!doc) {
+    setToastMessage('⏳ Abrindo impressão oficial do contrato...');
+    const candidateDocName = aluno.nome || 'Candidato';
+    const success = printHtmlElement(`printable-contract-${aluno.id}`, `Contrato Nova CNH - ${candidateDocName}`);
+    if (!success) {
       setToastMessage('❌ Não foi possível abrir o gerenciador de impressão.');
-      element.setAttribute('style', originalStyle);
-      return;
     }
-
-    doc.write(`
-      <html>
-        <head>
-          <title>Contrato Nova CNH - ${aluno.nome || 'Candidato'}</title>
-          <style>
-            body {
-              font-family: 'Georgia', 'Times New Roman', serif;
-              padding: 40px;
-              color: #1e293b;
-              line-height: 1.6;
-              font-size: 13px;
-              background-color: #fff;
-            }
-            .text-center { text-align: center; }
-            .font-black { font-weight: 900; }
-            .font-bold { font-weight: bold; }
-            .uppercase { text-transform: uppercase; }
-            .tracking-wider { letter-spacing: 0.05em; }
-            .mt-0\\.5 { margin-top: 2px; }
-            .mt-2 { margin-top: 8px; }
-            .mt-3 { margin-top: 12px; }
-            .mt-1 { margin-top: 4px; }
-            .mt-1\\.5 { margin-top: 6px; }
-            .mb-2 { margin-bottom: 8px; }
-            .mb-1 { margin-bottom: 4px; }
-            .space-y-2 > * + * { margin-top: 8px; }
-            .space-y-4 > * + * { margin-top: 16px; }
-            .space-y-5 > * + * { margin-top: 20px; }
-            .space-y-8 > * + * { margin-top: 32px; }
-            .border-b-2 { border-bottom: 2px solid #cbd5e1; }
-            .border-b { border-bottom: 1px solid #e2e8f0; }
-            .pb-6 { padding-bottom: 24px; }
-            .pb-1 { padding-bottom: 4px; }
-            .pl-1 { padding-left: 4px; }
-            .pl-3 { padding-left: 12px; }
-            .border-l-2 { border-left: 2px solid #ef4444; }
-            .bg-red-50 { background-color: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: 8px; margin-top: 12px; }
-            .text-red-950 { color: #450a0a; }
-            .text-red-800 { color: #991b1b; }
-            .text-emerald-800 { color: #065f46; font-weight: bold; }
-            .font-sans { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
-            .font-mono { font-family: monospace; }
-            .grid { display: grid; }
-            .grid-cols-1 { grid-template-columns: 1fr; }
-            @media (min-width: 640px) {
-              .sm\\:grid-cols-2 { grid-template-columns: 1fr 1fr; }
-            }
-            .gap-2 { gap: 8px; }
-            p { margin: 8px 0; text-align: justify; }
-            h3, h4, h5 { font-family: 'Inter', system-ui, -apple-system, sans-serif; margin-top: 15px; margin-bottom: 5px; }
-            .flex { display: flex; }
-            .items-center { align-items: center; }
-            .rounded { border-radius: 4px; }
-            .border { border: 1px solid #cbd5e1; }
-            .w-4 { width: 16px; }
-            .h-4 { height: 16px; }
-            .inline-flex { display: inline-flex; }
-            .justify-center { justify-content: center; }
-            .bg-white { background-color: #ffffff; }
-            .text-slate-950 { color: #020617; }
-            @media print {
-              body { padding: 15px; font-size: 11px; }
-              button { display: none; }
-            }
-          </style>
-        </head>
-        <body>
-          ${element.innerHTML}
-          <script>
-            window.onload = function() {
-              window.print();
-              setTimeout(function() {
-                window.frameElement.remove();
-              }, 1000);
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    doc.close();
-
-    setTimeout(() => {
-      element.setAttribute('style', originalStyle);
-    }, 1500);
   };
 
   // Central Helper to sanitize modern color spaces like oklch/oklab to prevent html2canvas crashes
@@ -4970,410 +4869,30 @@ ${formattedInstrutores}
   };
 
   const handleDownloadAdminContractPDF = (aluno: Aluno) => {
-    const element = document.getElementById(`printable-contract-${aluno.id}`);
-    if (!element) return;
-
     setIsDownloadingContractPdf(true);
-    setToastMessage('⏳ Preparando download do contrato em PDF...');
+    setToastMessage("⏳ Gerando arquivo PDF oficial do contrato...");
 
-    const originalStyle = element.getAttribute('style') || '';
-
-    element.style.maxHeight = 'none';
-    element.style.overflow = 'visible';
-    element.style.padding = '30px';
-
-    const candidateDocName = aluno.nome
-      ? aluno.nome.trim().replace(/\s+/g, '_').toLowerCase()
-      : 'candidato';
-
-    const triggerHtmlFallback = () => {
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html lang="pt-BR">
-          <head>
-            <meta charset="utf-8">
-            <title>Contrato Nova CNH - ${aluno.nome || 'Candidato'}</title>
-            <style>
-              body {
-                font-family: 'Georgia', 'Times New Roman', serif;
-                padding: 40px;
-                color: #1e293b;
-                line-height: 1.6;
-                font-size: 13px;
-                background-color: #f8fafc;
-              }
-              .container {
-                max-width: 800px;
-                margin: 0 auto;
-                background: #ffffff;
-                padding: 50px;
-                border-radius: 8px;
-                box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-                border: 1px solid #e2e8f0;
-              }
-              .text-center { text-align: center; }
-              .font-black { font-weight: 900; }
-              .font-bold { font-weight: bold; }
-              .uppercase { text-transform: uppercase; }
-              .tracking-wider { letter-spacing: 0.05em; }
-              .mt-0\\.5 { margin-top: 2px; }
-              .mt-2 { margin-top: 8px; }
-              .mt-3 { margin-top: 12px; }
-              .mt-1 { margin-top: 4px; }
-              .mt-1\\.5 { margin-top: 6px; }
-              .mb-2 { margin-bottom: 8px; }
-              .mb-1 { margin-bottom: 4px; }
-              .space-y-2 > * + * { margin-top: 8px; }
-              .space-y-4 > * + * { margin-top: 16px; }
-              .space-y-5 > * + * { margin-top: 20px; }
-              .space-y-8 > * + * { margin-top: 32px; }
-              .border-b-2 { border-bottom: 2px solid #cbd5e1; }
-              .border-b { border-bottom: 1px solid #e2e8f0; }
-              .pb-6 { padding-bottom: 24px; }
-              .pb-1 { padding-bottom: 4px; }
-              .pl-1 { padding-left: 4px; }
-              .pl-3 { padding-left: 12px; }
-              .border-l-2 { border-left: 2px solid #ef4444; }
-              .bg-red-50 { background-color: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: 8px; margin-top: 12px; }
-              .text-red-950 { color: #450a0a; }
-              .text-red-800 { color: #991b1b; }
-              .text-emerald-800 { color: #065f46; font-weight: bold; }
-              .font-sans { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
-              .font-mono { font-family: monospace; }
-              .grid { display: grid; }
-              .grid-cols-1 { grid-template-columns: 1fr; }
-              @media (min-width: 640px) {
-                .sm\\:grid-cols-2 { grid-template-columns: 1fr 1fr; }
-              }
-              .gap-2 { gap: 8px; }
-              p { margin: 8px 0; text-align: justify; }
-              h3, h4, h5 { font-family: 'Inter', system-ui, -apple-system, sans-serif; margin-top: 15px; margin-bottom: 5px; }
-              .flex { display: flex; }
-              .items-center { align-items: center; }
-              .rounded { border-radius: 4px; }
-              .border { border: 1px solid #cbd5e1; }
-              .w-4 { width: 16px; }
-              .h-4 { height: 16px; }
-              .inline-flex { display: inline-flex; }
-              .justify-center { justify-content: center; }
-              .bg-white { background-color: #ffffff; }
-              .text-slate-950 { color: #020617; }
-              .header-actions {
-                max-width: 800px;
-                margin: 0 auto 20px auto;
-                background-color: #eff6ff;
-                border: 1px solid #bfdbfe;
-                padding: 15px;
-                border-radius: 8px;
-                text-align: center;
-                font-family: 'Inter', system-ui, sans-serif;
-              }
-              .btn-print {
-                background-color: #0c2340;
-                color: #ffffff;
-                border: none;
-                padding: 10.5px 24px;
-                font-size: 14px;
-                font-weight: bold;
-                border-radius: 6px;
-                cursor: pointer;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-                transition: background-color 0.2s;
-              }
-              .btn-print:hover {
-                background-color: #0d2c4f;
-              }
-              @media print {
-                body { padding: 0px; background-color: #fff; font-size: 11px; }
-                .container { padding: 0; border: none; box-shadow: none; max-width: 100%; }
-                .header-actions { display: none; }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="header-actions">
-              <p style="margin: 0 0 10px 0; font-size: 13px; color: #1e40af; font-weight: 500;">
-                🔒 Contrato de Adesão Eletrônica Oficial - Nova CNH
-              </p>
-              <button class="btn-print" onclick="window.print()">🖨️ Imprimir ou Salvar em PDF Comercial</button>
-              <p style="margin: 8px 0 0 0; font-size: 11.5px; color: #64748b;">
-                <strong>Nota:</strong> Para salvar no seu dispositivo, altere o destino de impressora para <strong>"Salvar como PDF"</strong>.
-              </p>
-            </div>
-            <div class="container">
-              ${element.innerHTML}
-            </div>
-          </body>
-        </html>
-      `;
-      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `contrato_nova_cnh_${candidateDocName}.html`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      element.setAttribute('style', originalStyle);
+    try {
+      downloadContractPDF(aluno);
+      setTimeout(() => {
+        setIsDownloadingContractPdf(false);
+        setToastMessage("✅ Download do contrato concluído!");
+      }, 500);
+    } catch (err: any) {
+      console.error("Erro ao gerar contrato PDF:", err);
       setIsDownloadingContractPdf(false);
-      setToastMessage('✅ Download concluído (Cópia Digital Oficial em HTML)! Abra-o para imprimir ou salvar como PDF.');
-    };
-
-    const opt = {
-      margin:       15,
-      filename:     `contrato_nova_cnh_${candidateDocName}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { 
-        scale: 2, 
-        useCORS: true,
-        logging: false,
-        scrollX: 0,
-        scrollY: 0,
-        onclone: (clonedDoc: Document) => {
-          clonedDoc.querySelectorAll('style').forEach((s) => {
-            if (s.textContent && (s.textContent.includes('okl') || s.textContent.includes('color-mix'))) {
-              s.textContent = s.textContent.replace(/oklch\([^)]+\)/gi, '#1e293b').replace(/oklab\([^)]+\)/gi, '#1e293b').replace(/color-mix\([^;}]+\)/gi, '#1e293b');
-            }
-          });
-        }
-      },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-
-    const runHtml2Pdf = () => {
-      // Temporarily clean modern oklch/oklab color spaces to avoid html2canvas crash
-      const restoreStyles = cleanModernColorSpaces(element);
-
-      // Clone the element and clean it up to avoid html2canvas viewport/scrolling/height issues
-      const clone = element.cloneNode(true) as HTMLElement;
-      clone.style.position = 'absolute';
-      clone.style.left = '50%';
-      clone.style.transform = 'translateX(-50%)';
-      clone.style.top = `${window.scrollY}px`;
-      clone.style.zIndex = '999999';
-      clone.style.width = '750px'; // standard width
-      clone.style.maxHeight = 'none';
-      clone.style.overflow = 'visible';
-      clone.style.height = 'auto';
-      clone.style.backgroundColor = '#ffffff';
-      clone.style.color = '#0f172a';
-      clone.style.padding = '40px';
-      clone.style.boxShadow = '0 0 20px rgba(0, 0, 0, 0.2)';
-      clone.style.borderRadius = '12px';
-      clone.classList.remove('max-h-[500px]', 'overflow-y-auto');
-      document.body.appendChild(clone);
-
-      // @ts-ignore
-      window.html2pdf()
-        .from(clone)
-        .set(opt)
-        .save()
-        .then(() => {
-          clone.remove();
-          restoreStyles();
-          setIsDownloadingContractPdf(false);
-          setToastMessage('✅ Download do contrato concluído!');
-        })
-        .catch((err: any) => {
-          clone.remove();
-          restoreStyles();
-          console.error(err);
-          // Fallback to beautiful HTML contract download on pdf generation error
-          triggerHtmlFallback();
-        });
-    };
-
-    // Lazy load or call direct
-    // @ts-ignore
-    if (window.html2pdf) {
-      runHtml2Pdf();
-    } else {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-      script.onload = () => {
-        runHtml2Pdf();
-      };
-      script.onerror = () => {
-        // Fallback to beautiful HTML contract download on connection or CSP error
-        triggerHtmlFallback();
-      };
-      document.body.appendChild(script);
+      setToastMessage("❌ Erro ao gerar PDF do contrato. Tente o botão Imprimir.");
     }
-
-    setTimeout(() => {
-      element.setAttribute('style', originalStyle);
-    }, 1500);
   };
 
   // Dedicated Print for Instructor Receipt (100% isolated, 0 blank pages)
   const handlePrintInstructorReceiptDoc = () => {
-    const element = document.getElementById('printable-receipt');
-    if (!element || !viewingRecibo) return;
-
-    setToastMessage('⏳ Abrindo impressão oficial do recibo...');
-
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow?.document || iframe.contentDocument;
-    if (!doc) {
-      setToastMessage('❌ Não foi possível abrir o gerenciador de impressão.');
-      return;
+    if (!viewingRecibo) return;
+    setToastMessage("⏳ Abrindo impressão oficial do recibo...");
+    const success = printHtmlElement("printable-receipt", `Recibo Nova CNH - ${viewingRecibo.recibo.id} - ${viewingRecibo.instrutorNome}`);
+    if (!success) {
+      setToastMessage("❌ Não foi possível abrir o gerenciador de impressão.");
     }
-
-    doc.write(`
-      <!DOCTYPE html>
-      <html lang="pt-BR">
-        <head>
-          <meta charset="utf-8">
-          <title>Recibo Nova CNH - ${viewingRecibo.recibo.id} - ${viewingRecibo.instrutorNome}</title>
-          <style>
-            @page {
-              size: A4 portrait;
-              margin: 8mm 10mm;
-            }
-            * {
-              box-sizing: border-box;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            html, body {
-              margin: 0;
-              padding: 0;
-              background-color: #ffffff;
-              color: #0f172a;
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-              font-size: 11px;
-              line-height: 1.4;
-              height: auto;
-              overflow: visible;
-            }
-            .receipt-wrap {
-              width: 100%;
-              max-width: 720px;
-              margin: 0 auto;
-              padding: 16px;
-              background: #ffffff;
-            }
-            .text-center { text-align: center; }
-            .text-left { text-align: left; }
-            .text-right { text-align: right; }
-            .font-bold { font-weight: 700; }
-            .font-black { font-weight: 900; }
-            .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-            .uppercase { text-transform: uppercase; }
-            .italic { font-style: italic; }
-            .tracking-tight { letter-spacing: -0.025em; }
-            .tracking-wider { letter-spacing: 0.05em; }
-            .tracking-widest { letter-spacing: 0.1em; }
-            .border-b-4 { border-bottom: 4px solid #0c2340; }
-            .border-b { border-bottom: 1px solid #e2e8f0; }
-            .border-t { border-top: 1px solid #e2e8f0; }
-            .border-2 { border: 2px solid #cbd5e1; }
-            .border { border: 1px solid #cbd5e1; }
-            .rounded-xl { border-radius: 12px; }
-            .rounded-2xl { border-radius: 16px; }
-            .p-3 { padding: 10px; }
-            .p-4 { padding: 12px; }
-            .p-4\\.5 { padding: 14px; }
-            .p-5 { padding: 16px; }
-            .p-6 { padding: 18px; }
-            .p-8 { padding: 20px; }
-            .pb-1\\.5 { padding-bottom: 6px; }
-            .pb-6 { padding-bottom: 16px; }
-            .pt-2 { padding-top: 8px; }
-            .pt-6 { padding-top: 14px; }
-            .pt-8 { padding-top: 18px; }
-            .space-y-1 > * + * { margin-top: 4px; }
-            .space-y-2 > * + * { margin-top: 6px; }
-            .space-y-3 > * + * { margin-top: 10px; }
-            .space-y-4 > * + * { margin-top: 12px; }
-            .space-y-6 > * + * { margin-top: 16px; }
-            .space-y-8 > * + * { margin-top: 20px; }
-            .grid { display: grid; }
-            .grid-cols-1 { grid-template-columns: 1fr; }
-            .grid-cols-2 { grid-template-columns: 1fr 1fr; }
-            .gap-3 { gap: 10px; }
-            .gap-4 { gap: 14px; }
-            .gap-8 { gap: 20px; }
-            .flex { display: flex; }
-            .items-center { align-items: center; }
-            .justify-between { justify-content: space-between; }
-            .justify-center { justify-content: center; }
-            .bg-slate-50 { background-color: #f8fafc; }
-            .bg-slate-100 { background-color: #f1f5f9; }
-            .bg-emerald-50 { background-color: #ecfdf5; }
-            .border-emerald-500 { border-color: #10b981; }
-            .text-emerald-400 { color: #34d399; }
-            .text-emerald-600 { color: #059669; }
-            .text-slate-950 { color: #020617; }
-            .text-slate-900 { color: #0f172a; }
-            .text-slate-850 { color: #1e293b; }
-            .text-slate-800 { color: #1e293b; }
-            .text-slate-700 { color: #334155; }
-            .text-slate-600 { color: #475569; }
-            .text-slate-500 { color: #64748b; }
-            .text-slate-400 { color: #94a3b8; }
-            .text-slate-300 { color: #cbd5e1; }
-            .text-white { color: #ffffff; }
-            .bg-\\[\\#0c2340\\] { background-color: #0c2340; }
-            .text-\\[\\#0c2340\\] { color: #0c2340; }
-            .text-xs { font-size: 11px; }
-            .text-sm { font-size: 12.5px; }
-            .text-xl { font-size: 18px; }
-            .text-2xl { font-size: 20px; }
-            .text-3xl { font-size: 24px; }
-            .text-\\[8px\\] { font-size: 8px; }
-            .text-\\[8\\.5px\\] { font-size: 8.5px; }
-            .text-\\[9px\\] { font-size: 9px; }
-            .text-\\[10px\\] { font-size: 10px; }
-            .text-\\[11px\\] { font-size: 11px; }
-            p { margin: 4px 0; text-align: justify; }
-            @media print {
-              html, body {
-                width: 100% !important;
-                height: 100% !important;
-                margin: 0 !important;
-                padding: 0 !important;
-              }
-              .receipt-wrap {
-                padding: 2mm !important;
-                max-width: 100% !important;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="receipt-wrap">
-            ${element.innerHTML}
-          </div>
-          <script>
-            window.onload = function() {
-              setTimeout(function() {
-                window.print();
-              }, 250);
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    doc.close();
-
-    setTimeout(() => {
-      try {
-        if (iframe && iframe.parentNode) {
-          iframe.parentNode.removeChild(iframe);
-        }
-      } catch (e) {}
-    }, 12000);
   };
 
   // Dedicated Bulletproof PDF Downloader for Instructor Receipt (100% Vector jsPDF, 0 blank pages)
@@ -5381,14 +4900,14 @@ ${formattedInstrutores}
     if (!viewingRecibo) return;
 
     setIsDownloadingReceiptPdf(true);
-    setToastMessage('⏳ Gerando arquivo PDF oficial do repasse...');
+    setToastMessage("⏳ Gerando arquivo PDF oficial do repasse...");
 
     try {
       downloadInstructorReceiptPDF(viewingRecibo);
       setIsDownloadingReceiptPdf(false);
-      setToastMessage('✅ Recibo do repasse baixado com sucesso!');
+      setToastMessage("✅ Recibo do repasse baixado com sucesso!");
     } catch (err: any) {
-      console.error('PDF generation error:', err);
+      console.error("PDF generation error:", err);
       setIsDownloadingReceiptPdf(false);
       handlePrintInstructorReceiptDoc();
     }
@@ -5396,171 +4915,14 @@ ${formattedInstrutores}
 
   // Dedicated Print for Candidate Receipt (100% isolated, 0 blank pages)
   const handlePrintCandidateReceiptDoc = () => {
-    const element = document.getElementById('printable-candidate-receipt');
-    if (!element || !viewingCandidateReceipt) return;
-
-    setToastMessage('⏳ Abrindo impressão oficial do recibo...');
-
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow?.document || iframe.contentDocument;
-    if (!doc) {
-      setToastMessage('❌ Não foi possível abrir o gerenciador de impressão.');
-      return;
+    if (!viewingCandidateReceipt) return;
+    setToastMessage("⏳ Abrindo impressão oficial do recibo...");
+    const alunoNome = viewingCandidateReceipt.aluno.nome || "Candidato";
+    const idRecibo = viewingCandidateReceipt.idRecibo || "RECIBO";
+    const success = printHtmlElement("printable-candidate-receipt", `Recibo Nova CNH - ${idRecibo} - ${alunoNome}`);
+    if (!success) {
+      setToastMessage("❌ Não foi possível abrir o gerenciador de impressão.");
     }
-
-    const alunoNome = viewingCandidateReceipt.aluno.nome || 'Candidato';
-    const idRecibo = viewingCandidateReceipt.idRecibo || 'RECIBO';
-
-    doc.write(`
-      <!DOCTYPE html>
-      <html lang="pt-BR">
-        <head>
-          <meta charset="utf-8">
-          <title>Recibo Nova CNH - ${idRecibo} - ${alunoNome}</title>
-          <style>
-            @page {
-              size: A4 portrait;
-              margin: 6mm 8mm;
-            }
-            * {
-              box-sizing: border-box;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            html, body {
-              margin: 0;
-              padding: 0;
-              background-color: #ffffff;
-              color: #0f172a;
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-              font-size: 11.5px;
-              line-height: 1.45;
-              height: auto;
-              overflow: visible;
-            }
-            .receipt-wrap {
-              width: 100%;
-              max-width: 720px;
-              margin: 0 auto;
-              padding: 16px;
-              background: #ffffff;
-            }
-            .text-center { text-align: center; }
-            .text-left { text-align: left; }
-            .text-right { text-align: right; }
-            .font-bold { font-weight: 700; }
-            .font-black { font-weight: 900; }
-            .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-            .uppercase { text-transform: uppercase; }
-            .italic { font-style: italic; }
-            .tracking-tight { letter-spacing: -0.025em; }
-            .tracking-wider { letter-spacing: 0.05em; }
-            .tracking-widest { letter-spacing: 0.1em; }
-            .border-b-4 { border-bottom: 4px solid #0c2340; }
-            .border-b { border-bottom: 1px solid #e2e8f0; }
-            .border-t { border-top: 1px solid #e2e8f0; }
-            .border-2 { border: 2px solid #e2e8f0; }
-            .border { border: 1px solid #cbd5e1; }
-            .rounded-xl { border-radius: 12px; }
-            .rounded-2xl { border-radius: 16px; }
-            .p-3 { padding: 10px; }
-            .p-3\\.5 { padding: 12px; }
-            .p-4 { padding: 14px; }
-            .p-4\\.5 { padding: 16px; }
-            .p-6 { padding: 18px; }
-            .p-8 { padding: 20px; }
-            .pb-6 { padding-bottom: 18px; }
-            .pt-6 { padding-top: 16px; }
-            .pt-2 { padding-top: 8px; }
-            .space-y-1 > * + * { margin-top: 4px; }
-            .space-y-2 > * + * { margin-top: 6px; }
-            .space-y-3 > * + * { margin-top: 10px; }
-            .space-y-6 > * + * { margin-top: 14px; }
-            .space-y-8 > * + * { margin-top: 18px; }
-            .grid { display: grid; }
-            .grid-cols-2 { grid-template-columns: 1fr 1fr; }
-            .grid-cols-3 { grid-template-columns: 1fr 1fr 1fr; }
-            .gap-3 { gap: 10px; }
-            .gap-4 { gap: 14px; }
-            .flex { display: flex; }
-            .items-center { align-items: center; }
-            .justify-between { justify-content: space-between; }
-            .justify-center { justify-content: center; }
-            .bg-slate-50 { background-color: #f8fafc; }
-            .bg-slate-100 { background-color: #f1f5f9; }
-            .bg-emerald-50 { background-color: #ecfdf5; }
-            .border-emerald-300 { border-color: #6ee7b7; }
-            .border-emerald-500 { border-color: #10b981; }
-            .text-emerald-400 { color: #34d399; }
-            .text-emerald-600 { color: #059669; }
-            .text-emerald-700 { color: #047857; }
-            .text-emerald-800 { color: #065f46; }
-            .text-indigo-900 { color: #312e81; }
-            .text-slate-950 { color: #020617; }
-            .text-slate-900 { color: #0f172a; }
-            .text-slate-800 { color: #1e293b; }
-            .text-slate-700 { color: #334155; }
-            .text-slate-600 { color: #475569; }
-            .text-slate-500 { color: #64748b; }
-            .text-slate-400 { color: #94a3b8; }
-            .text-slate-300 { color: #cbd5e1; }
-            .text-white { color: #ffffff; }
-            .bg-\\[\\#0c2340\\] { background-color: #0c2340; }
-            .text-\\[\\#0c2340\\] { color: #0c2340; }
-            .text-xs { font-size: 11px; }
-            .text-sm { font-size: 12.5px; }
-            .text-xl { font-size: 18px; }
-            .text-2xl { font-size: 20px; }
-            .text-3xl { font-size: 24px; }
-            .text-\\[9px\\] { font-size: 9px; }
-            .text-\\[10px\\] { font-size: 10px; }
-            .text-\\[11px\\] { font-size: 11px; }
-            p { margin: 4px 0; text-align: justify; }
-            @media print {
-              html, body {
-                width: 100% !important;
-                height: 100% !important;
-                margin: 0 !important;
-                padding: 0 !important;
-              }
-              .receipt-wrap {
-                padding: 2mm !important;
-                max-width: 100% !important;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="receipt-wrap">
-            ${element.innerHTML}
-          </div>
-          <script>
-            window.onload = function() {
-              setTimeout(function() {
-                window.print();
-              }, 250);
-            };
-          </script>
-        </body>
-      </html>
-    `);
-    doc.close();
-
-    setTimeout(() => {
-      try {
-        if (iframe && iframe.parentNode) {
-          iframe.parentNode.removeChild(iframe);
-        }
-      } catch (e) {}
-    }, 12000);
   };
 
   // Dedicated Bulletproof PDF Downloader for Candidate Receipt (100% Vector jsPDF, 0 blank pages)

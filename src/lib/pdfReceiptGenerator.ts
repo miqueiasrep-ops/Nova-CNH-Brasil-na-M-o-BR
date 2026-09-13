@@ -28,25 +28,27 @@ function formatDateBR(dateStr?: string): string {
  */
 function triggerPdfDownload(doc: jsPDF, filename: string): void {
   try {
-    const blob = doc.output('blob');
-    const blobUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = blobUrl;
-    link.download = filename;
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    setTimeout(() => {
-      try {
-        document.body.removeChild(link);
-        URL.revokeObjectURL(blobUrl);
-      } catch (e) {
-        // ignore
-      }
-    }, 2000);
-  } catch (err) {
-    console.warn('Fallback para doc.save:', err);
     doc.save(filename);
+  } catch (err) {
+    console.warn('Fallback para download manual via Blob:', err);
+    try {
+      const blob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        try {
+          document.body.removeChild(link);
+          URL.revokeObjectURL(blobUrl);
+        } catch (e) {}
+      }, 2000);
+    } catch (e2) {
+      console.error('Falha geral no download do PDF:', e2);
+    }
   }
 }
 
