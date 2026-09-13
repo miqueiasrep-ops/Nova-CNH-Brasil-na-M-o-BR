@@ -58,6 +58,7 @@ import { LinkEnrollmentModal, parseCandidateLink, safeAtob } from './components/
 import { StudentTestimonials } from './components/StudentTestimonials';
 import { Aluno, BaixaPagamento, Comprovante, Depoimento, Instrutor, ReciboQuitacao, isAlunoMatriculado } from './types';
 import { DEFAULT_ALUNOS, DEFAULT_INSTRUTORES, DEFAULT_DEPOIMENTOS } from './lib/defaultData';
+import { downloadCandidateReceiptPDF, downloadInstructorReceiptPDF } from './lib/pdfReceiptGenerator';
 import {
   subscribeAlunos,
   subscribeInstrutores,
@@ -5375,89 +5376,21 @@ ${formattedInstrutores}
     }, 12000);
   };
 
-  // Dedicated PDF Downloader for Instructor Receipt
+  // Dedicated Bulletproof PDF Downloader for Instructor Receipt (100% Vector jsPDF, 0 blank pages)
   const handleDownloadInstructorReceiptPDF = () => {
-    const element = document.getElementById('printable-receipt');
-    if (!element || !viewingRecibo) return;
+    if (!viewingRecibo) return;
 
     setIsDownloadingReceiptPdf(true);
     setToastMessage('⏳ Gerando arquivo PDF oficial do repasse...');
 
-    const opt = {
-      margin:       8,
-      filename:     `recibo_repasse_${viewingRecibo.recibo.id.toLowerCase()}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { 
-        scale: 2, 
-        useCORS: true,
-        logging: false,
-        scrollX: 0,
-        scrollY: 0,
-        onclone: (clonedDoc: Document) => {
-          clonedDoc.querySelectorAll('style').forEach((s) => {
-            if (s.textContent && (s.textContent.includes('okl') || s.textContent.includes('color-mix'))) {
-              s.textContent = s.textContent.replace(/oklch\([^)]+\)/gi, '#1e293b').replace(/oklab\([^)]+\)/gi, '#1e293b').replace(/color-mix\([^;}]+\)/gi, '#1e293b');
-            }
-          });
-        }
-      },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
-    };
-
-    const runHtml2Pdf = () => {
-      const restoreStyles = cleanModernColorSpaces(element);
-
-      const clone = element.cloneNode(true) as HTMLElement;
-      clone.style.position = 'absolute';
-      clone.style.left = '50%';
-      clone.style.transform = 'translateX(-50%)';
-      clone.style.top = `${window.scrollY}px`;
-      clone.style.zIndex = '999999';
-      clone.style.width = '700px';
-      clone.style.maxHeight = 'none';
-      clone.style.overflow = 'visible';
-      clone.style.height = 'auto';
-      clone.style.backgroundColor = '#ffffff';
-      clone.style.color = '#0f172a';
-      clone.style.padding = '24px';
-      clone.style.borderRadius = '12px';
-      document.body.appendChild(clone);
-
-      // @ts-ignore
-      window.html2pdf()
-        .from(clone)
-        .set(opt)
-        .save()
-        .then(() => {
-          clone.remove();
-          restoreStyles();
-          setIsDownloadingReceiptPdf(false);
-          setToastMessage('✅ Recibo do repasse baixado com sucesso!');
-        })
-        .catch((err: any) => {
-          clone.remove();
-          restoreStyles();
-          console.error('PDF error:', err);
-          setIsDownloadingReceiptPdf(false);
-          handlePrintInstructorReceiptDoc();
-        });
-    };
-
-    // @ts-ignore
-    if (window.html2pdf) {
-      runHtml2Pdf();
-    } else {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-      script.onload = () => {
-        runHtml2Pdf();
-      };
-      script.onerror = () => {
-        setIsDownloadingReceiptPdf(false);
-        handlePrintInstructorReceiptDoc();
-      };
-      document.body.appendChild(script);
+    try {
+      downloadInstructorReceiptPDF(viewingRecibo);
+      setIsDownloadingReceiptPdf(false);
+      setToastMessage('✅ Recibo do repasse baixado com sucesso!');
+    } catch (err: any) {
+      console.error('PDF generation error:', err);
+      setIsDownloadingReceiptPdf(false);
+      handlePrintInstructorReceiptDoc();
     }
   };
 
@@ -5630,91 +5563,22 @@ ${formattedInstrutores}
     }, 12000);
   };
 
-  // Dedicated PDF Downloader for Candidate Receipt
+  // Dedicated Bulletproof PDF Downloader for Candidate Receipt (100% Vector jsPDF, 0 blank pages)
   const handleDownloadCandidateReceiptPDF = () => {
-    const element = document.getElementById('printable-candidate-receipt');
-    if (!element || !viewingCandidateReceipt) return;
+    if (!viewingCandidateReceipt) return;
 
     setIsDownloadingReceiptPdf(true);
     setToastMessage('⏳ Gerando arquivo PDF oficial do recibo...');
 
-    const receiptId = viewingCandidateReceipt.idRecibo || 'RECIBO';
-    const opt = {
-      margin:       8,
-      filename:     `recibo_nova_cnh_${receiptId.toLowerCase()}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { 
-        scale: 2, 
-        useCORS: true,
-        logging: false,
-        scrollX: 0,
-        scrollY: 0,
-        onclone: (clonedDoc: Document) => {
-          clonedDoc.querySelectorAll('style').forEach((s) => {
-            if (s.textContent && (s.textContent.includes('okl') || s.textContent.includes('color-mix'))) {
-              s.textContent = s.textContent.replace(/oklch\([^)]+\)/gi, '#1e293b').replace(/oklab\([^)]+\)/gi, '#1e293b').replace(/color-mix\([^;}]+\)/gi, '#1e293b');
-            }
-          });
-        }
-      },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
-    };
-
-    const runHtml2Pdf = () => {
-      const restoreStyles = cleanModernColorSpaces(element);
-
-      const clone = element.cloneNode(true) as HTMLElement;
-      clone.style.position = 'absolute';
-      clone.style.left = '50%';
-      clone.style.transform = 'translateX(-50%)';
-      clone.style.top = `${window.scrollY}px`;
-      clone.style.zIndex = '999999';
-      clone.style.width = '700px';
-      clone.style.maxHeight = 'none';
-      clone.style.overflow = 'visible';
-      clone.style.height = 'auto';
-      clone.style.backgroundColor = '#ffffff';
-      clone.style.color = '#0f172a';
-      clone.style.padding = '24px';
-      clone.style.borderRadius = '12px';
-      document.body.appendChild(clone);
-
-      // @ts-ignore
-      window.html2pdf()
-        .from(clone)
-        .set(opt)
-        .save()
-        .then(() => {
-          clone.remove();
-          restoreStyles();
-          setIsDownloadingReceiptPdf(false);
-          setToastMessage('✅ Recibo em PDF baixado com sucesso!');
-        })
-        .catch((err: any) => {
-          clone.remove();
-          restoreStyles();
-          console.error('PDF error:', err);
-          setIsDownloadingReceiptPdf(false);
-          // Fallback to print dialog
-          handlePrintCandidateReceiptDoc();
-        });
-    };
-
-    // @ts-ignore
-    if (window.html2pdf) {
-      runHtml2Pdf();
-    } else {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-      script.onload = () => {
-        runHtml2Pdf();
-      };
-      script.onerror = () => {
-        setIsDownloadingReceiptPdf(false);
-        handlePrintCandidateReceiptDoc();
-      };
-      document.body.appendChild(script);
+    try {
+      downloadCandidateReceiptPDF(viewingCandidateReceipt);
+      setIsDownloadingReceiptPdf(false);
+      setToastMessage('✅ Recibo em PDF baixado com sucesso!');
+    } catch (err: any) {
+      console.error('PDF error:', err);
+      setIsDownloadingReceiptPdf(false);
+      // Fallback to print dialog
+      handlePrintCandidateReceiptDoc();
     }
   };
 
