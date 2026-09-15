@@ -58,6 +58,23 @@ export interface NotaCrm {
   autor?: string;
 }
 
+export interface CompraAulasExtras {
+  id: string;
+  data: string;
+  quantidadeAulas: number;
+  tipo: 'carro' | 'moto' | 'ambos';
+  aulasCarro?: number;
+  aulasMoto?: number;
+  valorBase: number;
+  valorTotal: number;
+  valorInstrutor?: number;
+  valorAutoescola?: number;
+  formaPagamento: 'pix' | 'cartao';
+  parcelasCartao?: number;
+  detalhes?: string;
+  status?: 'pago';
+}
+
 export interface Aluno {
   id: string;
   nome: string;
@@ -73,6 +90,11 @@ export interface Aluno {
   dataAdesao: string;
   parcelasPagas: number;
   valorTotal: number;
+  valorContratoBase?: number;
+  aulasBase?: number;
+  aulasExtras?: number;
+  valorAulasExtras?: number;
+  comprasAulasExtras?: CompraAulasExtras[];
   pontosSimulado?: number;
   senha?: string;
   endereco?: string;

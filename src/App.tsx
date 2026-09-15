@@ -52,11 +52,12 @@ import {
   Link,
   Receipt,
   Star,
-  MessageCircle
+  MessageCircle,
+  Car
 } from 'lucide-react';
 import { LinkEnrollmentModal, parseCandidateLink, safeAtob } from './components/LinkEnrollmentModal';
 import { StudentTestimonials } from './components/StudentTestimonials';
-import { Aluno, BaixaPagamento, Comprovante, Depoimento, Instrutor, ReciboQuitacao, isAlunoMatriculado } from './types';
+import { Aluno, BaixaPagamento, CompraAulasExtras, Comprovante, Depoimento, Instrutor, ReciboQuitacao, isAlunoMatriculado } from './types';
 import { DEFAULT_ALUNOS, DEFAULT_INSTRUTORES, DEFAULT_DEPOIMENTOS } from './lib/defaultData';
 import { downloadCandidateReceiptPDF, downloadInstructorReceiptPDF } from './lib/pdfReceiptGenerator';
 import { downloadContractPDF } from './lib/pdfContractGenerator';
@@ -350,20 +351,38 @@ export function getCreditCardInterestMultiplier(installments: number): number {
   return 1 / (1 - rate);
 }
 
+export function getStudentRawBaseContract(student: Aluno): number {
+  if (!student) return 0;
+  if (student.valorContratoBase && student.valorContratoBase > 0) {
+    return student.valorContratoBase;
+  }
+  if (student.valorAulasExtras && student.valorAulasExtras > 0) {
+    return Math.max(0, student.valorTotal - student.valorAulasExtras);
+  }
+  if (student.comprasAulasExtras && student.comprasAulasExtras.length > 0) {
+    const extras = student.comprasAulasExtras.reduce((sum, c) => sum + (c.valorTotal || 0), 0);
+    return Math.max(0, student.valorTotal - extras);
+  }
+  return student.valorTotal;
+}
+
 export function getStudentBaseValue(student: Aluno): number {
   if (!student) return 0;
   const paymentMethod = student.formaPagamento || 'vista';
   const installments = student.parcelasTotal || 12;
+  const rawBase = getStudentRawBaseContract(student);
   
+  let baseValue = rawBase;
   if (paymentMethod === 'cartao') {
     const multiplier = getCreditCardInterestMultiplier(installments);
-    return Math.round(student.valorTotal / multiplier);
+    baseValue = Math.round(rawBase / multiplier);
   } else if (paymentMethod === 'hibrido') {
     const multiplier = getCreditCardInterestMultiplier(installments);
-    return Math.round((student.valorTotal * 2) / (1 + multiplier));
+    baseValue = Math.round((rawBase * 2) / (1 + multiplier));
   }
   
-  return student.valorTotal;
+  const extras = Number(student.valorAulasExtras || (student.comprasAulasExtras || []).reduce((acc, c) => acc + (c.valorTotal || 0), 0));
+  return baseValue + extras;
 }
 
 export function getStudentPaidAmount(student: Aluno): number {
@@ -489,6 +508,10 @@ export interface CandidatoMensalRow {
   formaPagamento?: string;
   baixaCorrespondente?: BaixaPagamento;
   dataVencimentoMes: string;
+  valorAulasExtrasNoMes?: number;
+  aulasExtrasCountNoMes?: number;
+  detalhesAulasExtrasNoMes?: string;
+  comprasExtrasNoMes?: CompraAulasExtras[];
 }
 
 export interface MonthlyLedgerSummary {
@@ -499,6 +522,9 @@ export interface MonthlyLedgerSummary {
   comissaoRecebida: number;
   totalPagos: number;
   totalPendentes: number;
+  totalAulasExtrasRecebido?: number;
+  totalAulasExtrasCount?: number;
+  comissaoAulasExtrasRecebida?: number;
 }
 
 export function formatMonthTitle(monthStr: string): string {
@@ -524,7 +550,10 @@ export function calculateInstructorMonthlyLedger(
       comissaoPrevista: 0,
       comissaoRecebida: 0,
       totalPagos: 0,
-      totalPendentes: 0
+      totalPendentes: 0,
+      totalAulasExtrasRecebido: 0,
+      totalAulasExtrasCount: 0,
+      comissaoAulasExtrasRecebida: 0
     };
   }
 
@@ -536,11 +565,26 @@ export function calculateInstructorMonthlyLedger(
   let totalRecebido = 0;
   let totalPagos = 0;
   let totalPendentes = 0;
+  let totalAulasExtrasRecebido = 0;
+  let totalAulasExtrasCount = 0;
 
   const candidates: CandidatoMensalRow[] = myStudents.map(student => {
+    // 1. Contrato base das parcelas regulares (sem misturar com aulas adicionais)
+    const rawContract = getStudentRawBaseContract(student);
     const contractTotal = (student.parcelasTotal === 1 || student.formaPagamento === 'vista')
-      ? student.valorTotal
-      : getStudentBaseValue(student);
+      ? rawContract
+      : (() => {
+          const paymentMethod = student.formaPagamento || 'vista';
+          const installments = student.parcelasTotal || 12;
+          if (paymentMethod === 'cartao') {
+            const multiplier = getCreditCardInterestMultiplier(installments);
+            return Math.round(rawContract / multiplier);
+          } else if (paymentMethod === 'hibrido') {
+            const multiplier = getCreditCardInterestMultiplier(installments);
+            return Math.round((rawContract * 2) / (1 + multiplier));
+          }
+          return rawContract;
+        })();
     const parcelasTotal = student.parcelasTotal || 12;
     const valorParcela = Math.round((contractTotal / parcelasTotal) * 100) / 100;
     const comissaoParcela = Math.round((valorParcela * 0.80) * 100) / 100;
@@ -553,8 +597,51 @@ export function calculateInstructorMonthlyLedger(
     const diffMonths = (targetYear - (adesaoAno || targetYear)) * 12 + (targetMonth - (adesaoMes || targetMonth));
     const numeroParcela = diffMonths + 1;
 
+    // 2. Detecção e cálculo de Aulas Extras / Adicionais no mês solicitado
+    const comprasExtrasNoMes = (student.comprasAulasExtras || []).filter(c => c.data && c.data.startsWith(targetYearMonth));
+    let valorExtrasNoMes = comprasExtrasNoMes.reduce((acc, c) => acc + (Number(c.valorTotal) || 0), 0);
+    let aulasExtrasCountNoMes = comprasExtrasNoMes.reduce((acc, c) => acc + (Number(c.quantidadeAulas) || 0), 0);
+    let detalhesExtrasNoMes = comprasExtrasNoMes.map(c => c.detalhes || `${c.quantidadeAulas} aulas`).join('; ');
+
+    const baixasExtrasNoMes = (student.baixasPagamento || []).filter(b =>
+      b.data && b.data.startsWith(targetYearMonth) &&
+      b.observacao && (
+        b.observacao.toLowerCase().includes('aulas adicionais') ||
+        b.observacao.toLowerCase().includes('aulas extras') ||
+        b.observacao.toLowerCase().includes('aula adicional') ||
+        b.observacao.toLowerCase().includes('aula extra')
+      )
+    );
+
+    if (comprasExtrasNoMes.length === 0 && baixasExtrasNoMes.length > 0) {
+      valorExtrasNoMes = baixasExtrasNoMes.reduce((acc, b) => acc + (Number(b.valor) || 0), 0);
+      detalhesExtrasNoMes = baixasExtrasNoMes.map(b => b.observacao || 'Aulas Adicionais').join('; ');
+      for (const b of baixasExtrasNoMes) {
+        const match = (b.observacao || '').match(/(\d+)\s*aula/i);
+        if (match) aulasExtrasCountNoMes += parseInt(match[1], 10);
+      }
+      if (aulasExtrasCountNoMes === 0) aulasExtrasCountNoMes = 1;
+    }
+
+    // 3. Baixas regulares de mensalidade no mês (não misturar com baixas de extras)
     const baixasNoMes = (student.baixasPagamento || []).filter(b => b.data && b.data.startsWith(targetYearMonth));
-    const valorBaixasNoMes = baixasNoMes.reduce((acc, b) => acc + (Number(b.valor) || 0), 0);
+    const regularBaixasNoMes = baixasNoMes.filter(b =>
+      !(b.observacao && (
+        b.observacao.toLowerCase().includes('aulas adicionais') ||
+        b.observacao.toLowerCase().includes('aulas extras') ||
+        b.observacao.toLowerCase().includes('aula adicional') ||
+        b.observacao.toLowerCase().includes('aula extra')
+      ))
+    );
+    const valorRegularBaixasNoMes = regularBaixasNoMes.reduce((acc, b) => acc + (Number(b.valor) || 0), 0);
+    const hasRegularBaixas = (student.baixasPagamento || []).some(b =>
+      !(b.observacao && (
+        b.observacao.toLowerCase().includes('aulas adicionais') ||
+        b.observacao.toLowerCase().includes('aulas extras') ||
+        b.observacao.toLowerCase().includes('aula adicional') ||
+        b.observacao.toLowerCase().includes('aula extra')
+      ))
+    );
 
     let statusMes: 'pago' | 'aguardando' | 'atrasado' | 'quitado_anterior' | 'fora_periodo' = 'aguardando';
     let valorCobradoNoMes = valorParcela;
@@ -563,18 +650,15 @@ export function calculateInstructorMonthlyLedger(
     let formaPagamento: string = student.formaPagamento || 'cartao';
     let baixaCorrespondente: BaixaPagamento | undefined;
 
-    const hasExplicitBaixas = (student.baixasPagamento || []).length > 0;
-
-    if (hasExplicitBaixas) {
-      if (baixasNoMes.length > 0) {
+    if (hasRegularBaixas) {
+      if (regularBaixasNoMes.length > 0) {
         statusMes = 'pago';
-        const maxPermitido = student.parcelasTotal === 1 ? student.valorTotal : (contractTotal || student.valorTotal);
-        valorPagoNoMes = Math.min(maxPermitido, valorBaixasNoMes);
-        dataPagamento = baixasNoMes[0].data;
-        formaPagamento = baixasNoMes[0].formaPagamento || student.formaPagamento || 'cartao';
-        baixaCorrespondente = baixasNoMes[0];
+        const maxPermitido = student.parcelasTotal === 1 ? contractTotal : (contractTotal || student.valorTotal);
+        valorPagoNoMes = Math.min(maxPermitido, valorRegularBaixasNoMes);
+        dataPagamento = regularBaixasNoMes[0].data;
+        formaPagamento = regularBaixasNoMes[0].formaPagamento || student.formaPagamento || 'cartao';
+        baixaCorrespondente = regularBaixasNoMes[0];
       } else {
-        // Aluno tem baixas cadastradas, mas nenhuma neste mês específico
         if (diffMonths < 0) {
           statusMes = 'fora_periodo';
           valorCobradoNoMes = 0;
@@ -588,7 +672,6 @@ export function calculateInstructorMonthlyLedger(
         }
       }
     } else {
-      // Alunos sem histórico de baixas manuais (compatibilidade cadastros diretos/legados)
       if (diffMonths < 0) {
         statusMes = 'fora_periodo';
         valorCobradoNoMes = 0;
@@ -603,7 +686,6 @@ export function calculateInstructorMonthlyLedger(
             statusMes = dataVencimentoMes <= todayStr ? 'atrasado' : 'aguardando';
           }
         } else {
-          // diffMonths > 0: quitou à vista no mês da adesão, não neste mês
           if (student.parcelasPagas >= 1) {
             statusMes = 'quitado_anterior';
             valorCobradoNoMes = 0;
@@ -612,7 +694,6 @@ export function calculateInstructorMonthlyLedger(
           }
         }
       } else {
-        // Planos parcelados
         if (diffMonths >= parcelasTotal) {
           if (student.parcelasPagas >= parcelasTotal) {
             statusMes = 'quitado_anterior';
@@ -621,7 +702,6 @@ export function calculateInstructorMonthlyLedger(
             statusMes = 'atrasado';
           }
         } else {
-          // diffMonths >= 0 && diffMonths < parcelasTotal
           if (student.parcelasPagas >= numeroParcela) {
             statusMes = 'pago';
             valorPagoNoMes = valorParcela;
@@ -633,13 +713,43 @@ export function calculateInstructorMonthlyLedger(
       }
     }
 
-    if (valorBaixasNoMes > 0 && statusMes !== 'pago') {
+    if (valorRegularBaixasNoMes > 0 && statusMes !== 'pago') {
       statusMes = 'pago';
-      const maxPermitido = student.parcelasTotal === 1 ? student.valorTotal : (contractTotal || student.valorTotal);
-      valorPagoNoMes = Math.min(maxPermitido, valorBaixasNoMes);
-      dataPagamento = baixasNoMes[0].data;
-      formaPagamento = baixasNoMes[0].formaPagamento;
-      baixaCorrespondente = baixasNoMes[0];
+      const maxPermitido = student.parcelasTotal === 1 ? contractTotal : (contractTotal || student.valorTotal);
+      valorPagoNoMes = Math.min(maxPermitido, valorRegularBaixasNoMes);
+      dataPagamento = regularBaixasNoMes[0].data;
+      formaPagamento = regularBaixasNoMes[0].formaPagamento;
+      baixaCorrespondente = regularBaixasNoMes[0];
+    }
+
+    // 4. Integração do valor adicional de aulas extras na comutabilidade do mês
+    if (valorExtrasNoMes > 0) {
+      totalAulasExtrasRecebido += valorExtrasNoMes;
+      totalAulasExtrasCount += aulasExtrasCountNoMes;
+
+      const extraPgData = comprasExtrasNoMes[0]?.data || baixasExtrasNoMes[0]?.data || `${targetYearMonth}-01`;
+      const extraPgForma = comprasExtrasNoMes[0]?.formaPagamento || baixasExtrasNoMes[0]?.formaPagamento || 'pix';
+
+      if (statusMes === 'quitado_anterior' || statusMes === 'fora_periodo') {
+        // Aluno que já havia quitado o plano geral ou adesão posterior, mas comprou aulas adicionais neste mês
+        statusMes = 'pago';
+        valorCobradoNoMes = valorExtrasNoMes;
+        valorPagoNoMes = valorExtrasNoMes;
+        dataPagamento = extraPgData;
+        formaPagamento = extraPgForma;
+      } else if (statusMes === 'pago') {
+        // Aluno que quitou a parcela regular e também comprou aulas adicionais neste mês
+        valorCobradoNoMes = valorCobradoNoMes + valorExtrasNoMes;
+        valorPagoNoMes = valorPagoNoMes + valorExtrasNoMes;
+        if (!dataPagamento) dataPagamento = extraPgData;
+      } else {
+        // Parcela regular ainda em aberto/atraso, porém as aulas adicionais foram pagas à vista/cartão
+        valorCobradoNoMes = valorCobradoNoMes + valorExtrasNoMes;
+        valorPagoNoMes = valorPagoNoMes + valorExtrasNoMes;
+        statusMes = 'pago';
+        dataPagamento = extraPgData;
+        formaPagamento = extraPgForma;
+      }
     }
 
     const comissaoRecebida = Math.round((valorPagoNoMes * 0.80) * 100) / 100;
@@ -672,7 +782,11 @@ export function calculateInstructorMonthlyLedger(
       dataPagamento,
       formaPagamento,
       baixaCorrespondente,
-      dataVencimentoMes
+      dataVencimentoMes,
+      valorAulasExtrasNoMes: valorExtrasNoMes,
+      aulasExtrasCountNoMes: aulasExtrasCountNoMes,
+      detalhesAulasExtrasNoMes: detalhesExtrasNoMes,
+      comprasExtrasNoMes: comprasExtrasNoMes
     };
   });
 
@@ -688,7 +802,10 @@ export function calculateInstructorMonthlyLedger(
     comissaoPrevista,
     comissaoRecebida,
     totalPagos,
-    totalPendentes
+    totalPendentes,
+    totalAulasExtrasRecebido,
+    totalAulasExtrasCount,
+    comissaoAulasExtrasRecebida: Math.round((totalAulasExtrasRecebido * 0.80) * 100) / 100
   };
 }
 
@@ -925,6 +1042,15 @@ export const deduplicateAlunosList = (list: Aluno[]): Aluno[] => {
         }
       });
 
+      // Merge comprasAulasExtras sem duplicação
+      const comprasExtrasMap = new Map<string, any>();
+      [...(existing.comprasAulasExtras || []), ...(item.comprasAulasExtras || [])].forEach(c => {
+        if (c) {
+          const k = c.id || `${c.data}_${c.quantidadeAulas}_${c.valorTotal}`;
+          comprasExtrasMap.set(k, c);
+        }
+      });
+
       const merged: Aluno = {
         ...secondary,
         ...primary,
@@ -946,6 +1072,10 @@ export const deduplicateAlunosList = (list: Aluno[]): Aluno[] => {
         senha: primary.senha || secondary.senha,
         parcelasPagas: primary.parcelasPagas !== undefined ? Math.max(0, Number(primary.parcelasPagas)) : Math.max(0, Number(secondary.parcelasPagas || 0)),
         valorTotal: primary.valorTotal || secondary.valorTotal || 0,
+        valorContratoBase: primary.valorContratoBase || secondary.valorContratoBase,
+        aulasBase: primary.aulasBase || secondary.aulasBase,
+        aulasExtras: (primary.aulasExtras !== undefined ? primary.aulasExtras : secondary.aulasExtras) || 0,
+        valorAulasExtras: (primary.valorAulasExtras !== undefined ? primary.valorAulasExtras : secondary.valorAulasExtras) || 0,
         valorPago: primary.valorPago !== undefined ? primary.valorPago : secondary.valorPago,
         parcelasTotal: primary.parcelasTotal || secondary.parcelasTotal || 12,
         aulas: primary.aulas || secondary.aulas || 20,
@@ -954,6 +1084,7 @@ export const deduplicateAlunosList = (list: Aluno[]): Aluno[] => {
         pontosSimulado: primary.pontosSimulado !== undefined ? primary.pontosSimulado : (secondary.pontosSimulado || 120),
         comprovantes: Array.from(compMap.values()),
         baixasPagamento: Array.from(baixasMap.values()),
+        comprasAulasExtras: Array.from(comprasExtrasMap.values()),
         nomeResponsavel: primary.nomeResponsavel || secondary.nomeResponsavel,
         cpfResponsavel: primary.cpfResponsavel || secondary.cpfResponsavel,
         rgResponsavel: primary.rgResponsavel || secondary.rgResponsavel,
@@ -1984,6 +2115,21 @@ export default function App() {
   const [viewingCandidateReceipt, setViewingCandidateReceipt] = useState<CandidateReceiptData | null>(null);
   const [receiptSearchTerm, setReceiptSearchTerm] = useState<string>('');
   const [receiptMethodFilter, setReceiptMethodFilter] = useState<string>('todos');
+  const [receiptOnlyDuplicatesFilter, setReceiptOnlyDuplicatesFilter] = useState<boolean>(false);
+  const [receiptToDelete, setReceiptToDelete] = useState<{
+    aluno: Aluno;
+    baixa: BaixaPagamento;
+    isDuplicate?: boolean;
+  } | null>(null);
+  const [isRemoveDuplicatesModalOpen, setIsRemoveDuplicatesModalOpen] = useState<boolean>(false);
+  const [instReceiptToDelete, setInstReceiptToDelete] = useState<{
+    instrutorNome: string;
+    recibo: ReciboQuitacao;
+  } | null>(null);
+  const [instReciboSubTab, setInstReciboSubTab] = useState<'candidatos' | 'comissao'>('candidatos');
+  const [instReceiptStudentScope, setInstReceiptStudentScope] = useState<'minha_carteira' | 'todos'>('minha_carteira');
+  const [instReceiptSearchQuery, setInstReceiptSearchQuery] = useState<string>('');
+  const [instReceiptFilterDuplicateOnly, setInstReceiptFilterDuplicateOnly] = useState<boolean>(false);
 
   // Manual Receipt Form States
   const [isNewManualReceiptModalOpen, setIsNewManualReceiptModalOpen] = useState<boolean>(false);
@@ -1993,6 +2139,26 @@ export default function App() {
   const [manualReceiptForma, setManualReceiptForma] = useState<string>('PIX');
   const [manualReceiptReferente, setManualReceiptReferente] = useState<string>('Pagamento referente ao programa CNH Facilitada');
   const [manualReceiptObs, setManualReceiptObs] = useState<string>('');
+
+  // Manual Class Launch Modal States (Lançamento Manual de Compra de Aulas)
+  const [isManualClassLaunchModalOpen, setIsManualClassLaunchModalOpen] = useState<boolean>(false);
+  const [manualClassAlunoId, setManualClassAlunoId] = useState<string>('');
+  const [manualClassTipo, setManualClassTipo] = useState<'carro' | 'moto' | 'ambos' | 'simulador' | 'onibus_caminhao'>('carro');
+  const [manualClassQuantidade, setManualClassQuantidade] = useState<number>(2);
+  const [manualClassQtdCarro, setManualClassQtdCarro] = useState<number>(1);
+  const [manualClassQtdMoto, setManualClassQtdMoto] = useState<number>(1);
+  const [manualClassValorPorAula, setManualClassValorPorAula] = useState<number>(80);
+  const [manualClassValorTotal, setManualClassValorTotal] = useState<number>(160);
+  const [manualClassValorCustomizado, setManualClassValorCustomizado] = useState<boolean>(false);
+  const [manualClassComissaoModo, setManualClassComissaoModo] = useState<'80' | '100' | '70' | '50' | '0' | 'personalizado'>('80');
+  const [manualClassComissaoInstrutorValor, setManualClassComissaoInstrutorValor] = useState<number>(128);
+  const [manualClassComissaoAutoescolaValor, setManualClassComissaoAutoescolaValor] = useState<number>(32);
+  const [manualClassData, setManualClassData] = useState<string>(() => new Date().toISOString().substring(0, 10));
+  const [manualClassForma, setManualClassForma] = useState<'pix' | 'cartao' | 'dinheiro' | 'boleto' | 'transferencia'>('pix');
+  const [manualClassParcelasCartao, setManualClassParcelasCartao] = useState<number>(1);
+  const [manualClassJaPago, setManualClassJaPago] = useState<boolean>(true);
+  const [manualClassGerarRecibo, setManualClassGerarRecibo] = useState<boolean>(true);
+  const [manualClassObservacao, setManualClassObservacao] = useState<string>('');
 
   const handleEmitirReciboCandidato = (aluno: Aluno, baixa?: BaixaPagamento) => {
     if (baixa) {
@@ -2423,7 +2589,7 @@ export default function App() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [instMonthStatusFilter, setInstMonthStatusFilter] = useState<'pagos' | 'todos' | 'pendentes'>('pagos');
+  const [instMonthStatusFilter, setInstMonthStatusFilter] = useState<'pagos' | 'todos' | 'pendentes' | 'extras'>('pagos');
   const [instMonthSearch, setInstMonthSearch] = useState<string>('');
 
   // Interactive Quiz State
@@ -2823,6 +2989,9 @@ export default function App() {
     msg += `------------------------------------\n`;
     msg += `💰 *Total Arrecadado no Mês:* ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(summary.totalRecebido)}\n`;
     msg += `⚡ *Repasse Instrutor (80%):* ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(summary.comissaoRecebida)}\n`;
+    if (summary.totalAulasExtrasRecebido && summary.totalAulasExtrasRecebido > 0) {
+      msg += `🚗 *Aulas Extras Compradas no Mês:* ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(summary.totalAulasExtrasRecebido)} (+${summary.totalAulasExtrasCount} aulas) [Repasse 80%: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(summary.comissaoAulasExtrasRecebida || 0)}]\n`;
+    }
     msg += `👥 *Alunos Quitados no Mês:* ${summary.totalPagos}\n`;
     msg += `⏳ *Pendências do Mês:* ${summary.totalPendentes}\n`;
     msg += `------------------------------------\n`;
@@ -2838,7 +3007,10 @@ export default function App() {
         const valStr = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.valorPagoNoMes);
         const repStr = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.comissaoRecebida);
         const dtPg = item.dataPagamento ? formatDateBR(item.dataPagamento) : 'No mês';
-        msg += `✅ ${idx + 1}. ${stNome} (Cat. ${cat}) - ${parcTxt} | Pago: ${valStr} (${dtPg}) [Repasse 80%: ${repStr}]\n`;
+        const extraTxt = item.valorAulasExtrasNoMes && item.valorAulasExtrasNoMes > 0 
+          ? ` (+${item.aulasExtrasCountNoMes} aulas extras: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.valorAulasExtrasNoMes)})`
+          : '';
+        msg += `✅ ${idx + 1}. ${stNome} (Cat. ${cat}) - ${parcTxt}${extraTxt} | Pago: ${valStr} (${dtPg}) [Repasse 80%: ${repStr}]\n`;
       });
     }
 
@@ -2977,6 +3149,197 @@ export default function App() {
     }
     
     setToastMessage('🗑️ Baixa manual removida com sucesso. Saldos recalculados!');
+  };
+
+  // Handler para excluir recibo de pagamento específico (com limpeza de comprovantes e recálculo financeiro)
+  const handleExcluirRecibo = (alunoId: string, baixaId: string) => {
+    const targetAluno = alunos.find(a => a.id === alunoId);
+    if (!targetAluno) return;
+
+    const removedBaixa = (targetAluno.baixasPagamento || []).find(b => b.id === baixaId);
+    const remainingBaixas = (targetAluno.baixasPagamento || []).filter(b => b.id !== baixaId);
+
+    // Limpar comprovante vinculado caso exista
+    const remainingComprovantes = (targetAluno.comprovantes || []).filter(c => 
+      !c.nomeArquivo?.includes(baixaId) && !c.observacao?.includes(baixaId)
+    );
+
+    let newParcelasPagas = targetAluno.parcelasPagas;
+    if (removedBaixa && removedBaixa.parcelasBaixadas > 0) {
+      newParcelasPagas = Math.max(0, targetAluno.parcelasPagas - removedBaixa.parcelasBaixadas);
+    }
+
+    // Se for baixa de aulas adicionais (BX-EXTRA-...)
+    let newAulasExtras = targetAluno.aulasExtras;
+    let newValorAulasExtras = targetAluno.valorAulasExtras;
+    let newComprasExtras = targetAluno.comprasAulasExtras;
+    let newValorTotal = targetAluno.valorTotal;
+
+    if (removedBaixa && (removedBaixa.id.startsWith('BX-EXTRA-') || removedBaixa.observacao?.toLowerCase().includes('aulas adicionais'))) {
+      if (newComprasExtras && newComprasExtras.length > 0) {
+        const idxExtra = newComprasExtras.findIndex(ce => 
+          ce.id === removedBaixa.id.replace('BX-', '') ||
+          (ce.data === removedBaixa.data && Math.abs(ce.valorTotal - removedBaixa.valor) < 0.01)
+        );
+        if (idxExtra >= 0) {
+          const removedExtra = newComprasExtras[idxExtra];
+          newComprasExtras = newComprasExtras.filter((_, i) => i !== idxExtra);
+          newAulasExtras = Math.max(0, (newAulasExtras || 0) - removedExtra.quantidadeAulas);
+          newValorAulasExtras = Math.max(0, (newValorAulasExtras || 0) - removedExtra.valorTotal);
+          newValorTotal = Math.max(0, targetAluno.valorTotal - removedExtra.valorTotal);
+        }
+      }
+    }
+
+    const updatedAluno: Aluno = {
+      ...targetAluno,
+      parcelasPagas: newParcelasPagas,
+      valorPago: (newParcelasPagas === 0 && remainingBaixas.length === 0) ? 0 : targetAluno.valorPago,
+      baixasPagamento: remainingBaixas,
+      comprovantes: remainingComprovantes,
+      aulasExtras: newAulasExtras,
+      valorAulasExtras: newValorAulasExtras,
+      comprasAulasExtras: newComprasExtras,
+      valorTotal: newValorTotal,
+      updatedAt: new Date().toISOString()
+    };
+
+    const updatedList = alunos.map(a => a.id === alunoId ? updatedAluno : a);
+    saveAlunosList(updatedList);
+
+    if (selectedStudentDetail && selectedStudentDetail.id === alunoId) {
+      setSelectedStudentDetail(updatedAluno);
+    }
+    if (baixaModalAluno && baixaModalAluno.id === alunoId) {
+      setBaixaModalAluno(updatedAluno);
+    }
+
+    setToastMessage(`🗑️ Recibo ${baixaId} removido com sucesso!`);
+    setReceiptToDelete(null);
+  };
+
+  // Handler para identificar e excluir automaticamente todas as duplicatas de recibos
+  const handleExcluirTodosRecibosDuplicados = () => {
+    let totalRemovidos = 0;
+
+    const updatedList = alunos.map(aluno => {
+      if (!aluno.baixasPagamento || aluno.baixasPagamento.length <= 1) return aluno;
+
+      const uniqueBaixas: BaixaPagamento[] = [];
+      const seenIds = new Set<string>();
+      const seenKeys = new Set<string>();
+      let removedParcelas = 0;
+
+      aluno.baixasPagamento.forEach(baixa => {
+        const sigKey = `${baixa.data ? baixa.data.substring(0, 10) : ''}_${Number(baixa.valor).toFixed(2)}_${(baixa.formaPagamento || '').trim().toLowerCase()}_${(baixa.observacao || '').trim().toLowerCase()}`;
+        
+        if (seenIds.has(baixa.id) || seenKeys.has(sigKey)) {
+          totalRemovidos++;
+          if (baixa.parcelasBaixadas > 0) {
+            removedParcelas += baixa.parcelasBaixadas;
+          }
+        } else {
+          seenIds.add(baixa.id);
+          seenKeys.add(sigKey);
+          uniqueBaixas.push(baixa);
+        }
+      });
+
+      if (uniqueBaixas.length === aluno.baixasPagamento.length) {
+        return aluno;
+      }
+
+      const newParcelasPagas = Math.max(0, (aluno.parcelasPagas || 0) - removedParcelas);
+
+      return {
+        ...aluno,
+        baixasPagamento: uniqueBaixas,
+        parcelasPagas: newParcelasPagas,
+        valorPago: (newParcelasPagas === 0 && uniqueBaixas.length === 0) ? 0 : aluno.valorPago,
+        updatedAt: new Date().toISOString()
+      };
+    });
+
+    if (totalRemovidos === 0) {
+      setToastMessage('✨ Não foram encontrados recibos duplicados.');
+      setIsRemoveDuplicatesModalOpen(false);
+      return;
+    }
+
+    saveAlunosList(updatedList);
+    setIsRemoveDuplicatesModalOpen(false);
+    setToastMessage(`🗑️ ${totalRemovidos} recibo(s) com informações duplicadas removido(s) com sucesso!`);
+  };
+
+  // Handler para excluir recibo de comissão do instrutor (com estorno seguro do saldo pago)
+  const handleExcluirReciboInstrutor = (instrutorNome: string, reciboId: string) => {
+    const targetInst = instrutores.find(i => isSameInstructor(i.nome, instrutorNome));
+    if (!targetInst) return;
+
+    const removedRec = (targetInst.recibos || []).find(r => r.id === reciboId);
+    const remainingRecibos = (targetInst.recibos || []).filter(r => r.id !== reciboId);
+    const newSaldoPago = removedRec ? Math.max(0, (targetInst.saldoPago || 0) - removedRec.valor) : (targetInst.saldoPago || 0);
+
+    const updatedList = instrutores.map(i => {
+      if (isSameInstructor(i.nome, instrutorNome)) {
+        return {
+          ...i,
+          saldoPago: newSaldoPago,
+          recibos: remainingRecibos
+        };
+      }
+      return i;
+    });
+
+    saveInstrutoresList(updatedList);
+    setInstReceiptToDelete(null);
+    setToastMessage(`🗑️ Recibo de comissão ${reciboId} excluído com sucesso!`);
+  };
+
+  // Handler para identificar e excluir duplicatas de recibos de comissão do instrutor
+  const handleExcluirRecibosInstrutorDuplicados = (instrutorNome: string) => {
+    const targetInst = instrutores.find(i => isSameInstructor(i.nome, instrutorNome));
+    if (!targetInst || !targetInst.recibos || targetInst.recibos.length <= 1) {
+      setToastMessage('✨ Não foram encontrados recibos duplicados.');
+      return;
+    }
+
+    const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
+    const uniqueRecibos: ReciboQuitacao[] = [];
+    let valorRemovido = 0;
+    let dupsCount = 0;
+
+    targetInst.recibos.forEach(rec => {
+      const key = `${rec.dataEmissao ? rec.dataEmissao.substring(0, 10) : ''}_${Number(rec.valor).toFixed(2)}`;
+      if (seenIds.has(rec.id) || seenKeys.has(key)) {
+        dupsCount++;
+        valorRemovido += rec.valor;
+      } else {
+        seenIds.add(rec.id);
+        seenKeys.add(key);
+        uniqueRecibos.push(rec);
+      }
+    });
+
+    if (dupsCount === 0) {
+      setToastMessage('✨ Não foram encontrados recibos de comissão duplicados.');
+      return;
+    }
+
+    const updatedList = instrutores.map(i => {
+      if (isSameInstructor(i.nome, instrutorNome)) {
+        return {
+          ...i,
+          saldoPago: Math.max(0, (i.saldoPago || 0) - valorRemovido),
+          recibos: uniqueRecibos
+        };
+      }
+      return i;
+    });
+
+    saveInstrutoresList(updatedList);
+    setToastMessage(`🗑️ ${dupsCount} recibo(s) de comissão duplicado(s) removido(s) com sucesso.`);
   };
 
   // Handler para ajuste direto de quitação (sem criar comprovante financeiro extra)
@@ -3203,6 +3566,27 @@ export default function App() {
   // Clean deduplicated alunos list for all views, database, contracts and stats (apenas alunos com negócio fechado / matrícula concluída)
   const cleanAlunos = useMemo(() => deduplicateAlunosList(alunos).filter(isAlunoMatriculado), [alunos]);
 
+  // Identificação global de recibos e baixas duplicadas
+  const allGlobalDuplicateReceipts = useMemo(() => {
+    const dups: { aluno: Aluno; baixa: BaixaPagamento }[] = [];
+    cleanAlunos.forEach(a => {
+      if (a.baixasPagamento && a.baixasPagamento.length > 1) {
+        const seenIds = new Set<string>();
+        const seenKeys = new Set<string>();
+        a.baixasPagamento.forEach(b => {
+          const sigKey = `${b.data ? b.data.substring(0, 10) : ''}_${Number(b.valor).toFixed(2)}_${(b.formaPagamento || '').trim().toLowerCase()}_${(b.observacao || '').trim().toLowerCase()}`;
+          if (seenIds.has(b.id) || seenKeys.has(sigKey)) {
+            dups.push({ aluno: a, baixa: b });
+          } else {
+            seenIds.add(b.id);
+            seenKeys.add(sigKey);
+          }
+        });
+      }
+    });
+    return dups;
+  }, [cleanAlunos]);
+
   // Current logged in Aluno object
   const currentStudent = useMemo(() => {
     return cleanAlunos.find(a => a.id === activeStudentId) || cleanAlunos[0] || DUMMY_FALLBACK_ALUNO;
@@ -3215,6 +3599,203 @@ export default function App() {
 
   // Categories choices
   const categoriasDisponiveis = ["Carro (B)", "Moto (A)", "Carro e Moto (A+B)"];
+
+  // Handler para abrir modal de lançamento manual de aulas
+  const handleAbrirLancamentoAulas = (aluno?: Aluno | null) => {
+    const target = aluno || cleanAlunos[0] || null;
+    if (target) {
+      setManualClassAlunoId(target.id);
+      if (target.categoria?.includes('A') && target.categoria?.includes('B')) {
+        setManualClassTipo('ambos');
+        setManualClassQuantidade(2);
+        setManualClassQtdCarro(1);
+        setManualClassQtdMoto(1);
+      } else if (target.categoria?.includes('A')) {
+        setManualClassTipo('moto');
+        setManualClassQuantidade(2);
+        setManualClassQtdCarro(0);
+        setManualClassQtdMoto(2);
+      } else {
+        setManualClassTipo('carro');
+        setManualClassQuantidade(2);
+        setManualClassQtdCarro(2);
+        setManualClassQtdMoto(0);
+      }
+    } else {
+      setManualClassAlunoId('');
+      setManualClassTipo('carro');
+      setManualClassQuantidade(2);
+      setManualClassQtdCarro(2);
+      setManualClassQtdMoto(0);
+    }
+    setManualClassValorPorAula(80);
+    setManualClassValorTotal(160);
+    setManualClassValorCustomizado(false);
+    setManualClassComissaoModo('80');
+    setManualClassComissaoInstrutorValor(128);
+    setManualClassComissaoAutoescolaValor(32);
+    setManualClassData(new Date().toISOString().substring(0, 10));
+    setManualClassForma('pix');
+    setManualClassParcelasCartao(1);
+    setManualClassJaPago(true);
+    setManualClassGerarRecibo(true);
+    setManualClassObservacao('');
+    setIsManualClassLaunchModalOpen(true);
+  };
+
+  // Handler para confirmar e salvar o lançamento manual de compra de aulas
+  const handleConfirmarLancamentoAulas = (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetAluno = alunos.find(a => a.id === manualClassAlunoId);
+    if (!targetAluno) {
+      alert('Por favor, selecione um candidato para lançar as aulas.');
+      return;
+    }
+
+    const qtdTotal = manualClassTipo === 'ambos'
+      ? (Number(manualClassQtdCarro) || 0) + (Number(manualClassQtdMoto) || 0)
+      : (Number(manualClassQuantidade) || 0);
+
+    if (qtdTotal <= 0) {
+      alert('Por favor, informe uma quantidade válida de aulas.');
+      return;
+    }
+
+    const valorFinal = Number(manualClassValorTotal);
+    if (isNaN(valorFinal) || valorFinal < 0) {
+      alert('Por favor, informe um valor válido (maior ou igual a R$ 0,00).');
+      return;
+    }
+
+    // Cálculo da comissão e repasse com total flexibilidade para o administrador
+    let valInstrutor = 0;
+    let valAutoescola = 0;
+    if (manualClassComissaoModo === 'personalizado') {
+      valInstrutor = Number(manualClassComissaoInstrutorValor) || 0;
+      valAutoescola = Number(manualClassComissaoAutoescolaValor) || Math.max(0, valorFinal - valInstrutor);
+    } else if (manualClassComissaoModo === '100') {
+      valInstrutor = valorFinal;
+      valAutoescola = 0;
+    } else if (manualClassComissaoModo === '70') {
+      valInstrutor = Math.round(valorFinal * 0.7 * 100) / 100;
+      valAutoescola = Math.round((valorFinal - valInstrutor) * 100) / 100;
+    } else if (manualClassComissaoModo === '50') {
+      valInstrutor = Math.round(valorFinal * 0.5 * 100) / 100;
+      valAutoescola = Math.round((valorFinal - valInstrutor) * 100) / 100;
+    } else if (manualClassComissaoModo === '0') {
+      valInstrutor = 0;
+      valAutoescola = valorFinal;
+    } else {
+      // Padrão 80% instrutor / 20% autoescola
+      valInstrutor = Math.round(valorFinal * 0.8 * 100) / 100;
+      valAutoescola = Math.round((valorFinal - valInstrutor) * 100) / 100;
+    }
+
+    const timestamp = Date.now();
+    const dataStr = manualClassData || new Date().toISOString().substring(0, 10);
+
+    const descTipo = manualClassTipo === 'ambos'
+      ? `${manualClassQtdCarro} de Carro + ${manualClassQtdMoto} de Moto`
+      : manualClassTipo === 'moto'
+        ? `${qtdTotal} de Moto (Cat. A)`
+        : manualClassTipo === 'simulador'
+          ? `${qtdTotal} de Simulador`
+          : manualClassTipo === 'onibus_caminhao'
+            ? `${qtdTotal} de Veículo Pesado (Cat. C/D)`
+            : `${qtdTotal} de Carro (Cat. B)`;
+
+    const formaNomeMap: Record<string, string> = {
+      pix: 'PIX Instantâneo',
+      cartao: manualClassParcelasCartao > 1 ? `Cartão de Crédito (${manualClassParcelasCartao}x)` : 'Cartão de Crédito',
+      dinheiro: 'Dinheiro em Espécie',
+      boleto: 'Boleto Bancário',
+      transferencia: 'Transferência Bancária'
+    };
+    const formaNome = formaNomeMap[manualClassForma] || 'PIX Instantâneo';
+
+    const novaCompraExtra: CompraAulasExtras = {
+      id: `EXTRA-${timestamp}`,
+      data: dataStr,
+      quantidadeAulas: qtdTotal,
+      tipo: manualClassTipo === 'ambos' ? 'ambos' : (manualClassTipo === 'moto' ? 'moto' : 'carro'),
+      aulasCarro: manualClassTipo === 'ambos' ? Number(manualClassQtdCarro) : (manualClassTipo === 'carro' ? qtdTotal : 0),
+      aulasMoto: manualClassTipo === 'ambos' ? Number(manualClassQtdMoto) : (manualClassTipo === 'moto' ? qtdTotal : 0),
+      valorBase: valorFinal,
+      valorTotal: valorFinal,
+      valorInstrutor: valInstrutor,
+      valorAutoescola: valAutoescola,
+      formaPagamento: manualClassForma === 'cartao' ? 'cartao' : 'pix',
+      parcelasCartao: manualClassForma === 'cartao' ? manualClassParcelasCartao : 1,
+      detalhes: `Lançamento manual: ${qtdTotal} aula(s) (${descTipo}) no ${formaNome} | Repasse Instrutor: R$ ${valInstrutor.toFixed(2)} / Autoescola: R$ ${valAutoescola.toFixed(2)}${manualClassObservacao ? ` - ${manualClassObservacao}` : ''}`,
+      status: manualClassJaPago ? 'pago' : undefined
+    };
+
+    const operadorNome = activeInstructor ? `Instrutor ${activeInstructor.nome}` : 'Administração Nova CNH';
+
+    const novaBaixaExtra: BaixaPagamento = {
+      id: `BX-EXTRA-${timestamp}`,
+      data: dataStr,
+      valor: valorFinal,
+      formaPagamento: formaNome,
+      parcelasBaixadas: 0,
+      observacao: valorFinal === 0
+        ? `Aulas Adicionais Cortesia/Bônus (${qtdTotal} aulas: ${descTipo})${manualClassObservacao ? ` - ${manualClassObservacao}` : ''}`
+        : `Aulas Adicionais (${qtdTotal} aulas: ${descTipo}) [Repasse Instrutor: R$ ${valInstrutor.toFixed(2)}]${manualClassObservacao ? ` - ${manualClassObservacao}` : ''}`,
+      operador: operadorNome
+    };
+
+    const novoComprovante: Comprovante = {
+      id: `COMP-EXTRA-${timestamp}`,
+      nomeArquivo: `Comprovante_AulasExtras_${novaBaixaExtra.id}.pdf`,
+      conteudo: "",
+      dataEnvio: new Date().toISOString(),
+      valor: valorFinal,
+      validado: true,
+      observacao: valorFinal === 0
+        ? `[Lançamento Manual Aulas Extras] ${qtdTotal} aulas (${descTipo}) - Cortesia/Gratuito`
+        : `[Lançamento Manual Aulas Extras] ${qtdTotal} aulas (${descTipo}) - ${formaNome} - ${valorFinal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`
+    };
+
+    const currentAulas = targetAluno.aulas || 20;
+    const currentVal = targetAluno.valorTotal;
+    const baseContrato = targetAluno.valorContratoBase || (currentVal - (targetAluno.valorAulasExtras || 0));
+    const baseAulas = targetAluno.aulasBase || (currentAulas - (targetAluno.aulasExtras || 0));
+
+    const updatedAluno: Aluno = {
+      ...targetAluno,
+      valorContratoBase: baseContrato,
+      aulasBase: baseAulas,
+      aulas: currentAulas + qtdTotal,
+      aulasExtras: (targetAluno.aulasExtras || 0) + qtdTotal,
+      valorAulasExtras: (targetAluno.valorAulasExtras || 0) + valorFinal,
+      valorTotal: currentVal + valorFinal,
+      comprasAulasExtras: [...(targetAluno.comprasAulasExtras || []), novaCompraExtra],
+      baixasPagamento: manualClassJaPago 
+        ? [novaBaixaExtra, ...(targetAluno.baixasPagamento || [])]
+        : (targetAluno.baixasPagamento || []),
+      comprovantes: manualClassJaPago
+        ? [novoComprovante, ...(targetAluno.comprovantes || [])]
+        : (targetAluno.comprovantes || []),
+      updatedAt: new Date().toISOString()
+    };
+
+    const updatedList = alunos.map(a => a.id === targetAluno.id ? updatedAluno : a);
+    saveAlunosList(updatedList);
+
+    if (selectedStudentDetail && selectedStudentDetail.id === targetAluno.id) {
+      setSelectedStudentDetail(updatedAluno);
+    }
+    if (baixaModalAluno && baixaModalAluno.id === targetAluno.id) {
+      setBaixaModalAluno(updatedAluno);
+    }
+
+    setIsManualClassLaunchModalOpen(false);
+    setToastMessage(`🚗 Lançamento de ${qtdTotal} aula(s) registrado com sucesso para ${targetAluno.nome}!`);
+
+    if (manualClassJaPago && manualClassGerarRecibo) {
+      handleEmitirReciboCandidato(updatedAluno, novaBaixaExtra);
+    }
+  };
 
   // Helper dynamic statistics
   const stats = useMemo(() => {
@@ -5804,6 +6385,24 @@ ${formattedInstrutores}
             </div>
 
             <form onSubmit={handleSalvarEEmitirReciboManual} className="p-6 space-y-4">
+              <div className="bg-indigo-50/80 border border-indigo-200 rounded-xl p-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-indigo-900 text-xs">
+                  <span className="text-base">🚗</span>
+                  <span>O aluno comprou <strong>aulas práticas adicionais</strong>?</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = cleanAlunos.find(a => a.id === manualReceiptAlunoId);
+                    setIsNewManualReceiptModalOpen(false);
+                    handleAbrirLancamentoAulas(target || null);
+                  }}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold py-1.5 px-3 rounded-lg transition cursor-pointer shrink-0 shadow-xs"
+                >
+                  Lançar Compra de Aulas ➔
+                </button>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Selecione o Candidato *</label>
                 <select
@@ -5902,6 +6501,964 @@ ${formattedInstrutores}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GLOBAL: Lançamento Manual de Compra de Aulas */}
+      {isManualClassLaunchModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200 text-left my-auto">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-[#0c2340] to-slate-900 text-white px-6 py-4 flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30">
+                  <Car className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black tracking-tight flex items-center gap-2">
+                    <span>Lançamento Manual de Compra de Aulas</span>
+                    <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full font-mono">
+                      Aulas Extras
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-300 font-medium">
+                    Adicione aulas práticas ao aluno, atualize carga horária e emita recibo oficial
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsManualClassLaunchModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleConfirmarLancamentoAulas} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              {/* Seleção do Candidato */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Selecione o Aluno / Candidato *
+                </label>
+                <select
+                  required
+                  value={manualClassAlunoId}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    setManualClassAlunoId(newId);
+                    const selected = cleanAlunos.find(a => a.id === newId);
+                    if (selected) {
+                      if (selected.categoria?.includes('A') && selected.categoria?.includes('B')) {
+                        setManualClassTipo('ambos');
+                        setManualClassQtdCarro(1);
+                        setManualClassQtdMoto(1);
+                        setManualClassQuantidade(2);
+                        if (!manualClassValorCustomizado) setManualClassValorTotal(2 * manualClassValorPorAula);
+                      } else if (selected.categoria?.includes('A')) {
+                        setManualClassTipo('moto');
+                        setManualClassQtdCarro(0);
+                        setManualClassQtdMoto(2);
+                        setManualClassQuantidade(2);
+                        if (!manualClassValorCustomizado) setManualClassValorTotal(2 * manualClassValorPorAula);
+                      } else {
+                        setManualClassTipo('carro');
+                        setManualClassQtdCarro(2);
+                        setManualClassQtdMoto(0);
+                        setManualClassQuantidade(2);
+                        if (!manualClassValorCustomizado) setManualClassValorTotal(2 * manualClassValorPorAula);
+                      }
+                    }
+                  }}
+                  className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 font-bold text-slate-800"
+                >
+                  <option value="">-- Selecione o aluno matriculado --</option>
+                  {cleanAlunos.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.nome} • [{a.id}] • Cat. {a.categoria} • Instrutor: {a.instrutor || 'Sem Instrutor'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Card Resumo do Candidato Selecionado */}
+              {(() => {
+                const targetAluno = cleanAlunos.find(a => a.id === manualClassAlunoId);
+                if (!targetAluno) return null;
+                const aulasTotais = targetAluno.aulas || 20;
+                const aulasExtras = targetAluno.aulasExtras || 0;
+                return (
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                    <div className="bg-white p-2 rounded-xl border border-slate-150">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Categoria</span>
+                      <strong className="text-indigo-900 font-black">{targetAluno.categoria}</strong>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-slate-150">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Aulas Atuais</span>
+                      <strong className="text-slate-800 font-black">
+                        {aulasTotais} aulas {aulasExtras > 0 && <span className="text-emerald-600 font-bold text-[10px]">(+{aulasExtras} extras)</span>}
+                      </strong>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-slate-150">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Contrato Atual</span>
+                      <strong className="text-slate-800 font-black font-mono">
+                        {targetAluno.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </strong>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-slate-150">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Instrutor</span>
+                      <strong className="text-slate-800 font-bold truncate block text-[11px]" title={targetAluno.instrutor}>
+                        {targetAluno.instrutor || 'Autoescola Direto'}
+                      </strong>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Tipo de Aula Prática */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Tipo de Aula a Lançar *
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualClassTipo('carro');
+                      if (!manualClassValorCustomizado) setManualClassValorTotal(manualClassQuantidade * manualClassValorPorAula);
+                    }}
+                    className={`p-2.5 rounded-xl border-2 font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                      manualClassTipo === 'carro'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-900 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>🚗</span> Carro (Cat. B)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualClassTipo('moto');
+                      if (!manualClassValorCustomizado) setManualClassValorTotal(manualClassQuantidade * manualClassValorPorAula);
+                    }}
+                    className={`p-2.5 rounded-xl border-2 font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                      manualClassTipo === 'moto'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-900 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>🏍️</span> Moto (Cat. A)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualClassTipo('ambos');
+                      const totalAmbos = (Number(manualClassQtdCarro) || 1) + (Number(manualClassQtdMoto) || 1);
+                      if (!manualClassValorCustomizado) setManualClassValorTotal(totalAmbos * manualClassValorPorAula);
+                    }}
+                    className={`p-2.5 rounded-xl border-2 font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                      manualClassTipo === 'ambos'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-900 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>🚗🏍️</span> Ambos (Carro + Moto)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualClassTipo('simulador');
+                      if (!manualClassValorCustomizado) setManualClassValorTotal(manualClassQuantidade * manualClassValorPorAula);
+                    }}
+                    className={`p-2.5 rounded-xl border-2 font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                      manualClassTipo === 'simulador'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-900 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>🖥️</span> Simulador de Direção
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualClassTipo('onibus_caminhao');
+                      if (!manualClassValorCustomizado) setManualClassValorTotal(manualClassQuantidade * manualClassValorPorAula);
+                    }}
+                    className={`p-2.5 rounded-xl border-2 font-bold flex items-center justify-center gap-1.5 transition cursor-pointer col-span-2 sm:col-span-1 ${
+                      manualClassTipo === 'onibus_caminhao'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-900 shadow-xs'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>🚌</span> Ônibus / Caminhão (C/D)
+                  </button>
+                </div>
+              </div>
+
+              {/* Quantidade de Aulas */}
+              {manualClassTipo === 'ambos' ? (
+                <div className="grid grid-cols-2 gap-3 bg-indigo-50/50 p-3.5 rounded-2xl border border-indigo-100">
+                  <div>
+                    <label className="block text-xs font-bold text-indigo-950 mb-1">
+                      🚗 Aulas de Carro
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={manualClassQtdCarro}
+                      onChange={(e) => {
+                        const val = Math.max(0, parseInt(e.target.value) || 0);
+                        setManualClassQtdCarro(val);
+                        const tot = val + manualClassQtdMoto;
+                        setManualClassQuantidade(tot);
+                        if (!manualClassValorCustomizado) setManualClassValorTotal(tot * manualClassValorPorAula);
+                      }}
+                      className="w-full border border-indigo-200 rounded-xl px-3 py-2 text-xs bg-white font-bold text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-indigo-950 mb-1">
+                      🏍️ Aulas de Moto
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={manualClassQtdMoto}
+                      onChange={(e) => {
+                        const val = Math.max(0, parseInt(e.target.value) || 0);
+                        setManualClassQtdMoto(val);
+                        const tot = manualClassQtdCarro + val;
+                        setManualClassQuantidade(tot);
+                        if (!manualClassValorCustomizado) setManualClassValorTotal(tot * manualClassValorPorAula);
+                      }}
+                      className="w-full border border-indigo-200 rounded-xl px-3 py-2 text-xs bg-white font-bold text-center"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Quantidade de Aulas Adicionais *
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    {[1, 2, 3, 5, 10].map(n => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => {
+                          setManualClassQuantidade(n);
+                          if (!manualClassValorCustomizado) setManualClassValorTotal(n * manualClassValorPorAula);
+                        }}
+                        className={`py-1.5 px-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                          manualClassQuantidade === n
+                            ? 'bg-slate-900 text-white shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        +{n} {n === 1 ? 'aula' : 'aulas'}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      required
+                      value={manualClassQuantidade}
+                      onChange={(e) => {
+                        const n = Math.max(1, parseInt(e.target.value) || 1);
+                        setManualClassQuantidade(n);
+                        if (!manualClassValorCustomizado) setManualClassValorTotal(n * manualClassValorPorAula);
+                      }}
+                      className="w-28 border border-slate-300 rounded-xl px-3 py-2 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 font-bold"
+                    />
+                    <span className="text-xs text-slate-500 font-medium">aulas práticas a acrescentar na ficha</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Configuração de Valores com Total Liberdade para o Administrador */}
+              <div className="bg-gradient-to-br from-slate-50 to-indigo-50/40 p-4 rounded-2xl border-2 border-indigo-200/80 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-indigo-100 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">💵</span>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 tracking-tight">
+                        Valores & Cobrança (Liberado para o Administrador)
+                      </h4>
+                      <p className="text-[10.5px] text-slate-500 font-sans">
+                        Defina livremente qualquer valor total negociado ou calcule pelo valor unitário da aula.
+                      </p>
+                    </div>
+                  </div>
+                  <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border self-start sm:self-auto ${
+                    manualClassValorCustomizado 
+                      ? 'bg-amber-100 text-amber-900 border-amber-300' 
+                      : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                  }`}>
+                    {manualClassValorCustomizado ? '✏️ Valor Livre Customizado' : '🧮 Valor Automático Padrão'}
+                  </span>
+                </div>
+
+                {/* Grid dos dois inputs principais */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {/* Valor Total do Lançamento */}
+                  <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-2xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-black text-indigo-950">
+                        Valor Total do Lançamento (R$) *
+                      </label>
+                      <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+                        Cobrança Aluno
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">
+                        R$
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        required
+                        value={manualClassValorTotal}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseFloat(e.target.value) || 0);
+                          setManualClassValorTotal(val);
+                          setManualClassValorCustomizado(true);
+                          if (manualClassComissaoModo !== 'personalizado') {
+                            const instPct = manualClassComissaoModo === '100' ? 1.0 : (manualClassComissaoModo === '70' ? 0.7 : (manualClassComissaoModo === '50' ? 0.5 : (manualClassComissaoModo === '0' ? 0 : 0.8)));
+                            const instVal = Math.round(val * instPct * 100) / 100;
+                            setManualClassComissaoInstrutorValor(instVal);
+                            setManualClassComissaoAutoescolaValor(Math.round((val - instVal) * 100) / 100);
+                          }
+                        }}
+                        className="w-full pl-9 pr-3 py-2 text-base font-black font-mono bg-white border-2 border-indigo-400 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none text-indigo-950"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    {/* Presets rápidos de valor total */}
+                    <div className="space-y-1 pt-1">
+                      <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Valores Rápidos:
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[
+                          { label: 'R$ 0 (Cortesia)', val: 0 },
+                          { label: 'R$ 50', val: 50 },
+                          { label: 'R$ 80', val: 80 },
+                          { label: 'R$ 100', val: 100 },
+                          { label: 'R$ 120', val: 120 },
+                          { label: 'R$ 150', val: 150 },
+                          { label: 'R$ 160', val: 160 },
+                          { label: 'R$ 200', val: 200 },
+                          { label: 'R$ 250', val: 250 },
+                          { label: 'R$ 300', val: 300 },
+                          { label: 'R$ 400', val: 400 },
+                          { label: 'R$ 500', val: 500 }
+                        ].map(item => (
+                          <button
+                            key={item.val}
+                            type="button"
+                            onClick={() => {
+                              setManualClassValorTotal(item.val);
+                              setManualClassValorCustomizado(true);
+                              if (manualClassComissaoModo !== 'personalizado') {
+                                const instPct = manualClassComissaoModo === '100' ? 1.0 : (manualClassComissaoModo === '70' ? 0.7 : (manualClassComissaoModo === '50' ? 0.5 : (manualClassComissaoModo === '0' ? 0 : 0.8)));
+                                const instVal = Math.round(item.val * instPct * 100) / 100;
+                                setManualClassComissaoInstrutorValor(instVal);
+                                setManualClassComissaoAutoescolaValor(Math.round((item.val - instVal) * 100) / 100);
+                              }
+                            }}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition cursor-pointer ${
+                              manualClassValorTotal === item.val
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                            }`}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Preço Unitário por Aula & Cálculos */}
+                  <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-2xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-black text-slate-800">
+                        Preço Unitário / Aula (R$)
+                      </label>
+                      <span className="text-[10px] font-bold text-slate-500">
+                        Base de Referência
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">
+                        R$
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        value={manualClassValorPorAula}
+                        onChange={(e) => {
+                          const unit = Math.max(0, parseFloat(e.target.value) || 0);
+                          setManualClassValorPorAula(unit);
+                        }}
+                        className="w-full pl-9 pr-3 py-2 text-sm font-black font-mono bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none text-slate-800"
+                        placeholder="80.00"
+                      />
+                    </div>
+
+                    {/* Presets rápidos de valor por aula */}
+                    <div className="space-y-1 pt-1">
+                      <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Ajustar Preço / Aula:
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[50, 60, 70, 80, 90, 100, 120].map(v => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => {
+                              setManualClassValorPorAula(v);
+                            }}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition cursor-pointer ${
+                              manualClassValorPorAula === v
+                                ? 'bg-slate-800 text-white border-slate-800'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                            }`}
+                          >
+                            R$ {v}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Botões de Ação para Calcular */}
+                    <div className="pt-2 flex flex-wrap items-center gap-1.5 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const qtd = manualClassTipo === 'ambos' ? ((Number(manualClassQtdCarro) || 0) + (Number(manualClassQtdMoto) || 0)) : (Number(manualClassQuantidade) || 1);
+                          const calcTotal = qtd * manualClassValorPorAula;
+                          setManualClassValorTotal(calcTotal);
+                          setManualClassValorCustomizado(false);
+                          const instPct = manualClassComissaoModo === '100' ? 1.0 : (manualClassComissaoModo === '70' ? 0.7 : (manualClassComissaoModo === '50' ? 0.5 : (manualClassComissaoModo === '0' ? 0 : 0.8)));
+                          const instVal = Math.round(calcTotal * instPct * 100) / 100;
+                          setManualClassComissaoInstrutorValor(instVal);
+                          setManualClassComissaoAutoescolaValor(Math.round((calcTotal - instVal) * 100) / 100);
+                        }}
+                        className="text-[10.5px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1"
+                        title="Calcular Total = Quantidade de Aulas × Preço Unitário"
+                      >
+                        ⚡ Multiplicar Qtd × Unitário
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const qtd = manualClassTipo === 'ambos' ? ((Number(manualClassQtdCarro) || 0) + (Number(manualClassQtdMoto) || 0)) : (Number(manualClassQuantidade) || 1);
+                          if (qtd > 0) {
+                            const unitCalculado = Math.round((manualClassValorTotal / qtd) * 100) / 100;
+                            setManualClassValorPorAula(unitCalculado);
+                          }
+                        }}
+                        className="text-[10.5px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-2.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-1"
+                        title="Dividir o Valor Total digitado pela quantidade de aulas"
+                      >
+                        ➗ Dividir Total ÷ Qtd
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Divisão de Repasse e Comissão Flexível */}
+                <div className="bg-white p-3.5 rounded-xl border border-indigo-100 shadow-2xs space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                      <span>🤝</span> Divisão de Repasse & Comissão:
+                    </span>
+
+                    {/* Seletor de Modelo de Comissão */}
+                    <div className="flex flex-wrap items-center gap-1">
+                      {[
+                        { id: '80', label: '80% / 20% (Padrão)' },
+                        { id: '100', label: '100% Instrutor' },
+                        { id: '70', label: '70% / 30%' },
+                        { id: '50', label: '50% / 50%' },
+                        { id: '0', label: '100% Autoescola' },
+                        { id: 'personalizado', label: '✏️ Digitar em R$' }
+                      ].map(m => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => {
+                            const modo = m.id as any;
+                            setManualClassComissaoModo(modo);
+                            if (modo !== 'personalizado') {
+                              const pct = modo === '100' ? 1.0 : (modo === '70' ? 0.7 : (modo === '50' ? 0.5 : (modo === '0' ? 0 : 0.8)));
+                              const instVal = Math.round(manualClassValorTotal * pct * 100) / 100;
+                              setManualClassComissaoInstrutorValor(instVal);
+                              setManualClassComissaoAutoescolaValor(Math.round((manualClassValorTotal - instVal) * 100) / 100);
+                            }
+                          }}
+                          className={`text-[10px] font-extrabold px-2 py-1 rounded-lg border transition cursor-pointer ${
+                            manualClassComissaoModo === m.id
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Se modo for personalizado em R$, exibir campos de edição livre de comissão */}
+                  {manualClassComissaoModo === 'personalizado' ? (
+                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                      <div>
+                        <label className="block text-[10.5px] font-bold text-emerald-800 mb-1">
+                          🚗 Repasse ao Instrutor (R$)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={manualClassComissaoInstrutorValor}
+                          onChange={(e) => {
+                            const val = Math.max(0, parseFloat(e.target.value) || 0);
+                            setManualClassComissaoInstrutorValor(val);
+                            setManualClassComissaoAutoescolaValor(Math.max(0, Math.round((manualClassValorTotal - val) * 100) / 100));
+                          }}
+                          className="w-full border border-emerald-300 rounded-xl px-3 py-1.5 text-xs bg-emerald-50/50 font-bold font-mono text-emerald-950"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10.5px] font-bold text-slate-700 mb-1">
+                          🏢 Retenção da Autoescola (R$)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={manualClassComissaoAutoescolaValor}
+                          onChange={(e) => {
+                            const val = Math.max(0, parseFloat(e.target.value) || 0);
+                            setManualClassComissaoAutoescolaValor(val);
+                            setManualClassComissaoInstrutorValor(Math.max(0, Math.round((manualClassValorTotal - val) * 100) / 100));
+                          }}
+                          className="w-full border border-slate-300 rounded-xl px-3 py-1.5 text-xs bg-slate-50 font-bold font-mono text-slate-900"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                      <div className="flex items-center gap-1.5 text-emerald-800 font-medium">
+                        <span>🚗</span>
+                        <span>Comissão do Instrutor:</span>
+                        <strong className="font-mono font-black text-emerald-700 text-sm">
+                          {manualClassComissaoInstrutorValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </strong>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-slate-600 font-medium">
+                        <span>🏢</span>
+                        <span>Autoescola:</span>
+                        <strong className="font-mono font-black text-slate-800 text-sm">
+                          {manualClassComissaoAutoescolaValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </strong>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Data e Pagamento */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Data do Lançamento / Compra *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={manualClassData}
+                    onChange={(e) => setManualClassData(e.target.value)}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Forma de Pagamento *
+                  </label>
+                  <select
+                    value={manualClassForma}
+                    onChange={(e) => setManualClassForma(e.target.value as any)}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 font-bold"
+                  >
+                    <option value="pix">⚡ PIX Instantâneo</option>
+                    <option value="cartao">💳 Cartão de Crédito</option>
+                    <option value="dinheiro">💵 Dinheiro em Espécie (Balcão)</option>
+                    <option value="boleto">📄 Boleto Bancário</option>
+                    <option value="transferencia">🏦 Transferência Bancária / TED</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Seletor de parcelas caso seja Cartão de Crédito */}
+              {manualClassForma === 'cartao' && (
+                <div className="bg-indigo-50/70 border border-indigo-200 p-3 rounded-xl flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold text-indigo-900">Parcelamento no Cartão:</span>
+                  <select
+                    value={manualClassParcelasCartao}
+                    onChange={(e) => setManualClassParcelasCartao(parseInt(e.target.value) || 1)}
+                    className="border border-indigo-300 rounded-lg px-2.5 py-1 text-xs bg-white font-bold text-indigo-950"
+                  >
+                    {[1, 2, 3, 4, 5, 6, 10, 12].map(p => (
+                      <option key={p} value={p}>
+                        {p}x de R$ {(manualClassValorTotal / p).toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Status e Recibo */}
+              <div className="space-y-2 pt-1">
+                <label className="flex items-center gap-2.5 text-xs font-bold text-slate-800 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={manualClassJaPago}
+                    onChange={(e) => setManualClassJaPago(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <span>✅ Pagamento já recebido / quitado (Registrar baixa financeira imediatamente)</span>
+                </label>
+
+                {manualClassJaPago && (
+                  <label className="flex items-center gap-2.5 text-xs font-bold text-slate-800 cursor-pointer select-none pl-6">
+                    <input
+                      type="checkbox"
+                      checked={manualClassGerarRecibo}
+                      onChange={(e) => setManualClassGerarRecibo(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span>🧾 Abrir e emitir Recibo Oficial de Quitação após salvar</span>
+                  </label>
+                )}
+              </div>
+
+              {/* Observações */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Observações / Finalidade das Aulas (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={manualClassObservacao}
+                  onChange={(e) => setManualClassObservacao(e.target.value)}
+                  placeholder="Ex: Treinamento extra para baliza e trânsito intenso antes da prova prática"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500 font-medium"
+                />
+              </div>
+
+              {/* Footer */}
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsManualClassLaunchModalOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition flex items-center gap-2 shadow-md cursor-pointer active:scale-95"
+                >
+                  <Car className="h-4 w-4" />
+                  <span>Confirmar Lançamento de Aulas</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GLOBAL: Confirmação de Exclusão de Recibo de Candidato */}
+      {receiptToDelete && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden text-left animate-in zoom-in-95 duration-200">
+            {/* Cabeçalho do Modal */}
+            <div className="bg-gradient-to-r from-rose-900 to-slate-900 p-5 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-rose-500/20 text-rose-300 rounded-xl">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black tracking-tight">Excluir Recibo de Pagamento</h3>
+                  <p className="text-[11px] text-slate-300">Confirmação de exclusão e recálculo financeiro</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReceiptToDelete(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Conteúdo */}
+            <div className="p-6 space-y-4">
+              {receiptToDelete.isDuplicate && (
+                <div className="bg-amber-50 border border-amber-300 text-amber-900 px-3.5 py-2.5 rounded-xl text-xs flex items-center gap-2 font-medium">
+                  <span>⚠️</span>
+                  <span>Este registro foi identificado como uma <strong>informação duplicada</strong>. A exclusão manterá os registros originais sem alterações.</span>
+                </div>
+              )}
+
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2 text-xs">
+                <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">
+                  <span className="text-slate-500 font-medium">Candidato:</span>
+                  <span className="font-extrabold text-slate-900">{receiptToDelete.aluno.nome}</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">
+                  <span className="text-slate-500 font-medium">ID Recibo:</span>
+                  <span className="font-mono font-bold text-indigo-900">{receiptToDelete.baixa.id}</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">
+                  <span className="text-slate-500 font-medium">Data do Pagamento:</span>
+                  <span className="font-semibold text-slate-700">{formatDateBR(receiptToDelete.baixa.data)}</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">
+                  <span className="text-slate-500 font-medium">Valor:</span>
+                  <span className="font-mono font-black text-emerald-700 text-sm">
+                    {receiptToDelete.baixa.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">
+                  <span className="text-slate-500 font-medium">Forma:</span>
+                  <span className="font-bold text-slate-800">{receiptToDelete.baixa.formaPagamento}</span>
+                </div>
+                <div className="flex justify-between items-start pt-1">
+                  <span className="text-slate-500 font-medium">Referente:</span>
+                  <span className="text-right text-slate-700 max-w-[200px] truncate">{receiptToDelete.baixa.observacao || 'Quitação CNH Facilitada'}</span>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Ao confirmar a exclusão, a baixa financeira correspondente será removida do cadastro do candidato, recalculando automaticamente as parcelas pagas e o total quitado.
+              </p>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setReceiptToDelete(null)}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExcluirRecibo(receiptToDelete.aluno.id, receiptToDelete.baixa.id)}
+                  className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold px-5 py-2.5 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-rose-600/20 cursor-pointer active:scale-95"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Sim, Excluir Recibo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GLOBAL: Excluir Recibos Duplicados de Candidatos em Lote */}
+      {isRemoveDuplicatesModalOpen && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden text-left animate-in zoom-in-95 duration-200">
+            {/* Top Header */}
+            <div className="bg-gradient-to-r from-slate-900 via-[#0c2340] to-rose-950 p-5 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-rose-500/20 text-rose-300 rounded-xl">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black tracking-tight">Excluir Informações Duplicadas</h3>
+                  <p className="text-[11px] text-slate-300">Varredura e limpeza de recibos repetidos</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRemoveDuplicatesModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {allGlobalDuplicateReceipts.length === 0 ? (
+                <div className="p-8 text-center space-y-3">
+                  <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto text-2xl font-black">
+                    ✓
+                  </div>
+                  <h4 className="text-sm font-extrabold text-slate-800">Nenhum Recibo Duplicado Encontrado</h4>
+                  <p className="text-xs text-slate-500 leading-relaxed max-w-xs mx-auto">
+                    Todos os recibos e baixas financeiras cadastradas possuem identificação e histórico únicos. Sua base de dados está 100% íntegra!
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsRemoveDuplicatesModalOpen(false)}
+                    className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold px-5 py-2.5 rounded-xl transition cursor-pointer mt-2"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-amber-50 border border-amber-300 text-amber-950 p-4 rounded-2xl text-xs space-y-1">
+                    <p className="font-extrabold flex items-center gap-1.5 text-sm text-amber-900">
+                      <span>⚠️</span> Foram encontrados {allGlobalDuplicateReceipts.length} recibo(s) com informações duplicadas:
+                    </p>
+                    <p className="text-slate-700 text-[11px] leading-relaxed">
+                      O sistema identificou registros repetidos (mesmo candidato, valor e data). Ao confirmar, a ferramenta manterá o primeiro recibo original de cada candidato e removerá com segurança apenas as duplicatas adicionais.
+                    </p>
+                  </div>
+
+                  {/* Lista dos duplicados identificados */}
+                  <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 text-xs">
+                    {allGlobalDuplicateReceipts.map(({ aluno, baixa }, idx) => (
+                      <div key={`dup-modal-${baixa.id}-${idx}`} className="p-3 bg-white hover:bg-slate-50 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-extrabold text-slate-900">{aluno.nome}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            {baixa.id} • {formatDateBR(baixa.data)} • {baixa.formaPagamento}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-mono font-black text-emerald-700 block">
+                            {baixa.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                          <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                            Duplicata
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsRemoveDuplicatesModalOpen(false)}
+                      className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExcluirTodosRecibosDuplicados}
+                      className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold px-5 py-2.5 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-rose-600/20 cursor-pointer active:scale-95"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Excluir {allGlobalDuplicateReceipts.length} Recibo(s) Duplicado(s)
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL GLOBAL: Confirmação de Exclusão de Recibo de Comissão do Instrutor */}
+      {instReceiptToDelete && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden text-left animate-in zoom-in-95 duration-200">
+            <div className="bg-gradient-to-r from-rose-900 to-slate-900 p-5 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-rose-500/20 text-rose-300 rounded-xl">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black tracking-tight">Excluir Recibo de Comissão</h3>
+                  <p className="text-[11px] text-slate-300">Confirmação de exclusão e estorno de saldo</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInstReceiptToDelete(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2 text-xs">
+                <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">
+                  <span className="text-slate-500 font-medium">Instrutor:</span>
+                  <span className="font-extrabold text-slate-900">{instReceiptToDelete.instrutorNome}</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">
+                  <span className="text-slate-500 font-medium">Nº do Recibo:</span>
+                  <span className="font-mono font-bold text-indigo-900">{instReceiptToDelete.recibo.id}</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">
+                  <span className="text-slate-500 font-medium">Data de Emissão:</span>
+                  <span className="font-semibold text-slate-700">{formatDateBR(instReceiptToDelete.recibo.dataEmissao)}</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-slate-200/60 pb-2">
+                  <span className="text-slate-500 font-medium">Valor:</span>
+                  <span className="font-mono font-black text-emerald-700 text-sm">
+                    {instReceiptToDelete.recibo.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pt-1">
+                  <span className="text-slate-500 font-medium">Status:</span>
+                  <span className="font-bold text-slate-800">
+                    {instReceiptToDelete.recibo.status === 'assinado_gov' ? 'Assinado Digitalmente' : 'Pendente de Assinatura'}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Tem certeza de que deseja excluir este recibo? O valor de <strong>{instReceiptToDelete.recibo.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong> será estornado do saldo pago do instrutor, permitindo novo lançamento caso necessário.
+              </p>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setInstReceiptToDelete(null)}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExcluirReciboInstrutor(instReceiptToDelete.instrutorNome, instReceiptToDelete.recibo.id)}
+                  className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold px-5 py-2.5 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-rose-600/20 cursor-pointer active:scale-95"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Sim, Excluir Recibo
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -6838,25 +8395,62 @@ ${formattedInstrutores}
                                         if (totalNewClasses <= 0) return;
                                         const currentAulas = currentStudent.aulas || 20;
                                         const currentVal = currentStudent.valorTotal;
+                                        const baseContrato = currentStudent.valorContratoBase || (currentVal - (currentStudent.valorAulasExtras || 0));
+                                        const baseAulas = currentStudent.aulasBase || (currentAulas - (currentStudent.aulasExtras || 0));
+                                        const hojeDataStr = new Date().toISOString().substring(0, 10);
+
+                                        const detailsText = activeCarro > 0 && activeMoto > 0
+                                          ? `${activeCarro} de Carro + ${activeMoto} de Moto`
+                                          : activeCarro > 0 ? `${activeCarro} de Carro` : `${activeMoto} de Moto`;
+
+                                        const payText = isCartao ? `${addAulasParcelas}x no Cartão` : 'Pix à vista';
+
+                                        const novaCompraExtra: CompraAulasExtras = {
+                                          id: `EXTRA-${Date.now()}`,
+                                          data: hojeDataStr,
+                                          quantidadeAulas: totalNewClasses,
+                                          tipo: addAulasTipo,
+                                          aulasCarro: activeCarro,
+                                          aulasMoto: activeMoto,
+                                          valorBase: rawBaseExtraCost,
+                                          valorTotal: totalExtraCost,
+                                          valorInstrutor: Math.round(totalExtraCost * 0.8 * 100) / 100,
+                                          valorAutoescola: Math.round(totalExtraCost * 0.2 * 100) / 100,
+                                          formaPagamento: isCartao ? 'cartao' : 'pix',
+                                          parcelasCartao: isCartao ? addAulasParcelas : 1,
+                                          detalhes: `${totalNewClasses} aulas (${detailsText}) no ${payText}`,
+                                          status: 'pago'
+                                        };
+
+                                        const novaBaixaExtra: BaixaPagamento = {
+                                          id: `BX-EXTRA-${Date.now()}`,
+                                          data: hojeDataStr,
+                                          valor: totalExtraCost,
+                                          formaPagamento: isCartao ? 'cartao' : 'pix',
+                                          parcelasBaixadas: 0,
+                                          observacao: `Aulas Adicionais (${totalNewClasses} aulas: ${detailsText})`,
+                                          operador: 'Portal do Candidato'
+                                        };
 
                                         const updatedAlunos = alunos.map(a => {
                                           if (a.id === currentStudent.id) {
                                             return {
                                               ...a,
+                                              valorContratoBase: baseContrato,
+                                              aulasBase: baseAulas,
                                               aulas: currentAulas + totalNewClasses,
-                                              valorTotal: currentVal + totalExtraCost
+                                              aulasExtras: (a.aulasExtras || 0) + totalNewClasses,
+                                              valorAulasExtras: (a.valorAulasExtras || 0) + totalExtraCost,
+                                              valorTotal: currentVal + totalExtraCost,
+                                              comprasAulasExtras: [...(a.comprasAulasExtras || []), novaCompraExtra],
+                                              baixasPagamento: [...(a.baixasPagamento || []), novaBaixaExtra],
+                                              updatedAt: new Date().toISOString()
                                             };
                                           }
                                           return a;
                                         });
 
                                         saveAlunosList(updatedAlunos);
-                                        
-                                        const detailsText = activeCarro > 0 && activeMoto > 0
-                                          ? `${activeCarro} de Carro + ${activeMoto} de Moto`
-                                          : activeCarro > 0 ? `${activeCarro} de Carro` : `${activeMoto} de Moto`;
-
-                                        const payText = isCartao ? `${addAulasParcelas}x no Cartão` : 'Pix à vista';
 
                                         setToastMessage(`💸 Contrato atualizado! Adicionadas ${totalNewClasses} aulas (${detailsText}) no ${payText}.`);
                                         setShowAddAulasSuccess(true);
@@ -8601,6 +10195,16 @@ ${formattedInstrutores}
                   </button>
 
                   <button
+                    type="button"
+                    onClick={() => handleAbrirLancamentoAulas()}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black py-2 px-3 rounded-lg flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
+                    title="Lançamento manual de compra de aulas extras para qualquer aluno"
+                  >
+                    <Car className="h-3.5 w-3.5 text-indigo-200" />
+                    <span>Lançar Aulas Extras</span>
+                  </button>
+
+                  <button
                     onClick={handleOpenAddAluno}
                     className="bg-[#0c2340] hover:bg-slate-800 text-white text-xs font-bold py-2 px-3 rounded-lg flex items-center gap-1 transition-all shadow-md"
                   >
@@ -8765,6 +10369,15 @@ ${formattedInstrutores}
                               title="Lançar/Confirmar baixa de valor (Cartão, Pix, Dinheiro)"
                             >
                               <span>💳</span> Dar Baixa
+                            </button>
+
+                            <button
+                              onClick={() => handleAbrirLancamentoAulas(a)}
+                              className="text-[11px] bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-2.5 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1 shadow-xs active:scale-95"
+                              title="Lançar compra de aulas extras deste candidato"
+                            >
+                              <Car className="h-3.5 w-3.5 text-indigo-200" />
+                              <span>+ Aulas</span>
                             </button>
 
                             <button
@@ -9866,17 +11479,29 @@ ${formattedInstrutores}
               {/* ===================== SUBTAB: RECIBOS DE CANDIDATOS ===================== */}
               {adminSubTab === 'recibos' && (() => {
 
-                // Gather all candidate receipts across all alunos
+                // Gather all candidate receipts across all alunos e identificar informacoes duplicadas
                 interface AllReceiptItem {
                   aluno: Aluno;
                   baixa: BaixaPagamento;
+                  isDuplicate: boolean;
                 }
 
                 const allReceipts: AllReceiptItem[] = [];
                 cleanAlunos.forEach(a => {
                   if (a.baixasPagamento && a.baixasPagamento.length > 0) {
+                    const seenIds = new Set<string>();
+                    const seenKeys = new Set<string>();
+
                     a.baixasPagamento.forEach(b => {
-                      allReceipts.push({ aluno: a, baixa: b });
+                      const sigKey = `${b.data ? b.data.substring(0, 10) : ''}_${Number(b.valor).toFixed(2)}_${(b.formaPagamento || '').trim().toLowerCase()}_${(b.observacao || '').trim().toLowerCase()}`;
+                      const isDup = seenIds.has(b.id) || seenKeys.has(sigKey);
+
+                      if (!isDup) {
+                        seenIds.add(b.id);
+                        seenKeys.add(sigKey);
+                      }
+
+                      allReceipts.push({ aluno: a, baixa: b, isDuplicate: isDup });
                     });
                   }
                 });
@@ -9884,8 +11509,13 @@ ${formattedInstrutores}
                 // Sort by date descending
                 allReceipts.sort((a, b) => new Date(b.baixa.data).getTime() - new Date(a.baixa.data).getTime());
 
-                // Filter by search term and method
+                const duplicateReceiptsList = allReceipts.filter(r => r.isDuplicate);
+                const duplicatesTotalCount = duplicateReceiptsList.length;
+
+                // Filter by search term, method and duplicate filter
                 const filteredReceipts = allReceipts.filter(r => {
+                  if (receiptOnlyDuplicatesFilter && !r.isDuplicate) return false;
+
                   const matchSearch = receiptSearchTerm.trim() === '' || 
                     r.aluno.nome.toLowerCase().includes(receiptSearchTerm.toLowerCase()) ||
                     r.aluno.cpf.includes(receiptSearchTerm) ||
@@ -9903,7 +11533,7 @@ ${formattedInstrutores}
 
                 return (
                   <div className="space-y-6 animate-in fade-in duration-200">
-                    {/* Header & Quick Action */}
+                    {/* Header & Quick Actions */}
                     <div className="bg-gradient-to-r from-[#0c2340] to-slate-900 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                       <div>
                         <div className="flex items-center gap-2">
@@ -9911,27 +11541,100 @@ ${formattedInstrutores}
                           <h3 className="text-lg font-black tracking-tight">Gestão & Emissão de Recibos de Pagamento</h3>
                         </div>
                         <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
-                          Consulte, emita e envie recibos oficiais de quitação para candidatos do Programa CNH Facilitada.
+                          Consulte, emita, exclua informações duplicadas e envie recibos oficiais de quitação para candidatos do Programa CNH Facilitada.
                         </p>
                       </div>
 
-                      <button
-                        onClick={() => {
-                          if (cleanAlunos.length > 0) {
-                            setManualReceiptAlunoId(cleanAlunos[0].id);
-                          }
-                          setManualReceiptValor(200);
-                          setManualReceiptData(new Date().toISOString().substring(0, 10));
-                          setManualReceiptForma('PIX');
-                          setManualReceiptReferente('Pagamento referente ao programa CNH Facilitada');
-                          setManualReceiptObs('');
-                          setIsNewManualReceiptModalOpen(true);
-                        }}
-                        className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs px-5 py-3 rounded-xl transition flex items-center gap-2 shadow-md cursor-pointer shrink-0 active:scale-95"
-                      >
-                        <Plus className="h-4 w-4" /> Emitir Novo Recibo
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                        {/* Botão de Excluir Duplicados */}
+                        <button
+                          type="button"
+                          onClick={() => setIsRemoveDuplicatesModalOpen(true)}
+                          className={`font-black text-xs px-4 py-3 rounded-xl transition flex items-center gap-2 shadow-md cursor-pointer shrink-0 active:scale-95 ${
+                            duplicatesTotalCount > 0
+                              ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                          }`}
+                          title={duplicatesTotalCount > 0 ? `${duplicatesTotalCount} recibo(s) duplicado(s) detectado(s)` : 'Verificar se existem recibos duplicados'}
+                        >
+                          <Trash2 className="h-4 w-4 text-rose-300" />
+                          <span>Excluir Duplicados</span>
+                          {duplicatesTotalCount > 0 && (
+                            <span className="bg-white text-rose-700 text-[10px] font-mono font-black px-2 py-0.5 rounded-full">
+                              {duplicatesTotalCount}
+                            </span>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleAbrirLancamentoAulas()}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-5 py-3 rounded-xl transition flex items-center gap-2 shadow-md cursor-pointer shrink-0 active:scale-95"
+                          title="Lançamento manual de compra de aulas extras para qualquer aluno"
+                        >
+                          <Car className="h-4 w-4 text-indigo-200" />
+                          <span>Lançar Compra de Aulas</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (cleanAlunos.length > 0) {
+                              setManualReceiptAlunoId(cleanAlunos[0].id);
+                            }
+                            setManualReceiptValor(200);
+                            setManualReceiptData(new Date().toISOString().substring(0, 10));
+                            setManualReceiptForma('PIX');
+                            setManualReceiptReferente('Pagamento referente ao programa CNH Facilitada');
+                            setManualReceiptObs('');
+                            setIsNewManualReceiptModalOpen(true);
+                          }}
+                          className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs px-5 py-3 rounded-xl transition flex items-center gap-2 shadow-md cursor-pointer shrink-0 active:scale-95"
+                        >
+                          <Plus className="h-4 w-4" /> Emitir Novo Recibo
+                        </button>
+                      </div>
                     </div>
+
+                    {/* Banner de Aviso de Recibos Duplicados */}
+                    {duplicatesTotalCount > 0 && (
+                      <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-sm">
+                        <div className="flex items-start sm:items-center gap-3">
+                          <div className="bg-amber-500/20 text-amber-700 p-2.5 rounded-xl text-lg shrink-0">
+                            ⚠️
+                          </div>
+                          <div>
+                            <h4 className="font-extrabold text-amber-950 text-sm">
+                              {duplicatesTotalCount} {duplicatesTotalCount === 1 ? 'Recibo com Informação Duplicada Detectado' : 'Recibos com Informações Duplicadas Detectados'}
+                            </h4>
+                            <p className="text-amber-800 text-[11px] mt-0.5 leading-relaxed">
+                              Foram identificados registros repetidos de pagamento para o mesmo candidato (mesmo valor e data). Você pode excluí-los em lote ou remover individualmente na tabela usando o botão vermelho <strong>Excluir</strong>.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setReceiptOnlyDuplicatesFilter(!receiptOnlyDuplicatesFilter)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                              receiptOnlyDuplicatesFilter 
+                                ? 'bg-amber-600 text-white border-amber-600' 
+                                : 'bg-white text-amber-900 border-amber-300 hover:bg-amber-50'
+                            }`}
+                          >
+                            {receiptOnlyDuplicatesFilter ? 'Ver Todos os Recibos' : 'Isolar Duplicados'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsRemoveDuplicatesModalOpen(true)}
+                            className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Limpar Duplicados ({duplicatesTotalCount})
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Quick Stat Cards */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -9941,7 +11644,9 @@ ${formattedInstrutores}
                           <Receipt className="h-4 w-4 text-indigo-500" />
                         </div>
                         <p className="text-2xl font-black text-slate-900 font-mono">{allReceipts.length}</p>
-                        <p className="text-[10px] text-slate-400">Comprovantes registrados</p>
+                        <p className="text-[10px] text-slate-400">
+                          Comprovantes registrados {duplicatesTotalCount > 0 ? `(${duplicatesTotalCount} duplicado(s))` : ''}
+                        </p>
                       </div>
 
                       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-1">
@@ -9988,19 +11693,37 @@ ${formattedInstrutores}
                           />
                         </div>
 
-                        <div className="flex items-center gap-2 w-full md:w-auto">
-                          <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Forma:</span>
-                          <select
-                            value={receiptMethodFilter}
-                            onChange={(e) => setReceiptMethodFilter(e.target.value)}
-                            className="text-xs border border-slate-300 rounded-xl px-3 py-1.5 bg-white font-bold focus:ring-2 focus:ring-indigo-500"
-                          >
-                            <option value="todos">Todas as Formas</option>
-                            <option value="pix">PIX / Transferência</option>
-                            <option value="cart">Cartão de Crédito</option>
-                            <option value="dinheiro">Dinheiro</option>
-                            <option value="boleto">Boleto</option>
-                          </select>
+                        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                          {duplicatesTotalCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setReceiptOnlyDuplicatesFilter(!receiptOnlyDuplicatesFilter)}
+                              className={`text-xs px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 border cursor-pointer ${
+                                receiptOnlyDuplicatesFilter
+                                  ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                                  : 'bg-white text-rose-700 border-rose-200 hover:bg-rose-50'
+                              }`}
+                              title="Filtrar tabela para mostrar apenas recibos duplicados"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              <span>Apenas Duplicados ({duplicatesTotalCount})</span>
+                            </button>
+                          )}
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-500 whitespace-nowrap">Forma:</span>
+                            <select
+                              value={receiptMethodFilter}
+                              onChange={(e) => setReceiptMethodFilter(e.target.value)}
+                              className="text-xs border border-slate-300 rounded-xl px-3 py-1.5 bg-white font-bold focus:ring-2 focus:ring-indigo-500"
+                            >
+                              <option value="todos">Todas as Formas</option>
+                              <option value="pix">PIX / Transferência</option>
+                              <option value="cart">Cartão de Crédito</option>
+                              <option value="dinheiro">Dinheiro</option>
+                              <option value="boleto">Boleto</option>
+                            </select>
+                          </div>
                         </div>
                       </div>
 
@@ -10026,7 +11749,7 @@ ${formattedInstrutores}
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                              {filteredReceipts.map(({ aluno, baixa }) => {
+                              {filteredReceipts.map(({ aluno, baixa, isDuplicate }, index) => {
                                 const receiptId = baixa.id.startsWith('REC-') ? baixa.id : `REC-${baixa.id}`;
                                 const formattedMsg = encodeURIComponent(
                                   `🧾 *RECIBO DE PAGAMENTO - PROGRAMA CNH FACILITADA*\n\n` +
@@ -10040,9 +11763,19 @@ ${formattedInstrutores}
                                 const waUrl = `https://wa.me/55${aluno.whatsapp.replace(/\D/g, '')}?text=${formattedMsg}`;
 
                                 return (
-                                  <tr key={`${aluno.id}-${baixa.id}`} className="hover:bg-slate-50/80 transition">
+                                  <tr 
+                                    key={`${aluno.id}-${baixa.id}-${index}`} 
+                                    className={`transition ${isDuplicate ? 'bg-amber-50/50 hover:bg-amber-100/60 border-l-4 border-amber-400' : 'hover:bg-slate-50/80'}`}
+                                  >
                                     <td className="p-3 pl-4">
-                                      <div className="font-mono font-bold text-indigo-900 text-[11px]">{receiptId}</div>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-mono font-bold text-indigo-900 text-[11px]">{receiptId}</span>
+                                        {isDuplicate && (
+                                          <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-extrabold px-1.5 py-0.5 rounded" title="Informação de recibo duplicada identificada">
+                                            ⚠️ Duplicata
+                                          </span>
+                                        )}
+                                      </div>
                                       <div className="text-[10px] text-slate-400">{formatDateBR(baixa.data)}</div>
                                     </td>
                                     <td className="p-3">
@@ -10063,6 +11796,7 @@ ${formattedInstrutores}
                                     <td className="p-3 pr-4 text-right">
                                       <div className="flex items-center justify-end gap-1.5">
                                         <button
+                                          type="button"
                                           onClick={() => handleEmitirReciboCandidato(aluno, baixa)}
                                           className="bg-[#0c2340] hover:bg-slate-900 text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
                                           title="Visualizar Recibo Imprimível"
@@ -10080,6 +11814,17 @@ ${formattedInstrutores}
                                         >
                                           <span>💬</span> WhatsApp
                                         </a>
+
+                                        {/* Botão de Excluir Recibo / Retirar Informações Duplicadas */}
+                                        <button
+                                          type="button"
+                                          onClick={() => setReceiptToDelete({ aluno, baixa, isDuplicate })}
+                                          className="bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-900 border border-rose-200 text-[10px] font-extrabold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer active:scale-95 shadow-sm"
+                                          title={isDuplicate ? "Excluir recibo duplicado" : "Excluir recibo / baixa"}
+                                        >
+                                          <Trash2 className="h-3 w-3 text-rose-600" />
+                                          Excluir
+                                        </button>
                                       </div>
                                     </td>
                                   </tr>
@@ -10090,6 +11835,7 @@ ${formattedInstrutores}
                         </div>
                       )}
                     </div>
+
                   </div>
                 );
               })()}
@@ -10369,11 +12115,11 @@ ${formattedInstrutores}
                       }`}
                     >
                       <Receipt className="h-4 w-4" />
-                      <span>Assinatura eletrônica</span>
+                      <span>Gestão & Emissão de Recibos</span>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
                         instActiveTab === 'recibos' ? 'bg-slate-950/25 text-slate-950' : 'bg-slate-800 text-slate-300'
                       }`}>
-                        {activeInstructor.recibos?.length || 0}
+                        {(activeInstructor.recibos?.length || 0) + cleanAlunos.filter(a => isSameInstructor(a.instrutor, activeInstructor.nome)).reduce((acc, a) => acc + (a.baixasPagamento?.length || 0), 0)}
                       </span>
                     </button>
                   </div>
@@ -10394,6 +12140,7 @@ ${formattedInstrutores}
                   const filteredCandidates = monthlyLedger.candidates.filter(c => {
                     if (instMonthStatusFilter === 'pagos' && c.statusMes !== 'pago') return false;
                     if (instMonthStatusFilter === 'pendentes' && c.statusMes !== 'aguardando' && c.statusMes !== 'atrasado') return false;
+                    if (instMonthStatusFilter === 'extras' && !(c.valorAulasExtrasNoMes && c.valorAulasExtrasNoMes > 0)) return false;
                     if (instMonthSearch.trim()) {
                       const q = instMonthSearch.toLowerCase();
                       const matchName = c.aluno.nome.toLowerCase().includes(q);
@@ -10406,6 +12153,7 @@ ${formattedInstrutores}
 
                   const totalAtivosNoMes = monthlyLedger.totalPagos + monthlyLedger.totalPendentes;
                   const taxaAdimplencia = totalAtivosNoMes > 0 ? Math.round((monthlyLedger.totalPagos / totalAtivosNoMes) * 100) : 0;
+                  const candidatesComExtrasNoMes = monthlyLedger.candidates.filter(c => (c.valorAulasExtrasNoMes || 0) > 0);
 
                   return (
                     <div className="space-y-6 text-left">
@@ -10517,7 +12265,7 @@ ${formattedInstrutores}
                             <div className="text-xl font-black text-emerald-400 font-mono">
                               {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(monthlyLedger.totalRecebido)}
                             </div>
-                            <p className="text-[9.5px] text-slate-400">Parcelas/baixas quitadas em {formatMonthTitle(instSelectedMonth)}</p>
+                            <p className="text-[9.5px] text-slate-400">Parcelas e extras quitadas em {formatMonthTitle(instSelectedMonth)}</p>
                           </div>
 
                           <div className="bg-emerald-950/30 border border-emerald-500/30 p-4 rounded-xl space-y-1">
@@ -10557,10 +12305,47 @@ ${formattedInstrutores}
                           </div>
                         </div>
 
+                        {/* Destaque Financeiro de Aulas Extras Integradas */}
+                        {(monthlyLedger.totalAulasExtrasRecebido || 0) > 0 && (
+                          <div className="bg-gradient-to-r from-amber-950/30 via-slate-900 to-emerald-950/30 border border-amber-500/30 p-4 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
+                            <div className="flex items-center gap-3">
+                              <div className="bg-amber-500/20 text-amber-300 p-2.5 rounded-xl text-xl shrink-0">
+                                🚗
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-extrabold text-white text-sm">Aulas Adicionais Integradas à Comutabilidade</span>
+                                  <span className="bg-amber-500/25 text-amber-300 border border-amber-500/40 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full">
+                                    +{monthlyLedger.totalAulasExtrasCount} aula(s) extra(s)
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-300 mt-0.5">
+                                  Valores adicionais de alunos que compraram mais aulas neste mês foram adicionados ao extrato e à sua comissão (80%).
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-4 font-mono ml-auto sm:ml-0">
+                              <div className="text-right">
+                                <span className="text-[9px] uppercase tracking-wider text-slate-400 block">Total Aulas Extras</span>
+                                <span className="text-base font-black text-amber-300">
+                                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(monthlyLedger.totalAulasExtrasRecebido || 0)}
+                                </span>
+                              </div>
+                              <div className="h-8 w-[1px] bg-slate-700"></div>
+                              <div className="text-right">
+                                <span className="text-[9px] uppercase tracking-wider text-emerald-400 block">Repasse Extra (80%)</span>
+                                <span className="text-base font-black text-emerald-300">
+                                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(monthlyLedger.comissaoAulasExtrasRecebida || 0)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {/* Filter Tabs & Candidate Search */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
                           {/* Status Filter Buttons */}
-                          <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                          <div className="flex flex-wrap items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
                             <button
                               type="button"
                               onClick={() => setInstMonthStatusFilter('pagos')}
@@ -10569,7 +12354,7 @@ ${formattedInstrutores}
                                   ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
                                   : 'text-slate-400 hover:text-emerald-300'
                               }`}
-                              title="Exibir apenas alunos que quitaram parcelas nesta competência"
+                              title="Exibir apenas alunos que quitaram parcelas ou aulas extras nesta competência"
                             >
                               <span className={`h-2 w-2 rounded-full ${instMonthStatusFilter === 'pagos' ? 'bg-slate-950' : 'bg-emerald-400'}`}></span>
                               Quitados no Mês ({monthlyLedger.totalPagos})
@@ -10587,6 +12372,21 @@ ${formattedInstrutores}
                               <span className="h-2 w-2 rounded-full bg-amber-400"></span>
                               Pendentes ({monthlyLedger.totalPendentes})
                             </button>
+                            {candidatesComExtrasNoMes.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setInstMonthStatusFilter('extras')}
+                                className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                                  instMonthStatusFilter === 'extras'
+                                    ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                                    : 'text-slate-400 hover:text-amber-300'
+                                }`}
+                                title="Exibir candidatos que compraram aulas adicionais nesta competência"
+                              >
+                                <span>🚗</span>
+                                Aulas Extras ({candidatesComExtrasNoMes.length})
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => setInstMonthStatusFilter('todos')}
@@ -10639,6 +12439,11 @@ ${formattedInstrutores}
                                   <span className="text-amber-400">⏳</span>
                                   <span>Alunos com Cobrança Pendente no Mês ({filteredCandidates.length})</span>
                                 </>
+                              ) : instMonthStatusFilter === 'extras' ? (
+                                <>
+                                  <span className="text-amber-400">🚗</span>
+                                  <span>Alunos com Aulas Adicionais Compradas no Mês ({filteredCandidates.length})</span>
+                                </>
                               ) : (
                                 <>
                                   <span className="text-slate-400">👥</span>
@@ -10674,11 +12479,15 @@ ${formattedInstrutores}
                             <h4 className="text-sm font-bold text-slate-200">
                               {instMonthStatusFilter === 'pagos'
                                 ? `Nenhum aluno quitou no mês de ${formatMonthTitle(instSelectedMonth)}`
+                                : instMonthStatusFilter === 'extras'
+                                ? `Nenhuma compra de aulas extras registrada em ${formatMonthTitle(instSelectedMonth)}`
                                 : `Nenhum candidato encontrado com os filtros selecionados`}
                             </h4>
                             <p className="text-xs text-slate-500 max-w-md mx-auto">
                               {instMonthStatusFilter === 'pagos'
                                 ? `Não constam parcelas ou baixas quitadas em ${formatMonthTitle(instSelectedMonth)} para sua carteira de alunos.`
+                                : instMonthStatusFilter === 'extras'
+                                ? `Não há registros de compra de aulas adicionais nesta competência.`
                                 : `Não há registros para a busca "${instMonthSearch}" na competência de ${formatMonthTitle(instSelectedMonth)}.`}
                             </p>
                             <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
@@ -10711,7 +12520,7 @@ ${formattedInstrutores}
                                   <th className="py-3.5 px-4">Candidato</th>
                                   <th className="py-3.5 px-4">Parcela / Plano</th>
                                   <th className="py-3.5 px-4">Vencimento</th>
-                                  <th className="py-3.5 px-4">Valor Parcela</th>
+                                  <th className="py-3.5 px-4">Valor Parcela / Mês</th>
                                   <th className="py-3.5 px-4">Repasse Instrutor (80%)</th>
                                   <th className="py-3.5 px-4">Status no Mês</th>
                                   <th className="py-3.5 px-4 text-right">Ações Rápidas</th>
@@ -10766,6 +12575,11 @@ ${formattedInstrutores}
                                           <span className="block text-[10px] text-slate-500 font-sans">
                                             Contrato: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.contractTotal)}
                                           </span>
+                                          {row.valorAulasExtrasNoMes && row.valorAulasExtrasNoMes > 0 && (
+                                            <div className="mt-1 bg-amber-500/15 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded text-[9.5px] font-sans font-bold flex items-center gap-1 w-fit">
+                                              <span>🚗</span> +{row.aulasExtrasCountNoMes} aula(s) extra(s) ({new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.valorAulasExtrasNoMes)})
+                                            </div>
+                                          )}
                                         </div>
                                       </td>
 
@@ -10774,12 +12588,19 @@ ${formattedInstrutores}
                                         {formatDateBR(row.dataVencimentoMes)}
                                       </td>
 
-                                      {/* Valor Parcela */}
+                                      {/* Valor Parcela / Mês */}
                                       <td className="py-3.5 px-4 font-mono font-bold text-slate-200">
                                         {row.statusMes === 'pago' ? (
-                                          <span className="text-emerald-400 font-extrabold">
-                                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.valorPagoNoMes)}
-                                          </span>
+                                          <div>
+                                            <span className="text-emerald-400 font-extrabold text-sm block">
+                                              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.valorPagoNoMes)}
+                                            </span>
+                                            {row.valorAulasExtrasNoMes && row.valorAulasExtrasNoMes > 0 && (
+                                              <span className="text-[9.5px] text-amber-400 font-sans font-normal block">
+                                                (inclui {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.valorAulasExtrasNoMes)} de extras)
+                                              </span>
+                                            )}
+                                          </div>
                                         ) : (
                                           <span>
                                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.valorCobradoNoMes)}
@@ -10798,6 +12619,11 @@ ${formattedInstrutores}
                                           <span className="block text-[9px] text-emerald-500 font-sans font-semibold">
                                             {row.statusMes === 'pago' ? '✓ Liberado 80%' : 'Previsto (80%)'}
                                           </span>
+                                          {row.valorAulasExtrasNoMes && row.valorAulasExtrasNoMes > 0 && (
+                                            <span className="text-[9px] text-amber-400/90 font-mono block">
+                                              +{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(row.valorAulasExtrasNoMes * 0.80)} repasse extras
+                                            </span>
+                                          )}
                                         </div>
                                       </td>
 
@@ -10833,6 +12659,13 @@ ${formattedInstrutores}
                                             Adesão em Mês Posterior
                                           </span>
                                         )}
+                                        {row.valorAulasExtrasNoMes && row.valorAulasExtrasNoMes > 0 && (
+                                          <div className="mt-1">
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
+                                              <span>🚗</span> +{row.aulasExtrasCountNoMes} Aulas Extras
+                                            </span>
+                                          </div>
+                                        )}
                                       </td>
 
                                       {/* Ações Rápidas */}
@@ -10857,6 +12690,17 @@ ${formattedInstrutores}
                                               >
                                                 💳 Baixas
                                               </button>
+                                              {row.baixaCorrespondente && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setReceiptToDelete({ aluno: student, baixa: row.baixaCorrespondente! })}
+                                                  className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 px-2 py-1.5 rounded-lg text-[10.5px] font-bold transition cursor-pointer flex items-center gap-1 active:scale-95"
+                                                  title="Excluir recibo / baixa de pagamento para retirar duplicidade"
+                                                >
+                                                  <Trash2 className="h-3 w-3 text-rose-400" />
+                                                  <span className="hidden xl:inline">Excluir</span>
+                                                </button>
+                                              )}
                                             </>
                                           ) : (
                                             <>
@@ -11047,13 +12891,23 @@ ${formattedInstrutores}
                                     </p>
                                     <p className="truncate">Certificado: <span className="text-slate-200">{rec.identificadorGov}</span></p>
                                     <p>Data: <span className="text-slate-200">{new Date(rec.dataAssinatura!).toLocaleDateString('pt-BR')}</span></p>
-                                    <button
-                                      type="button"
-                                      onClick={() => setViewingRecibo({ instrutorNome: activeInstructor.nome, recibo: rec })}
-                                      className="w-full mt-2 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold py-1.5 px-2.5 rounded-lg text-[9.5px] transition flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer"
-                                    >
-                                      🔍 Visualizar Recibo Oficial
-                                    </button>
+                                    <div className="flex items-center gap-1.5 mt-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => setViewingRecibo({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                        className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold py-1.5 px-2.5 rounded-lg text-[9.5px] transition flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer"
+                                      >
+                                        🔍 Visualizar Recibo Oficial
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setInstReceiptToDelete({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                        className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 p-1.5 rounded-lg text-[9.5px] transition flex items-center justify-center cursor-pointer"
+                                        title="Excluir recibo de comissão"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5 text-rose-400" />
+                                      </button>
+                                    </div>
                                   </div>
                                 ) : (
                                   <div className="flex gap-2">
@@ -11071,6 +12925,14 @@ ${formattedInstrutores}
                                       title="Visualizar Recibo"
                                     >
                                       🔍 Ver
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setInstReceiptToDelete({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                      className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 px-2.5 py-2 rounded-lg text-[10px] transition flex items-center justify-center cursor-pointer"
+                                      title="Excluir recibo de comissão"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5 text-rose-400" />
                                     </button>
                                   </div>
                                 )}
@@ -11090,23 +12952,35 @@ ${formattedInstrutores}
                         <p className="text-[10.5px] text-slate-400 font-sans mt-0.5">Acompanhe o andamento das faturas e dos planos contratados por seus alunos.</p>
                       </div>
                       
-                      {/* Search Bar inside his students */}
-                      <div className="relative max-w-xs w-full">
-                        <input
-                          type="text"
-                          placeholder="Filtre seus indicados por nome..."
-                          value={instSearchQuery}
-                          onChange={(e) => setInstSearchQuery(e.target.value)}
-                          className="w-full bg-slate-950 text-xs text-slate-200 placeholder-slate-500 pl-3.5 pr-8 py-2 rounded-xl border border-slate-800 focus:border-emerald-500 focus:outline-none transition"
-                        />
-                        {instSearchQuery && (
-                          <button 
-                            onClick={() => setInstSearchQuery('')}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition text-xs"
-                          >
-                            ✕
-                          </button>
-                        )}
+                      <div className="flex items-center gap-2 max-w-md w-full sm:w-auto">
+                        <button
+                          type="button"
+                          onClick={() => handleAbrirLancamentoAulas()}
+                          className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20 cursor-pointer shrink-0 active:scale-95"
+                          title="Fazer lançamento manual de compra de aulas extras"
+                        >
+                          <Car className="h-4 w-4 text-indigo-200" />
+                          <span>Lançar Aulas</span>
+                        </button>
+
+                        {/* Search Bar inside his students */}
+                        <div className="relative flex-1 sm:w-56">
+                          <input
+                            type="text"
+                            placeholder="Filtrar por nome..."
+                            value={instSearchQuery}
+                            onChange={(e) => setInstSearchQuery(e.target.value)}
+                            className="w-full bg-slate-950 text-xs text-slate-200 placeholder-slate-500 pl-3.5 pr-8 py-2 rounded-xl border border-slate-800 focus:border-emerald-500 focus:outline-none transition"
+                          />
+                          {instSearchQuery && (
+                            <button 
+                              onClick={() => setInstSearchQuery('')}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition text-xs"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -11200,8 +13074,16 @@ ${formattedInstrutores}
                                 <div className="flex sm:flex-col items-stretch gap-2 shrink-0">
                                   <button
                                     type="button"
+                                    onClick={() => handleAbrirLancamentoAulas(student)}
+                                    className="flex-1 sm:flex-none text-center bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold py-1.5 px-3.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1"
+                                    title="Lançar compra de aulas extras deste aluno"
+                                  >
+                                    🚗 + Aulas
+                                  </button>
+                                  <button
+                                    type="button"
                                     onClick={() => handleAbrirBaixaManual(student)}
-                                    className="flex-1 sm:flex-none text-center bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold py-2 px-3.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1"
+                                    className="flex-1 sm:flex-none text-center bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold py-1.5 px-3.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1"
                                     title="Dar baixa manual ou ajustar parcelas do aluno"
                                   >
                                     💳 Baixa / Ajuste
@@ -11333,88 +13215,484 @@ ${formattedInstrutores}
                   </div>
                 )}
 
-                {/* ABA 4: RECIBOS & QUITAÇÕES GOV.BR */}
-                {instActiveTab === 'recibos' && (
-                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-4 text-left">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
-                      <div>
-                        <h3 className="font-extrabold text-base text-white tracking-tight flex items-center gap-2">
-                          <span>📋</span> Seus Recibos de Comissão & Quitações
-                        </h3>
-                        <p className="text-xs text-slate-400 font-sans mt-0.5">
-                          Visualize pagamentos recebidos e assine os recibos eletronicamente via GOV.BR com validade jurídica.
-                        </p>
-                      </div>
-                    </div>
+                {/* ABA 4: GESTÃO & EMISSÃO DE RECIBOS DE PAGAMENTO */}
+                {instActiveTab === 'recibos' && (() => {
+                  // Scope: either instructor's own students or all students
+                  const scopedAlunos = instReceiptStudentScope === 'minha_carteira'
+                    ? cleanAlunos.filter(a => isSameInstructor(a.instrutor, activeInstructor.nome))
+                    : cleanAlunos;
 
-                    {!activeInstructor.recibos || activeInstructor.recibos.length === 0 ? (
-                      <div className="py-12 text-center text-slate-500 italic text-xs bg-slate-950/40 rounded-xl border border-slate-855 space-y-2">
-                        <div className="text-2xl">📑</div>
-                        <p>Nenhum recibo de comissão emitido até o momento.</p>
-                        <p className="text-[11px] text-slate-600">Os recibos oficiais são gerados conforme as baixas e repasses são homologados.</p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {activeInstructor.recibos.map(rec => (
-                          <div key={rec.id} className="bg-slate-950 border border-slate-850 p-4 rounded-xl space-y-3 text-xs text-left">
-                            <div className="flex items-center justify-between">
-                              <span className="font-extrabold font-mono text-[#32bcad] bg-[#32bcad]/10 px-2.5 py-1 rounded border border-[#32bcad]/20">
-                                {rec.id}
-                              </span>
-                              <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full ${
-                                rec.status === 'assinado_gov' 
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse'
-                              }`}>
-                                {rec.status === 'assinado_gov' ? '✓ Assinado Eletronicamente' : '⏳ Assinatura Pendente'}
-                              </span>
-                            </div>
+                  // Flatten all baixas from scoped students
+                  const allInstStudentReceipts: { aluno: Aluno; baixa: BaixaPagamento; isDuplicate: boolean }[] = [];
+                  scopedAlunos.forEach(aluno => {
+                    if (aluno.baixasPagamento && aluno.baixasPagamento.length > 0) {
+                      const seenSignatures = new Set<string>();
+                      aluno.baixasPagamento.forEach(baixa => {
+                        const sig = `${baixa.data ? baixa.data.substring(0, 10) : ''}_${Number(baixa.valor).toFixed(2)}_${(baixa.formaPagamento || '').trim().toLowerCase()}_${(baixa.observacao || '').trim().toLowerCase()}`;
+                        const isDup = seenSignatures.has(sig) || seenSignatures.has(baixa.id);
+                        if (!isDup) {
+                          seenSignatures.add(sig);
+                          seenSignatures.add(baixa.id);
+                        }
+                        allInstStudentReceipts.push({ aluno, baixa, isDuplicate: isDup });
+                      });
+                    }
+                  });
 
-                            <div className="flex justify-between items-center text-xs text-slate-300 border-y border-slate-850 py-2">
-                              <span>Valor Pago: <strong className="text-white font-mono text-sm">{rec.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></span>
-                              <span className="text-slate-500 font-mono text-[11px]">{new Date(rec.dataEmissao).toLocaleDateString('pt-BR')}</span>
-                            </div>
+                  // Duplicates count for scoped students
+                  const scopedDuplicateCount = allInstStudentReceipts.filter(r => r.isDuplicate).length;
 
-                            {rec.status === 'assinado_gov' ? (
-                              <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 text-[10px] font-mono text-slate-400 space-y-1.5">
-                                <p className="text-emerald-400 font-bold flex items-center gap-1">
-                                  <span>🛡️</span> Assinado Eletronicamente
-                                </p>
-                                <p className="truncate">Certificado: <span className="text-slate-200">{rec.identificadorGov}</span></p>
-                                <p>Data: <span className="text-slate-200">{new Date(rec.dataAssinatura!).toLocaleDateString('pt-BR')}</span></p>
-                                <button
-                                  type="button"
-                                  onClick={() => setViewingRecibo({ instrutorNome: activeInstructor.nome, recibo: rec })}
-                                  className="w-full mt-2 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold py-2 px-3 rounded-lg text-[10px] transition flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer"
-                                >
-                                  🔍 Visualizar Recibo Oficial
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleSimulateGovSign(activeInstructor, rec)}
-                                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black py-2.5 px-3 rounded-xl text-xs transition active:scale-95 flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer shadow-sm"
-                                >
-                                  🖋️ Assinar via GOV.BR
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setViewingRecibo({ instrutorNome: activeInstructor.nome, recibo: rec })}
-                                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2.5 px-3.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
-                                  title="Visualizar Recibo"
-                                >
-                                  🔍 Ver
-                                </button>
-                              </div>
-                            )}
+                  // Filter by search query and duplicate toggle
+                  const filteredInstStudentReceipts = allInstStudentReceipts.filter(r => {
+                    if (instReceiptFilterDuplicateOnly && !r.isDuplicate) return false;
+                    if (!instReceiptSearchQuery.trim()) return true;
+                    const q = instReceiptSearchQuery.toLowerCase();
+                    return (
+                      r.aluno.nome.toLowerCase().includes(q) ||
+                      (r.aluno.cpf && r.aluno.cpf.includes(q)) ||
+                      r.baixa.id.toLowerCase().includes(q) ||
+                      (r.baixa.observacao && r.baixa.observacao.toLowerCase().includes(q))
+                    );
+                  });
+
+                  // Check if instructor has duplicate commission receipts
+                  const instCommissionReceipts = activeInstructor.recibos || [];
+                  const instCommissionDups: ReciboQuitacao[] = [];
+                  const seenComms = new Set<string>();
+                  instCommissionReceipts.forEach(rec => {
+                    const key = `${rec.dataEmissao ? rec.dataEmissao.substring(0, 10) : ''}_${rec.valor}`;
+                    if (seenComms.has(key)) {
+                      instCommissionDups.push(rec);
+                    } else {
+                      seenComms.add(key);
+                    }
+                  });
+
+                  return (
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6 text-left">
+                      {/* Top Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                              <Receipt className="h-5 w-5" />
+                            </span>
+                            <h3 className="font-extrabold text-lg text-white tracking-tight">
+                              Gestão & Emissão de Recibos de Pagamento
+                            </h3>
                           </div>
-                        ))}
+                          <p className="text-xs text-slate-400 font-sans mt-1">
+                            Consulte, emita recibos de quitação dos candidatos, retire informações duplicadas e gerencie seus recibos de comissão via GOV.BR.
+                          </p>
+                        </div>
+
+                        {/* Top Action Buttons */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleAbrirLancamentoAulas()}
+                            className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20 cursor-pointer active:scale-95"
+                            title="Lançamento manual de compra de aulas extras para qualquer aluno"
+                          >
+                            <Car className="h-4 w-4 text-indigo-200" />
+                            <span>Lançar Compra de Aulas</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setIsNewManualReceiptModalOpen(true)}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer active:scale-95"
+                          >
+                            <span>➕</span> Novo Recibo
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setIsRemoveDuplicatesModalOpen(true)}
+                            className={`text-xs font-extrabold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                              scopedDuplicateCount > 0 || allGlobalDuplicateReceipts.length > 0
+                                ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/20 animate-pulse'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                            }`}
+                            title="Localizar e excluir automaticamente registros de recibos duplicados"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            <span>Excluir Informações Duplicadas</span>
+                            {(scopedDuplicateCount > 0 || allGlobalDuplicateReceipts.length > 0) && (
+                              <span className="bg-white/20 text-white px-1.5 py-0.5 rounded-full text-[10px] font-mono font-black">
+                                {scopedDuplicateCount > 0 ? scopedDuplicateCount : allGlobalDuplicateReceipts.length}
+                              </span>
+                            )}
+                          </button>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                )}
+
+                      {/* Subtabs Selector */}
+                      <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3">
+                        <button
+                          type="button"
+                          onClick={() => setInstReciboSubTab('candidatos')}
+                          className={`py-2 px-4 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 ${
+                            instReciboSubTab === 'candidatos'
+                              ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
+                              : 'bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-850 border border-slate-800'
+                          }`}
+                        >
+                          <Receipt className="h-4 w-4" />
+                          <span>Recibos dos Candidatos</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                            instReciboSubTab === 'candidatos' ? 'bg-slate-950/25 text-slate-950' : 'bg-slate-800 text-slate-300'
+                          }`}>
+                            {allInstStudentReceipts.length}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setInstReciboSubTab('comissao')}
+                          className={`py-2 px-4 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-2 ${
+                            instReciboSubTab === 'comissao'
+                              ? 'bg-emerald-500 text-slate-950 shadow-md font-black'
+                              : 'bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-850 border border-slate-800'
+                          }`}
+                        >
+                          <span>🏛️</span>
+                          <span>Recibos de Comissão (GOV.BR)</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                            instReciboSubTab === 'comissao' ? 'bg-slate-950/25 text-slate-950' : 'bg-slate-800 text-slate-300'
+                          }`}>
+                            {instCommissionReceipts.length}
+                          </span>
+                        </button>
+                      </div>
+
+                      {/* SUBTAB 1: RECIBOS DOS CANDIDATOS */}
+                      {instReciboSubTab === 'candidatos' && (
+                        <div className="space-y-4">
+                          {/* Duplicate Alert Banner if duplicates exist */}
+                          {scopedDuplicateCount > 0 && (
+                            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
+                              <div className="flex items-start gap-2.5">
+                                <span className="text-xl">⚠️</span>
+                                <div>
+                                  <strong className="text-amber-300 block font-bold text-sm">
+                                    Informações Duplicadas Identificadas ({scopedDuplicateCount} registro{scopedDuplicateCount > 1 ? 's' : ''})
+                                  </strong>
+                                  <p className="text-[11px] text-amber-200/80 mt-0.5 leading-relaxed">
+                                    Detectamos pagamentos repetidos com mesmo aluno, valor e data. Clique no botão de exclusão individual na tabela ou execute a limpeza em lote para remover duplicatas.
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setIsRemoveDuplicatesModalOpen(true)}
+                                className="bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-rose-600/20 cursor-pointer whitespace-nowrap self-start sm:self-center"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                <span>Limpar Duplicados Agora</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Filters and Search Bar */}
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                            <div className="md:col-span-6 relative">
+                              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                              <input
+                                type="text"
+                                placeholder="Buscar por candidato, CPF ou Nº do recibo..."
+                                value={instReceiptSearchQuery}
+                                onChange={(e) => setInstReceiptSearchQuery(e.target.value)}
+                                className="w-full bg-slate-950 text-xs text-slate-200 placeholder-slate-500 pl-9 pr-8 py-2.5 rounded-xl border border-slate-800 focus:border-emerald-500 focus:outline-none transition"
+                              />
+                              {instReceiptSearchQuery && (
+                                <button
+                                  type="button"
+                                  onClick={() => setInstReceiptSearchQuery('')}
+                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1 cursor-pointer"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="md:col-span-3 flex items-center bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs">
+                              <button
+                                type="button"
+                                onClick={() => setInstReceiptStudentScope('minha_carteira')}
+                                className={`flex-1 py-1.5 px-2 rounded-lg font-bold text-center transition cursor-pointer ${
+                                  instReceiptStudentScope === 'minha_carteira'
+                                    ? 'bg-slate-800 text-emerald-400 shadow-sm'
+                                    : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                Minha Carteira
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setInstReceiptStudentScope('todos')}
+                                className={`flex-1 py-1.5 px-2 rounded-lg font-bold text-center transition cursor-pointer ${
+                                  instReceiptStudentScope === 'todos'
+                                    ? 'bg-slate-800 text-emerald-400 shadow-sm'
+                                    : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                Todos Alunos
+                              </button>
+                            </div>
+
+                            <div className="md:col-span-3 flex items-center">
+                              <button
+                                type="button"
+                                onClick={() => setInstReceiptFilterDuplicateOnly(!instReceiptFilterDuplicateOnly)}
+                                className={`w-full py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                                  instReceiptFilterDuplicateOnly
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                                    : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                                }`}
+                              >
+                                <span>⚠️</span>
+                                <span>Apenas Duplicados</span>
+                                {scopedDuplicateCount > 0 && (
+                                  <span className="bg-amber-500/30 text-amber-200 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                                    {scopedDuplicateCount}
+                                  </span>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Receipts Table */}
+                          {filteredInstStudentReceipts.length === 0 ? (
+                            <div className="py-12 text-center text-slate-500 italic text-xs bg-slate-950/40 rounded-xl border border-slate-855 space-y-2">
+                              <div className="text-2xl">🧾</div>
+                              <p>Nenhum recibo de pagamento encontrado para os filtros selecionados.</p>
+                              {instReceiptSearchQuery && (
+                                <button
+                                  type="button"
+                                  onClick={() => setInstReceiptSearchQuery('')}
+                                  className="text-emerald-400 hover:underline text-xs font-bold mt-1 cursor-pointer"
+                                >
+                                  Limpar pesquisa
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto border border-slate-800 rounded-xl">
+                              <table className="w-full text-left border-collapse">
+                                <thead>
+                                  <tr className="bg-slate-950/70 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                    <th className="p-3 pl-4">Nº Recibo & Data</th>
+                                    <th className="p-3">Candidato</th>
+                                    <th className="p-3">Valor Pago</th>
+                                    <th className="p-3">Forma</th>
+                                    <th className="p-3">Referente</th>
+                                    <th className="p-3 pr-4 text-right">Ações</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-800/80 text-xs text-slate-300">
+                                  {filteredInstStudentReceipts.map(({ aluno, baixa, isDuplicate }, index) => {
+                                    const receiptId = baixa.id.startsWith('REC-') ? baixa.id : `REC-${baixa.id}`;
+                                    const formattedMsg = encodeURIComponent(
+                                      `🧾 *RECIBO DE PAGAMENTO - PROGRAMA CNH FACILITADA*\n\n` +
+                                      `Olá, *${aluno.nome}*!\n` +
+                                      `Confirmamos o recebimento do seu pagamento no valor de *${baixa.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}* (${baixa.formaPagamento}).\n\n` +
+                                      `📌 *Nº Recibo:* ${receiptId}\n` +
+                                      `📅 *Data:* ${formatDateBR(baixa.data)}\n` +
+                                      `📑 *Referente:* ${baixa.observacao || 'Quitação CNH Facilitada'}\n\n` +
+                                      `Obrigado por confiar no Programa Nova CNH Brasil!`
+                                    );
+                                    const waUrl = `https://wa.me/55${aluno.whatsapp.replace(/\D/g, '')}?text=${formattedMsg}`;
+
+                                    return (
+                                      <tr
+                                        key={`inst-rec-${aluno.id}-${baixa.id}-${index}`}
+                                        className={`transition ${isDuplicate ? 'bg-amber-500/10 hover:bg-amber-500/15 border-l-4 border-amber-500' : 'hover:bg-slate-850/60'}`}
+                                      >
+                                        <td className="p-3 pl-4">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-mono font-bold text-emerald-400 text-[11px]">{receiptId}</span>
+                                            {isDuplicate && (
+                                              <span className="inline-flex items-center gap-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-extrabold px-1.5 py-0.5 rounded" title="Informação de recibo duplicada identificada">
+                                                ⚠️ Duplicata
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="text-[10px] text-slate-500">{formatDateBR(baixa.data)}</div>
+                                        </td>
+                                        <td className="p-3">
+                                          <div className="font-extrabold text-white">{aluno.nome}</div>
+                                          <div className="text-[10px] text-slate-400 font-medium">Cat. {aluno.categoria} • CPF: {aluno.cpf}</div>
+                                        </td>
+                                        <td className="p-3 font-mono font-black text-emerald-400 text-sm">
+                                          {baixa.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                        </td>
+                                        <td className="p-3 font-semibold text-slate-300">
+                                          <span className="bg-slate-950 px-2 py-0.5 rounded text-[10px] font-bold border border-slate-800 text-slate-300">
+                                            {baixa.formaPagamento}
+                                          </span>
+                                        </td>
+                                        <td className="p-3 text-[11px] text-slate-400 max-w-xs truncate" title={baixa.observacao}>
+                                          {baixa.observacao || 'Quitação CNH Facilitada'}
+                                        </td>
+                                        <td className="p-3 pr-4 text-right">
+                                          <div className="flex items-center justify-end gap-1.5">
+                                            <button
+                                              type="button"
+                                              onClick={() => handleEmitirReciboCandidato(aluno, baixa)}
+                                              className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer"
+                                              title="Ver ou imprimir recibo oficial do aluno"
+                                            >
+                                              <Receipt className="h-3.5 w-3.5 text-emerald-400" />
+                                              <span className="hidden lg:inline">Recibo</span>
+                                            </button>
+                                            <a
+                                              href={waUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/30 px-2 py-1.5 rounded-lg text-[10.5px] font-bold transition flex items-center gap-1 cursor-pointer"
+                                              title="Enviar comprovante via WhatsApp"
+                                            >
+                                              <MessageCircle className="h-3.5 w-3.5 text-emerald-400" />
+                                            </a>
+                                            <button
+                                              type="button"
+                                              onClick={() => setReceiptToDelete({ aluno, baixa, isDuplicate })}
+                                              className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold transition cursor-pointer flex items-center gap-1 active:scale-95"
+                                              title="Excluir recibo / retirar informação duplicada"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5 text-rose-400" />
+                                              <span className="font-extrabold text-rose-300">Excluir</span>
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* SUBTAB 2: RECIBOS DE COMISSÃO (GOV.BR) */}
+                      {instReciboSubTab === 'comissao' && (
+                        <div className="space-y-4">
+                          {/* Banner if duplicate commission receipts found */}
+                          {instCommissionDups.length > 0 && (
+                            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
+                              <div className="flex items-start gap-2.5">
+                                <span className="text-xl">⚠️</span>
+                                <div>
+                                  <strong className="text-amber-300 block font-bold text-sm">
+                                    Detectamos {instCommissionDups.length} recibo(s) de comissão duplicado(s)
+                                  </strong>
+                                  <p className="text-[11px] text-amber-200/80 mt-0.5 leading-relaxed">
+                                    Existem lançamentos de comissão repetidos para este instrutor com mesmo valor e data.
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleExcluirRecibosInstrutorDuplicados(activeInstructor.nome)}
+                                className="bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-rose-600/20 cursor-pointer whitespace-nowrap self-start sm:self-center"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                <span>Excluir Duplicados de Comissão</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {!activeInstructor.recibos || activeInstructor.recibos.length === 0 ? (
+                            <div className="py-12 text-center text-slate-500 italic text-xs bg-slate-950/40 rounded-xl border border-slate-850 space-y-2">
+                              <div className="text-2xl">📑</div>
+                              <p>Nenhum recibo de comissão emitido até o momento.</p>
+                              <p className="text-[11px] text-slate-600">Os recibos oficiais são gerados conforme as baixas e repasses são homologados.</p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {activeInstructor.recibos.map(rec => (
+                                <div key={rec.id} className="bg-slate-950 border border-slate-850 p-4 rounded-xl space-y-3 text-xs text-left">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-extrabold font-mono text-[#32bcad] bg-[#32bcad]/10 px-2.5 py-1 rounded border border-[#32bcad]/20">
+                                      {rec.id}
+                                    </span>
+                                    <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full ${
+                                      rec.status === 'assinado_gov' 
+                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse'
+                                    }`}>
+                                      {rec.status === 'assinado_gov' ? '✓ Assinado Eletronicamente' : '⏳ Assinatura Pendente'}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex justify-between items-center text-xs text-slate-300 border-y border-slate-850 py-2">
+                                    <span>Valor Pago: <strong className="text-white font-mono text-sm">{rec.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></span>
+                                    <span className="text-slate-500 font-mono text-[11px]">{new Date(rec.dataEmissao).toLocaleDateString('pt-BR')}</span>
+                                  </div>
+
+                                  {rec.status === 'assinado_gov' ? (
+                                    <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 text-[10px] font-mono text-slate-400 space-y-1.5">
+                                      <p className="text-emerald-400 font-bold flex items-center gap-1">
+                                        <span>🛡️</span> Assinado Eletronicamente
+                                      </p>
+                                      <p className="truncate">Certificado: <span className="text-slate-200">{rec.identificadorGov}</span></p>
+                                      <p>Data: <span className="text-slate-200">{new Date(rec.dataAssinatura!).toLocaleDateString('pt-BR')}</span></p>
+                                      <div className="flex items-center gap-2 mt-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => setViewingRecibo({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                          className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold py-2 px-3 rounded-lg text-[10px] transition flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer"
+                                        >
+                                          🔍 Visualizar Recibo Oficial
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setInstReceiptToDelete({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                          className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 p-2 rounded-lg text-[10px] transition flex items-center justify-center cursor-pointer"
+                                          title="Excluir recibo de comissão"
+                                        >
+                                          <Trash2 className="h-4 w-4 text-rose-400" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSimulateGovSign(activeInstructor, rec)}
+                                        className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black py-2.5 px-3 rounded-xl text-xs transition active:scale-95 flex items-center justify-center gap-1.5 uppercase tracking-wider cursor-pointer shadow-sm"
+                                      >
+                                        🖋️ Assinar via GOV.BR
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setViewingRecibo({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                        className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold py-2.5 px-3.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                                        title="Visualizar Recibo"
+                                      >
+                                        🔍 Ver
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setInstReceiptToDelete({ instrutorNome: activeInstructor.nome, recibo: rec })}
+                                        className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 px-3 py-2.5 rounded-xl text-xs transition flex items-center justify-center cursor-pointer"
+                                        title="Excluir recibo de comissão"
+                                      >
+                                        <Trash2 className="h-4 w-4 text-rose-400" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
               </div>
             )}
@@ -14107,6 +16385,96 @@ ${formattedInstrutores}
                   )}
                 </div>
 
+                {/* HISTÓRICO DE COMPRAS E LANÇAMENTOS DE AULAS EXTRAS */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 text-left">
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🚗</span>
+                      <div>
+                        <h4 className="text-white font-extrabold text-xs uppercase tracking-wider">
+                          Lançamentos de Aulas Extras & Repasses
+                        </h4>
+                        <p className="text-[10px] text-slate-400">
+                          Histórico de aulas adicionais contratadas, valores cobrados e divisões financeiras
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedStudentDetail(null);
+                        handleAbrirLancamentoAulas(a);
+                      }}
+                      className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-2.5 py-1 rounded-md transition cursor-pointer flex items-center gap-1 active:scale-95 shadow-xs"
+                    >
+                      <Plus className="w-3 h-3" /> Lançar Aulas Extras
+                    </button>
+                  </div>
+
+                  {!a.comprasAulasExtras || a.comprasAulasExtras.length === 0 ? (
+                    <div className="text-center py-5 bg-slate-950/40 rounded-lg border border-slate-850">
+                      <span className="text-xl block mb-1 opacity-40">🚗</span>
+                      <p className="text-xs text-slate-500 font-medium font-sans">Nenhuma compra de aulas extras registrada para este aluno.</p>
+                      <p className="text-[9px] text-slate-600">Utilize o botão acima para lançar aulas adicionais com qualquer valor desejado.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left text-slate-350">
+                        <thead>
+                          <tr className="border-b border-slate-850 text-slate-450 uppercase text-[9px] tracking-wider font-extrabold">
+                            <th className="py-2 px-3">Cód / Data</th>
+                            <th className="py-2 px-3">Quantidade</th>
+                            <th className="py-2 px-3">Valor Total</th>
+                            <th className="py-2 px-3">Repasse Instrutor</th>
+                            <th className="py-2 px-3">Autoescola</th>
+                            <th className="py-2 px-3">Detalhes / Pagamento</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-850/60">
+                          {a.comprasAulasExtras.map((extra: CompraAulasExtras) => {
+                            const valInst = extra.valorInstrutor !== undefined 
+                              ? extra.valorInstrutor 
+                              : Math.round(extra.valorTotal * 0.8 * 100) / 100;
+                            const valAuto = extra.valorAutoescola !== undefined 
+                              ? extra.valorAutoescola 
+                              : Math.round((extra.valorTotal - valInst) * 100) / 100;
+                            return (
+                              <tr key={extra.id} className="hover:bg-slate-900/40 transition">
+                                <td className="py-2.5 px-3 font-mono text-[10px] whitespace-nowrap">
+                                  <span className="text-indigo-400 font-bold block">{extra.id}</span>
+                                  <span className="text-slate-500">{formatDateBR(extra.data)}</span>
+                                </td>
+                                <td className="py-2.5 px-3 font-bold text-slate-200 whitespace-nowrap">
+                                  <span className="bg-slate-800 px-2 py-0.5 rounded text-amber-300 font-mono text-[11px]">
+                                    +{extra.quantidadeAulas} {extra.quantidadeAulas === 1 ? 'aula' : 'aulas'}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 font-extrabold font-mono text-emerald-400 whitespace-nowrap">
+                                  {extra.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-emerald-300 text-[11px] font-bold whitespace-nowrap">
+                                  {valInst.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-slate-400 text-[11px] font-medium whitespace-nowrap">
+                                  {valAuto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </td>
+                                <td className="py-2.5 px-3 text-[11px] text-slate-400 max-w-[240px]">
+                                  <span className="text-slate-300 font-medium block truncate">
+                                    {extra.detalhes || `${extra.quantidadeAulas} aulas (${extra.tipo})`}
+                                  </span>
+                                  <span className="text-slate-500 text-[10px] uppercase font-mono">
+                                    {extra.formaPagamento === 'cartao' ? 'Cartão de Crédito' : 'PIX'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
                 {/* HISTÓRICO DE COMPROVANTES DE DEPÓSITO DO ALUNO */}
                 <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 space-y-4 text-left">
                   <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
@@ -14258,6 +16626,17 @@ ${formattedInstrutores}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedStudentDetail(null);
+                      handleAbrirLancamentoAulas(a);
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow transition cursor-pointer font-sans flex items-center gap-1.5"
+                    title="Lançamento manual de compra de aulas extras deste aluno"
+                  >
+                    <Car className="h-4 w-4" /> Lançar Compra de Aulas
+                  </button>
                   <button
                     onClick={() => {
                       setSelectedStudentDetail(null);
@@ -15198,6 +17577,18 @@ ${formattedInstrutores}
                   }`}
                 >
                   <span>📜</span> Histórico ({baixas.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const student = baixaModalAluno;
+                    setBaixaModalAluno(null);
+                    handleAbrirLancamentoAulas(student);
+                  }}
+                  className="pb-2.5 px-3 border-b-2 border-transparent text-indigo-400 hover:text-indigo-300 transition cursor-pointer flex items-center gap-1.5 ml-auto font-extrabold"
+                  title="Lançar compra de aulas extras para este aluno"
+                >
+                  <span>🚗</span> + Lançar Aulas
                 </button>
               </div>
 
