@@ -10264,11 +10264,9 @@ ${formattedInstrutores}
                   const myStudents = fin.myStudents;
                   const totalVendas = fin.totalVendas;
                   const totalPaymentReceived = fin.totalPaymentReceived;
-                  const saldoDisponivel = fin.saldoDisponivel;
-                  const saldoPago = fin.saldoPago;
 
                   return (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 text-left">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left">
                       <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
                         <div className="bg-indigo-500/10 text-indigo-400 p-3 rounded-xl shrink-0">
                           <Users className="h-6 w-6" />
@@ -10303,34 +10301,6 @@ ${formattedInstrutores}
                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalPaymentReceived)}
                           </h4>
                           <p className="text-[9px] text-slate-400 mt-0.5 font-sans">Total quitado pelos alunos</p>
-                        </div>
-                      </div>
-
-                      <div className="bg-emerald-950/40 border border-emerald-500/30 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
-                        <div className="bg-emerald-500/20 text-emerald-300 p-3 rounded-xl shrink-0 border border-emerald-500/20">
-                          <CheckCircle2 className="h-6 w-6" />
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Saldo Disponível</p>
-                          <h4 className="text-2xl font-black text-emerald-300 mt-0.5 font-mono">
-                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(saldoDisponivel)}
-                          </h4>
-                          <p className="text-[9px] text-emerald-500/80 mt-0.5 font-sans font-medium">
-                            {saldoPago > 0 ? `Já quitado: R$ ${saldoPago.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : "80% de comissão liberada (Total - 20%)"}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
-                        <div className="bg-purple-500/10 text-purple-400 p-3 rounded-xl shrink-0">
-                          <Users className="h-6 w-6" />
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Capacidade de Alunos</p>
-                          <h4 className="text-2xl font-black text-purple-300 mt-0.5 font-mono">
-                            Ilimitada <span className="text-xs text-emerald-400 font-sans font-semibold">({myStudents.length} ativos)</span>
-                          </h4>
-                          <p className="text-[9px] text-[#32bcad] mt-0.5 font-sans">Sem limite de alunos vinculados</p>
                         </div>
                       </div>
                     </div>
@@ -10399,7 +10369,7 @@ ${formattedInstrutores}
                       }`}
                     >
                       <Receipt className="h-4 w-4" />
-                      <span>Recibos GOV.BR</span>
+                      <span>Assinatura eletrônica</span>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
                         instActiveTab === 'recibos' ? 'bg-slate-950/25 text-slate-950' : 'bg-slate-800 text-slate-300'
                       }`}>
